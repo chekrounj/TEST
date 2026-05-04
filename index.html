@@ -1,0 +1,335 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>TimeTrack — Suivi des heures</title>
+<link rel="stylesheet" href="styles.css" />
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js" defer></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js" defer></script>
+<script src="app.js" defer></script>
+</head>
+<body>
+<aside class="sidebar">
+  <div class="brand">
+    <div class="logo">TT</div>
+    <div>
+      <div class="brand-name">TimeTrack</div>
+      <div class="brand-sub">Suivi des heures</div>
+    </div>
+  </div>
+  <nav class="nav">
+    <a href="#" class="nav-item active" data-page="dashboard"><span class="nav-ico">▦</span>Tableau de bord</a>
+    <a href="#" class="nav-item" data-page="time"><span class="nav-ico">⏱</span>Saisie des heures</a>
+    <a href="#" class="nav-item" data-page="assignments"><span class="nav-ico">✓</span>Tâches assignées</a>
+    <a href="#" class="nav-item" data-page="clients"><span class="nav-ico">◉</span>Clients</a>
+    <a href="#" class="nav-item" data-page="projects"><span class="nav-ico">▤</span>Projets</a>
+    <a href="#" class="nav-item" data-page="tasks"><span class="nav-ico">≡</span>Tâches</a>
+    <a href="#" class="nav-item" data-page="employees"><span class="nav-ico">☻</span>Employés</a>
+    <a href="#" class="nav-item" data-page="attendance"><span class="nav-ico">⌚</span>Présences</a>
+    <a href="#" class="nav-item" data-page="reports"><span class="nav-ico">▦</span>Rapports</a>
+    <a href="#" class="nav-item" data-page="settings"><span class="nav-ico">⚙</span>Paramètres</a>
+  </nav>
+  <div class="user-card">
+    <div class="user-avatar" id="userInitials">U</div>
+    <div>
+      <div id="userName" class="user-name">Utilisateur</div>
+      <select id="userPicker" class="user-picker"></select>
+    </div>
+  </div>
+</aside>
+
+<main class="main">
+  <header class="topbar">
+    <div>
+      <h1 id="pageTitle">Tableau de bord</h1>
+      <div class="page-sub" id="pageSub">Vue d'ensemble de l'activité</div>
+    </div>
+    <div class="topbar-actions">
+      <button class="btn btn-ghost" id="btnSeed">Données d'exemple</button>
+      <button class="btn btn-primary" id="btnQuickEntry">+ Nouvelle saisie</button>
+    </div>
+  </header>
+
+  <section id="page-dashboard" class="page active">
+    <div class="kpis">
+      <div class="kpi"><div class="kpi-label">Heures cette semaine</div><div class="kpi-value" id="kpiWeekHours">0</div><div class="kpi-trend" id="kpiWeekTrend"></div></div>
+      <div class="kpi"><div class="kpi-label">Tâches en attente</div><div class="kpi-value" id="kpiPending">0</div><div class="kpi-trend">à traiter</div></div>
+      <div class="kpi"><div class="kpi-label">Tâches achevées</div><div class="kpi-value" id="kpiDone">0</div><div class="kpi-trend">ce mois</div></div>
+      <div class="kpi"><div class="kpi-label">Écart heures / présences</div><div class="kpi-value" id="kpiVariance">0h</div><div class="kpi-trend" id="kpiVarianceLbl">tolérance</div></div>
+    </div>
+
+    <div class="grid-2">
+      <div class="card">
+        <div class="card-head"><h3>Heures par jour (7 derniers jours)</h3></div>
+        <canvas id="chartDaily" height="120"></canvas>
+      </div>
+      <div class="card">
+        <div class="card-head"><h3>Répartition par projet</h3></div>
+        <canvas id="chartProjects" height="120"></canvas>
+      </div>
+    </div>
+
+    <div class="grid-2">
+      <div class="card">
+        <div class="card-head"><h3>Tâches urgentes</h3></div>
+        <div id="urgentList" class="list"></div>
+      </div>
+      <div class="card">
+        <div class="card-head"><h3>Activité récente</h3></div>
+        <div id="recentList" class="list"></div>
+      </div>
+    </div>
+  </section>
+
+  <section id="page-time" class="page">
+    <div class="card">
+      <div class="card-head">
+        <h3>Saisir des heures</h3>
+        <div class="muted" id="timeEmployeeLbl"></div>
+      </div>
+      <form id="timeForm" class="form-grid">
+        <label>Date<input type="date" id="teDate" required /></label>
+        <label>Client<select id="teClient" required></select></label>
+        <label>Projet<select id="teProject" required></select></label>
+        <label>Tâche<select id="teTask" required></select></label>
+        <label>Heures<input type="number" step="0.25" min="0.25" id="teHours" required placeholder="ex: 1.5" /></label>
+        <label class="span-2">Description<input type="text" id="teDesc" placeholder="Détails de l'intervention" /></label>
+        <div class="span-2 row-end">
+          <span id="teReconcile" class="reconcile"></span>
+          <button class="btn btn-primary" type="submit">Enregistrer</button>
+        </div>
+      </form>
+    </div>
+
+    <div class="card">
+      <div class="card-head">
+        <h3>Mes saisies</h3>
+        <div class="filters">
+          <input type="date" id="teFrom" />
+          <input type="date" id="teTo" />
+        </div>
+      </div>
+      <div class="table-wrap">
+        <table class="table" id="entriesTable"></table>
+      </div>
+    </div>
+  </section>
+
+  <section id="page-assignments" class="page">
+    <div class="card">
+      <div class="card-head">
+        <h3>Assigner une tâche</h3>
+      </div>
+      <form id="assignForm" class="form-grid">
+        <label>Employé<select id="asEmployee" required></select></label>
+        <label>Tâche<select id="asTask" required></select></label>
+        <label>Date prévue<input type="date" id="asDue" required /></label>
+        <label>Urgence
+          <select id="asUrgency"><option value="urgent">Urgent</option><option value="normal" selected>Normal</option></select>
+        </label>
+        <label>Heures estimées<input type="number" step="0.25" min="0" id="asEst" placeholder="ex: 4" /></label>
+        <label class="span-2">Note<input type="text" id="asNote" placeholder="Consignes" /></label>
+        <div class="span-2 row-end">
+          <button class="btn btn-primary" type="submit">Assigner</button>
+        </div>
+      </form>
+    </div>
+    <div class="card">
+      <div class="card-head">
+        <h3>Liste des assignations</h3>
+        <div class="filters">
+          <select id="asFilterStatus">
+            <option value="all">Tous les statuts</option>
+            <option value="pending">En attente</option>
+            <option value="in_progress">En cours</option>
+            <option value="done">Achevée</option>
+          </select>
+          <select id="asFilterUrgency">
+            <option value="all">Toute urgence</option>
+            <option value="urgent">Urgent</option>
+            <option value="normal">Normal</option>
+          </select>
+        </div>
+      </div>
+      <div class="table-wrap"><table class="table" id="assignTable"></table></div>
+    </div>
+  </section>
+
+  <section id="page-clients" class="page">
+    <div class="card">
+      <div class="card-head">
+        <h3>Clients</h3>
+        <div class="filters">
+          <button class="btn btn-ghost" id="btnImportClients">Importer Excel</button>
+          <input type="file" id="fileClients" accept=".xlsx,.xls,.csv" hidden />
+          <button class="btn btn-ghost" id="btnTplClients">Modèle</button>
+        </div>
+      </div>
+      <form id="clientForm" class="form-grid">
+        <label>Nom<input id="clName" required /></label>
+        <label>Code<input id="clCode" /></label>
+        <label>Contact<input id="clContact" /></label>
+        <label>Email<input id="clEmail" type="email" /></label>
+        <div class="span-2 row-end"><button class="btn btn-primary" type="submit">Ajouter</button></div>
+      </form>
+      <div class="table-wrap"><table class="table" id="clientsTable"></table></div>
+    </div>
+  </section>
+
+  <section id="page-projects" class="page">
+    <div class="card">
+      <div class="card-head">
+        <h3>Projets</h3>
+        <div class="filters">
+          <button class="btn btn-ghost" id="btnImportProjects">Importer Excel</button>
+          <input type="file" id="fileProjects" accept=".xlsx,.xls,.csv" hidden />
+          <button class="btn btn-ghost" id="btnTplProjects">Modèle</button>
+        </div>
+      </div>
+      <form id="projectForm" class="form-grid">
+        <label>Nom<input id="prName" required /></label>
+        <label>Client<select id="prClient" required></select></label>
+        <label>Code<input id="prCode" /></label>
+        <label>Statut<select id="prStatus"><option value="active">Actif</option><option value="closed">Clôturé</option></select></label>
+        <div class="span-2 row-end"><button class="btn btn-primary" type="submit">Ajouter</button></div>
+      </form>
+      <div class="table-wrap"><table class="table" id="projectsTable"></table></div>
+    </div>
+  </section>
+
+  <section id="page-tasks" class="page">
+    <div class="card">
+      <div class="card-head">
+        <h3>Tâches</h3>
+        <div class="filters">
+          <button class="btn btn-ghost" id="btnImportTasks">Importer Excel</button>
+          <input type="file" id="fileTasks" accept=".xlsx,.xls,.csv" hidden />
+          <button class="btn btn-ghost" id="btnTplTasks">Modèle</button>
+        </div>
+      </div>
+      <form id="taskForm" class="form-grid">
+        <label>Nom<input id="tkName" required /></label>
+        <label>Projet<select id="tkProject" required></select></label>
+        <label>Code<input id="tkCode" /></label>
+        <label>Heures estimées<input id="tkEstimate" type="number" step="0.25" min="0" /></label>
+        <div class="span-2 row-end"><button class="btn btn-primary" type="submit">Ajouter</button></div>
+      </form>
+      <div class="table-wrap"><table class="table" id="tasksTable"></table></div>
+    </div>
+  </section>
+
+  <section id="page-employees" class="page">
+    <div class="card">
+      <div class="card-head">
+        <h3>Employés</h3>
+        <div class="filters">
+          <button class="btn btn-ghost" id="btnImportEmployees">Importer Excel</button>
+          <input type="file" id="fileEmployees" accept=".xlsx,.xls,.csv" hidden />
+          <button class="btn btn-ghost" id="btnTplEmployees">Modèle</button>
+        </div>
+      </div>
+      <form id="employeeForm" class="form-grid">
+        <label>Nom complet<input id="emName" required /></label>
+        <label>Matricule<input id="emCode" /></label>
+        <label>Email<input id="emEmail" type="email" /></label>
+        <label>Service<input id="emTeam" /></label>
+        <div class="span-2 row-end"><button class="btn btn-primary" type="submit">Ajouter</button></div>
+      </form>
+      <div class="table-wrap"><table class="table" id="employeesTable"></table></div>
+    </div>
+  </section>
+
+  <section id="page-attendance" class="page">
+    <div class="card">
+      <div class="card-head">
+        <h3>Présences</h3>
+        <div class="filters">
+          <button class="btn btn-ghost" id="btnImportAttendance">Importer Excel</button>
+          <input type="file" id="fileAttendance" accept=".xlsx,.xls,.csv" hidden />
+          <button class="btn btn-ghost" id="btnTplAttendance">Modèle</button>
+        </div>
+      </div>
+      <form id="attendanceForm" class="form-grid">
+        <label>Employé<select id="atEmployee" required></select></label>
+        <label>Date<input type="date" id="atDate" required /></label>
+        <label>Heures de présence<input id="atHours" type="number" step="0.25" min="0" required /></label>
+        <div class="span-2 row-end"><button class="btn btn-primary" type="submit">Ajouter</button></div>
+      </form>
+      <div class="card-head"><h3 class="muted">Conciliation présences ⇄ saisies</h3></div>
+      <div class="table-wrap"><table class="table" id="reconcileTable"></table></div>
+    </div>
+  </section>
+
+  <section id="page-reports" class="page">
+    <div class="grid-2">
+      <div class="card kpi-card"><div class="kpi-label">Tâches en attente</div><div class="kpi-value" id="rpPending">0</div></div>
+      <div class="card kpi-card"><div class="kpi-label">Tâches achevées</div><div class="kpi-value" id="rpDone">0</div></div>
+    </div>
+    <div class="card">
+      <div class="card-head">
+        <h3>Filtres rapport</h3>
+      </div>
+      <div class="form-grid">
+        <label>Du<input type="date" id="rpFrom" /></label>
+        <label>Au<input type="date" id="rpTo" /></label>
+        <label>Employé<select id="rpEmployee"><option value="all">Tous</option></select></label>
+        <label>Client<select id="rpClient"><option value="all">Tous</option></select></label>
+      </div>
+    </div>
+    <div class="grid-2">
+      <div class="card">
+        <div class="card-head"><h3>Temps de traitement par tâche</h3></div>
+        <div class="table-wrap"><table class="table" id="rpProcessing"></table></div>
+      </div>
+      <div class="card">
+        <div class="card-head"><h3>Heures par employé</h3></div>
+        <canvas id="chartByEmp" height="160"></canvas>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-head"><h3>Détails des tâches</h3>
+        <button class="btn btn-ghost" id="btnExportReport">Exporter Excel</button>
+      </div>
+      <div class="table-wrap"><table class="table" id="rpTasksTable"></table></div>
+    </div>
+  </section>
+
+  <section id="page-settings" class="page">
+    <div class="card">
+      <div class="card-head"><h3>Paramètres</h3></div>
+      <form id="settingsForm" class="form-grid">
+        <label>Écart acceptable (heures)
+          <input type="number" step="0.25" min="0" id="stTolerance" />
+        </label>
+        <label>Mode de comparaison
+          <select id="stMode">
+            <option value="day">Par jour</option>
+            <option value="week">Par semaine</option>
+          </select>
+        </label>
+        <label>Heures journalières par défaut
+          <input type="number" step="0.25" min="0" id="stDailyHours" />
+        </label>
+        <label>Bloquer la saisie hors tolérance
+          <select id="stBlock"><option value="warn">Avertir</option><option value="block">Bloquer</option></select>
+        </label>
+        <div class="span-2 row-end"><button class="btn btn-primary" type="submit">Enregistrer</button></div>
+      </form>
+    </div>
+    <div class="card">
+      <div class="card-head"><h3>Données</h3></div>
+      <div class="row">
+        <button class="btn btn-ghost" id="btnExportAll">Exporter toutes les données (JSON)</button>
+        <button class="btn btn-ghost" id="btnImportAll">Importer JSON</button>
+        <input type="file" id="fileAll" accept=".json" hidden />
+        <button class="btn btn-danger" id="btnReset">Réinitialiser</button>
+      </div>
+    </div>
+  </section>
+</main>
+
+<div id="toastWrap" class="toast-wrap"></div>
+<dialog id="modal" class="modal"><form method="dialog" id="modalForm"></form></dialog>
+</body>
+</html>
