@@ -8,6 +8,7 @@
 <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
 <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
 <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<script src="https://unpkg.com/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <style>
   html, body { background: #fafaf9; }
   /* Hide number input spinners */
@@ -55,6 +56,113 @@ const loadMonth = (key) => {
 };
 const saveMonth = (key, data) => {
   localStorage.setItem('month:' + key, JSON.stringify(data));
+};
+
+/* =========================================================
+   Excel import helpers
+   ========================================================= */
+const parseAmount = (v) => {
+  if (v == null || v === '') return 0;
+  if (typeof v === 'number') return v;
+  const s = String(v).trim();
+  if (!s || s === '-' || s === '—' || s === '–') return 0;
+  // Strip ₪, NBSP/narrow NBSP, regular spaces, thousand separators
+  const cleaned = s.replace(/[\s  ₪]/g, '').replace(/,/g, '');
+  const n = parseFloat(cleaned);
+  return isNaN(n) ? 0 : n;
+};
+
+const cleanCardName = (raw) =>
+  raw.replace(/💳/g, '')
+     .replace(/CARTE/gi, '')
+     .replace(/\(fournisseurs?\)/gi, '')
+     .replace(/\(.*?\)/g, '')
+     .trim();
+
+const parseSheetToMonth = (rows, colIdx) => {
+  let section = null;          // 'income' | 'expense' | null
+  let mode = 'bank';
+  let card = '';
+  const expenses = [];
+  const incomes = [];
+
+  for (const row of rows) {
+    const rawName = row?.[0];
+    if (rawName == null) continue;
+    const name = String(rawName).trim();
+    if (!name) continue;
+
+    const upper = name.toUpperCase();
+
+    // Section: ENTRÉES (RECETTES)
+    if (upper.includes('ENTRÉES') || upper.includes('ENTREES') ||
+        upper === 'RECETTES' || upper.startsWith('RECETTES')) {
+      if (upper.startsWith('TOTAL')) continue;
+      section = 'income';
+      continue;
+    }
+    // Section: SORTIES (DÉPENSES)
+    if (upper.includes('SORTIES') || upper.includes('DÉPENSES') || upper.includes('DEPENSES')) {
+      if (upper.startsWith('TOTAL')) continue;
+      section = 'expense';
+      mode = 'bank';
+      card = '';
+      continue;
+    }
+    // Sub-section: BANQUE
+    if (name.includes('🏦') || /\bBANQUE\b/i.test(name) || /\bBANK\b/i.test(name) || /HAPOALIM/i.test(name)) {
+      mode = 'bank';
+      card = '';
+      continue;
+    }
+    // Sub-section: CARTE
+    if (name.includes('💳') || /\bCARTE\b/i.test(name)) {
+      mode = 'card';
+      card = cleanCardName(name);
+      continue;
+    }
+    // Skip total / sub-total rows
+    if (upper.startsWith('TOTAL') || upper.startsWith('SOUS-TOTAL') ||
+        upper.startsWith('SOUS TOTAL')) continue;
+    if (upper.startsWith('AUTRES ENTRÉES') || upper.startsWith('AUTRES ENTREES') ||
+        upper.startsWith('AUTRES SORTIES')) continue;
+    if (upper === 'CATÉGORIE' || upper === 'CATEGORIE') continue;
+
+    if (!section) continue;
+
+    const amount = parseAmount(row[colIdx]);
+
+    if (section === 'income') {
+      incomes.push({ id: uid(), name, amount, day: 1, received: 0 });
+    } else {
+      expenses.push({
+        id: uid(), name, amount, day: 1,
+        mode, cardNumber: card, notes: '', paid: 0,
+      });
+    }
+  }
+
+  return { expenses, incomes };
+};
+
+// Détecte les colonnes contenant des montants (au moins une valeur numérique non nulle)
+const detectMonthColumns = (rows) => {
+  const header = rows[0] || [];
+  const maxC = Math.max(header.length, ...rows.slice(0, 30).map(r => (r || []).length), 6);
+  const cols = [];
+  for (let c = 1; c < maxC; c++) {
+    let hasNum = false;
+    for (let r = 1; r < Math.min(rows.length, 200); r++) {
+      const v = rows[r]?.[c];
+      if (typeof v === 'number' && v !== 0) { hasNum = true; break; }
+      if (typeof v === 'string' && parseAmount(v) !== 0) { hasNum = true; break; }
+    }
+    if (hasNum) {
+      const label = String(header[c] ?? '').trim() || `Colonne ${c + 1}`;
+      cols.push({ index: c, label });
+    }
+  }
+  return cols;
 };
 
 const expenseStatus = (e) => {
@@ -461,9 +569,92 @@ const Row = ({ label, value, valueClass = "", bold = false }) => (
 );
 
 /* =========================================================
+   Excel import button + modal
+   ========================================================= */
+const Upload = (p) => <Svg {...p}><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></Svg>;
+
+const ImportButton = ({ onFile, label = "Importer Excel", variant = "outline" }) => {
+  const ref = useRef(null);
+  const handle = async (e) => {
+    const f = e.target.files?.[0];
+    e.target.value = '';
+    if (!f) return;
+    try {
+      const buf = await f.arrayBuffer();
+      const wb = XLSX.read(buf, { type: 'array' });
+      const sheet = wb.Sheets[wb.SheetNames[0]];
+      const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
+      onFile(rows);
+    } catch (err) {
+      console.error(err);
+      alert('Impossible de lire le fichier Excel : ' + err.message);
+    }
+  };
+  const cls = variant === "primary"
+    ? "bg-stone-900 text-white hover:bg-stone-800"
+    : "bg-white text-stone-700 ring-1 ring-stone-200 hover:bg-stone-50";
+  return (
+    <>
+      <input
+        ref={ref} type="file" accept=".xlsx,.xls,.csv" onChange={handle} className="hidden"
+      />
+      <button
+        onClick={() => ref.current?.click()}
+        className={"inline-flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-lg " + cls}
+      >
+        <Upload className="w-4 h-4"/>{label}
+      </button>
+    </>
+  );
+};
+
+const ImportModal = ({ pending, onChoose, onCancel }) => {
+  if (!pending) return null;
+  const previews = pending.cols.map(c => {
+    const { expenses, incomes } = parseSheetToMonth(pending.rows, c.index);
+    const expSum = expenses.reduce((s, e) => s + e.amount, 0);
+    const incSum = incomes.reduce((s, i) => s + i.amount, 0);
+    return { ...c, expCount: expenses.length, incCount: incomes.length, expSum, incSum };
+  });
+  return (
+    <div className="fixed inset-0 z-50 bg-stone-900/50 flex items-center justify-center p-4"
+         onClick={onCancel}>
+      <div className="bg-white rounded-xl ring-1 ring-stone-200 p-5 max-w-md w-full shadow-xl"
+           onClick={e => e.stopPropagation()}>
+        <h3 className="font-semibold text-stone-900 text-lg">Choisir le mois à importer</h3>
+        <p className="text-sm text-stone-500 mt-1">
+          {pending.cols.length} colonnes de montants détectées. Sélectionnez celle à importer dans le mois courant.
+        </p>
+        <div className="mt-4 space-y-2 max-h-80 overflow-auto">
+          {previews.map(c => (
+            <button key={c.index} onClick={() => onChoose(c.index)}
+              className="w-full text-left px-3 py-2 rounded-lg ring-1 ring-stone-200 hover:bg-stone-50 hover:ring-stone-400 transition">
+              <div className="flex items-baseline justify-between gap-2">
+                <span className="font-medium text-stone-900">{c.label}</span>
+                <span className="text-xs text-stone-400">Col. {c.index + 1}</span>
+              </div>
+              <div className="text-xs text-stone-500 mt-0.5 flex gap-3">
+                <span>{c.expCount} dép. · <span className="tabular-nums">{formatILS(c.expSum)}</span></span>
+                <span>{c.incCount} enc. · <span className="tabular-nums">{formatILS(c.incSum)}</span></span>
+              </div>
+            </button>
+          ))}
+        </div>
+        <div className="mt-5 flex justify-end gap-2">
+          <button onClick={onCancel}
+            className="px-3 py-1.5 text-sm rounded-lg ring-1 ring-stone-200 hover:bg-stone-50">
+            Annuler
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+/* =========================================================
    Empty state
    ========================================================= */
-const EmptyState = ({ onManual, onCopyPrev, onReportUnpaid }) => (
+const EmptyState = ({ onManual, onCopyPrev, onReportUnpaid, onImportFile }) => (
   <div className="bg-white rounded-xl ring-1 ring-stone-200 p-10 text-center">
     <div className="inline-flex items-center justify-center w-12 h-12 rounded-full bg-amber-50 text-amber-600 ring-1 ring-amber-200">
       <Sparkles className="w-6 h-6"/>
@@ -477,6 +668,7 @@ const EmptyState = ({ onManual, onCopyPrev, onReportUnpaid }) => (
         className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-stone-900 text-white hover:bg-stone-800 text-sm">
         <Plus className="w-4 h-4"/>Saisir manuellement
       </button>
+      <ImportButton onFile={onImportFile} label="Importer Excel" variant="outline"/>
       <button onClick={onCopyPrev} disabled
         className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-white text-stone-400 ring-1 ring-stone-200 text-sm cursor-not-allowed">
         <Copy className="w-4 h-4"/>Copier mois précédent
@@ -492,7 +684,7 @@ const EmptyState = ({ onManual, onCopyPrev, onReportUnpaid }) => (
 /* =========================================================
    Header
    ========================================================= */
-const Header = ({ year, month, onPrev, onNext, saved }) => (
+const Header = ({ year, month, onPrev, onNext, saved, onImportFile }) => (
   <header className="flex flex-wrap items-center justify-between gap-4 mb-6">
     <div>
       <h1 className="text-2xl font-bold text-stone-900 tracking-tight">Cashflow</h1>
@@ -508,6 +700,8 @@ const Header = ({ year, month, onPrev, onNext, saved }) => (
       >
         <Check className="w-3.5 h-3.5"/> Sauvegardé
       </span>
+
+      <ImportButton onFile={onImportFile}/>
 
       <div className="inline-flex items-center bg-white ring-1 ring-stone-200 rounded-lg overflow-hidden">
         <button onClick={onPrev} className="p-2 hover:bg-stone-50 text-stone-600" aria-label="Mois précédent">
@@ -535,6 +729,8 @@ function App() {
 
   const [data, setData] = useState(() => loadMonth(key));
   const [saved, setSaved] = useState(false);
+  const [pendingImport, setPendingImport] = useState(null); // { rows, cols }
+  const [importToast, setImportToast] = useState(null);
   const skipNextSave = useRef(true);
 
   // Recharger les données quand on change de mois
@@ -589,6 +785,44 @@ function App() {
 
   const patchData = (patch) => setData(d => ({ ...d, ...patch }));
 
+  // ---- Import Excel ----
+  const applyImport = (rows, colIdx) => {
+    const { expenses, incomes } = parseSheetToMonth(rows, colIdx);
+    if (expenses.length === 0 && incomes.length === 0) {
+      alert("Aucune ligne exploitable détectée dans cette colonne.");
+      return;
+    }
+    if (data.expenses.length || data.incomes.length) {
+      const ok = confirm(
+        `Le mois actuel contient déjà ${data.expenses.length} dépense(s) et ${data.incomes.length} encaissement(s). ` +
+        `Remplacer par ${expenses.length} dépense(s) et ${incomes.length} encaissement(s) ?`
+      );
+      if (!ok) return;
+    }
+    setData(d => ({ ...d, expenses, incomes }));
+    setImportToast(`${expenses.length} dépenses · ${incomes.length} encaissements importés`);
+    setTimeout(() => setImportToast(null), 3000);
+  };
+
+  const handleImportFile = (rows) => {
+    const cols = detectMonthColumns(rows);
+    if (cols.length === 0) {
+      alert("Aucune colonne de montants détectée dans ce fichier.");
+      return;
+    }
+    if (cols.length === 1) {
+      applyImport(rows, cols[0].index);
+    } else {
+      setPendingImport({ rows, cols });
+    }
+  };
+
+  const handleChooseColumn = (colIdx) => {
+    if (!pendingImport) return;
+    applyImport(pendingImport.rows, colIdx);
+    setPendingImport(null);
+  };
+
   // Computations
   const totals = useMemo(() => {
     const expPlanned   = data.expenses.reduce((s, e) => s + (Number(e.amount)   || 0), 0);
@@ -611,7 +845,8 @@ function App() {
   return (
     <div className="min-h-screen">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 lg:py-8">
-        <Header year={year} month={month} onPrev={prev} onNext={next} saved={saved}/>
+        <Header year={year} month={month} onPrev={prev} onNext={next} saved={saved}
+                onImportFile={handleImportFile}/>
 
         <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_360px] gap-6">
           <main className="space-y-6 min-w-0">
@@ -620,6 +855,7 @@ function App() {
                 onManual={addExpense}
                 onCopyPrev={() => {}}
                 onReportUnpaid={() => {}}
+                onImportFile={handleImportFile}
               />
             ) : (
               <>
@@ -647,6 +883,18 @@ function App() {
           Clé du mois en cours : <code className="font-mono">month:{key}</code>
         </footer>
       </div>
+
+      <ImportModal
+        pending={pendingImport}
+        onChoose={handleChooseColumn}
+        onCancel={() => setPendingImport(null)}
+      />
+
+      {importToast && (
+        <div className="fixed bottom-4 right-4 z-50 bg-emerald-600 text-white text-sm px-4 py-2 rounded-lg shadow-lg flex items-center gap-2">
+          <Check className="w-4 h-4"/>{importToast}
+        </div>
+      )}
     </div>
   );
 }
