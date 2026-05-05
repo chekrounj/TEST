@@ -280,6 +280,7 @@ const I18N = {
     yes: "Oui", no: "Non",
     importedRows: "lignes importées",
     importErr: "Erreur lors de l'import",
+    downloadTemplate: "Télécharger un modèle",
   },
   en: {
     appSubtitle: "Time Tracking",
@@ -357,6 +358,7 @@ const I18N = {
     yes: "Yes", no: "No",
     importedRows: "rows imported",
     importErr: "Import error",
+    downloadTemplate: "Download template",
   },
   he: {
     appSubtitle: "מעקב זמן",
@@ -434,6 +436,7 @@ const I18N = {
     yes: "כן", no: "לא",
     importedRows: "שורות יובאו",
     importErr: "שגיאת ייבוא",
+    downloadTemplate: "הורד תבנית",
   }
 };
 let LANG = 'fr';
@@ -751,12 +754,227 @@ function fillTpl(s, vars) {
   return Object.entries(vars).reduce((acc, [k, v]) => acc.replaceAll(`{${k}}`, v), s);
 }
 
+/* ----- Per-entity Excel templates + import ----- */
+const ENTITY_IMPORTS = {
+  clients: {
+    template: {
+      headers: ['nom', 'adresse', 'contact', 'actif'],
+      sample: [['Acme Corp', '1 rue de Paris, 75001', 'contact@acme.fr', true]]
+    },
+    importRow: async (row) => {
+      const nom = String(row.nom || '').trim();
+      if (!nom) return false;
+      await DB.add('clients', {
+        nom,
+        adresse: String(row.adresse || '').trim(),
+        contact: String(row.contact || '').trim(),
+        actif: parseBool(row.actif, true)
+      });
+      return true;
+    }
+  },
+  projects: {
+    template: {
+      headers: ['clientId', 'nom', 'code', 'tauxHoraire', 'budgetHeures', 'actif', 'typeProjet', 'statutProjet'],
+      sample: [['Acme Corp', 'Site web v2', 'WEB-2025', 80, 120, true, 'Forfait', 'active']]
+    },
+    buildContext: async () => {
+      const clients = await DB.getAll('clients');
+      return {
+        clients,
+        byName: Object.fromEntries(clients.map(c => [c.nom.toLowerCase(), c.id])),
+        knownTypes: new Set((await getProjectTypes()).map(s => s.toLowerCase())),
+        newTypes: []
+      };
+    },
+    importRow: async (row, ctx) => {
+      const nom = String(row.nom || '').trim();
+      if (!nom) return false;
+      let cid = Number(row.clientId);
+      if (!cid && row.clientId) cid = ctx.byName[String(row.clientId).toLowerCase().trim()] || null;
+      const type = String(row.typeProjet || '').trim();
+      if (type && !ctx.knownTypes.has(type.toLowerCase())) {
+        ctx.knownTypes.add(type.toLowerCase());
+        ctx.newTypes.push(type);
+      }
+      await DB.add('projects', {
+        clientId: cid || null,
+        nom,
+        code: String(row.code || '').trim(),
+        tauxHoraire: row.tauxHoraire === '' ? null : Number(row.tauxHoraire),
+        budgetHeures: row.budgetHeures === '' ? null : Number(row.budgetHeures),
+        actif: parseBool(row.actif, true),
+        typeProjet: type,
+        statutProjet: String(row.statutProjet || 'active').trim()
+      });
+      return true;
+    },
+    finalize: async (ctx) => {
+      if (ctx.newTypes.length) {
+        const cur = await getProjectTypes();
+        await setProjectTypes([...cur, ...ctx.newTypes]);
+      }
+    }
+  },
+  tasks: {
+    template: {
+      headers: ['nom', 'description', 'statut', 'typeTask'],
+      sample: [['Réunion hebdo', 'Stand-up équipe', 'open', 'Réunion']]
+    },
+    importRow: async (row) => {
+      const nom = String(row.nom || '').trim();
+      if (!nom) return false;
+      await DB.add('tasks', {
+        nom,
+        description: String(row.description || '').trim(),
+        statut: String(row.statut || 'open').trim(),
+        typeTask: String(row.typeTask || '').trim()
+      });
+      return true;
+    }
+  },
+  employees: {
+    template: {
+      headers: ['numeroEmploye', 'nom', 'email', 'role', 'tauxHoraire'],
+      sample: [['EMP001', 'Jean Dupont', 'jean.dupont@example.com', 'Développeur', 50]]
+    },
+    importRow: async (row) => {
+      const nom = String(row.nom || '').trim();
+      if (!nom) return false;
+      await DB.add('employees', {
+        numeroEmploye: String(row.numeroEmploye || '').trim(),
+        nom,
+        email: String(row.email || '').trim(),
+        role: String(row.role || '').trim(),
+        tauxHoraire: row.tauxHoraire === '' ? null : Number(row.tauxHoraire)
+      });
+      return true;
+    }
+  },
+  timeEntries: {
+    template: {
+      headers: ['employe', 'client', 'projet', 'tache', 'date', 'heures', 'description'],
+      sample: [['jean.dupont@example.com', 'Acme Corp', 'WEB-2025', 'Réunion hebdo', '2025-05-01', 1.5, 'Stand-up du lundi']]
+    },
+    buildContext: async () => {
+      const [employees, clients, projects, tasks] = await Promise.all([
+        DB.getAll('employees'), DB.getAll('clients'),
+        DB.getAll('projects'), DB.getAll('tasks')
+      ]);
+      return {
+        employees, clients, projects, tasks,
+        clientByName: Object.fromEntries(clients.map(c => [c.nom.toLowerCase(), c.id])),
+        projectByCode: Object.fromEntries(projects.filter(p => p.code).map(p => [p.code.toLowerCase(), p.id])),
+        projectByName: Object.fromEntries(projects.map(p => [p.nom.toLowerCase(), p.id])),
+        taskByName: Object.fromEntries(tasks.map(x => [x.nom.toLowerCase(), x.id]))
+      };
+    },
+    importRow: async (row, ctx) => {
+      const date = parseAttDate(row.date);
+      const heures = Number(row.heures);
+      if (!date || !heures) return false;
+      const emp = matchEmployee(ctx.employees, row.employe);
+      if (!emp) return false;
+      let cid = Number(row.client);
+      if (!cid && row.client) cid = ctx.clientByName[String(row.client).toLowerCase().trim()] || null;
+      let pid = Number(row.projet);
+      if (!pid && row.projet) {
+        const k = String(row.projet).toLowerCase().trim();
+        pid = ctx.projectByCode[k] || ctx.projectByName[k] || null;
+      }
+      let tid = Number(row.tache);
+      if (!tid && row.tache) tid = ctx.taskByName[String(row.tache).toLowerCase().trim()] || null;
+      await DB.add('timeEntries', {
+        employeId: emp.id,
+        clientId: cid || null,
+        projectId: pid || null,
+        taskId: tid || null,
+        date, heures,
+        description: String(row.description || '').trim(),
+        statutValidation: 'draft'
+      });
+      return true;
+    }
+  },
+  attendance: {
+    template: {
+      headers: ['email', 'date', 'heureEntree', 'heureSortie', 'pause', 'totalHeures'],
+      sample: [['jean.dupont@example.com', '2025-05-01', '09:00', '17:30', 60, 7.5]]
+    }
+    // NOTE: actual import handled by importAttendanceHandler (richer report).
+  }
+};
+
+async function downloadTemplate(entity) {
+  const tpl = ENTITY_IMPORTS[entity]?.template;
+  if (!tpl) return;
+  const ws = XLSX.utils.aoa_to_sheet([tpl.headers, ...tpl.sample]);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, entity);
+  XLSX.writeFile(wb, `template-${entity}.xlsx`);
+}
+
+async function importEntityFile(entity, file) {
+  const cfg = ENTITY_IMPORTS[entity];
+  if (!cfg || !cfg.importRow) throw new Error('No importer for ' + entity);
+  const buf = await file.arrayBuffer();
+  const wb = XLSX.read(buf, { type: 'array', cellDates: true });
+  const sheet = wb.Sheets[wb.SheetNames[0]];
+  const rows = XLSX.utils.sheet_to_json(sheet, { defval: '' });
+  const ctx = cfg.buildContext ? await cfg.buildContext() : {};
+  let imported = 0, ignored = 0;
+  for (const row of rows) {
+    try {
+      const ok = await cfg.importRow(row, ctx);
+      if (ok) imported++; else ignored++;
+    } catch (e) {
+      console.warn('import row failed', e, row);
+      ignored++;
+    }
+  }
+  if (cfg.finalize) await cfg.finalize(ctx);
+  return { imported, ignored };
+}
+
+function importBarHtml(entity) {
+  return `
+    <button data-tpl="${entity}" class="px-3 py-2 rounded-lg border border-slate-300 hover:bg-slate-50 text-sm">⬇ ${escapeHtml(t('downloadTemplate'))}</button>
+    <label class="px-3 py-2 rounded-lg border border-slate-300 hover:bg-slate-50 text-sm cursor-pointer">
+      ⬆ ${escapeHtml(t('importExcel'))}
+      <input type="file" data-import="${entity}" accept=".xlsx,.xls,.csv" class="hidden">
+    </label>
+  `;
+}
+
+function wireImportBar(refreshFn) {
+  $$('[data-tpl]').forEach(b => b.onclick = () => downloadTemplate(b.dataset.tpl));
+  $$('[data-import]').forEach(inp => {
+    inp.onchange = async (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+      try {
+        const { imported, ignored } = await importEntityFile(inp.dataset.import, file);
+        toast(`${imported} ${t('linesImported')} · ${ignored} ${t('linesIgnored')}`);
+      } catch (err) {
+        console.error(err);
+        toast(t('importErr') + ': ' + err.message);
+      } finally {
+        e.target.value = '';
+        refreshFn?.();
+      }
+    };
+  });
+}
+
 /* ----- Generic list renderer ----- */
-function renderListShell({ title, addLabel, onAdd, searchPlaceholder }) {
+function renderListShell({ title, addLabel, onAdd, searchPlaceholder, entity, refreshFn }) {
   PAGE.innerHTML = `
-    <div class="flex items-center justify-between mb-6">
+    <div class="flex flex-wrap items-center justify-between gap-3 mb-6">
       <h1 class="text-2xl font-bold text-slate-900">${escapeHtml(title)}</h1>
-      <button id="addBtn" class="px-4 py-2 rounded-lg bg-blue-700 text-white hover:bg-blue-800 text-sm font-medium">+ ${escapeHtml(addLabel)}</button>
+      <div class="flex flex-wrap gap-2">
+        ${entity ? importBarHtml(entity) : ''}
+        <button id="addBtn" class="px-4 py-2 rounded-lg bg-blue-700 text-white hover:bg-blue-800 text-sm font-medium">+ ${escapeHtml(addLabel)}</button>
+      </div>
     </div>
     <div class="bg-white rounded-xl border border-slate-200 shadow-sm">
       <div class="p-4 border-b border-slate-200">
@@ -766,6 +984,7 @@ function renderListShell({ title, addLabel, onAdd, searchPlaceholder }) {
     </div>
   `;
   $('#addBtn').onclick = onAdd;
+  if (entity) wireImportBar(refreshFn);
 }
 
 function rowActions(idAttr) {
@@ -792,7 +1011,9 @@ async function renderClients() {
     title: t('clientsTitle'),
     addLabel: t('add'),
     searchPlaceholder: t('search'),
-    onAdd: () => clientForm()
+    onAdd: () => clientForm(),
+    entity: 'clients',
+    refreshFn: renderClients
   });
   const draw = async () => {
     const all = await DB.getAll('clients');
@@ -861,7 +1082,9 @@ async function renderProjects() {
     title: t('projectsTitle'),
     addLabel: t('add'),
     searchPlaceholder: t('search'),
-    onAdd: () => projectForm()
+    onAdd: () => projectForm(),
+    entity: 'projects',
+    refreshFn: renderProjects
   });
   const clients = await DB.getAll('clients');
   const clientById = Object.fromEntries(clients.map(c => [c.id, c]));
@@ -948,7 +1171,9 @@ async function renderTasks() {
     title: t('tasksTitle'),
     addLabel: t('add'),
     searchPlaceholder: t('search'),
-    onAdd: () => taskForm()
+    onAdd: () => taskForm(),
+    entity: 'tasks',
+    refreshFn: renderTasks
   });
   const draw = async () => {
     const all = await DB.getAll('tasks');
@@ -1015,7 +1240,9 @@ async function renderEmployees() {
     title: t('employeesTitle'),
     addLabel: t('add'),
     searchPlaceholder: t('search'),
-    onAdd: () => employeeForm()
+    onAdd: () => employeeForm(),
+    entity: 'employees',
+    refreshFn: renderEmployees
   });
   const draw = async () => {
     const all = await DB.getAll('employees');
@@ -1094,7 +1321,10 @@ async function renderTimeEntries() {
   const empById = Object.fromEntries(employees.map(e => [e.id, e]));
 
   PAGE.innerHTML = `
-    <h1 class="text-2xl font-bold text-slate-900 mb-6">${escapeHtml(t('timeTitle'))}</h1>
+    <div class="flex flex-wrap items-center justify-between gap-3 mb-6">
+      <h1 class="text-2xl font-bold text-slate-900">${escapeHtml(t('timeTitle'))}</h1>
+      <div class="flex flex-wrap gap-2">${importBarHtml('timeEntries')}</div>
+    </div>
 
     <div class="bg-white rounded-xl border border-slate-200 shadow-sm p-6 mb-6">
       <h2 class="font-semibold text-slate-900 mb-4">${escapeHtml(t('timeAdd'))}</h2>
@@ -1151,6 +1381,8 @@ async function renderTimeEntries() {
       <div id="listBody"></div>
     </div>
   `;
+
+  wireImportBar(renderTimeEntries);
 
   // Cascading selects
   const selClient = $('#te_client');
@@ -1339,12 +1571,13 @@ async function renderAttendance() {
   PAGE.innerHTML = `
     <div class="flex items-center justify-between mb-6">
       <h1 class="text-2xl font-bold text-slate-900">${escapeHtml(t('attTitle'))}</h1>
-      <div class="flex gap-2">
-        <button id="attAddBtn" class="px-4 py-2 rounded-lg bg-blue-700 text-white hover:bg-blue-800 text-sm font-medium">+ ${escapeHtml(t('attAddManual'))}</button>
-        <label class="px-4 py-2 rounded-lg border border-slate-300 hover:bg-slate-50 text-sm cursor-pointer">
-          ${escapeHtml(t('importExcel'))}
+      <div class="flex flex-wrap gap-2">
+        <button id="attTplBtn" class="px-3 py-2 rounded-lg border border-slate-300 hover:bg-slate-50 text-sm">⬇ ${escapeHtml(t('downloadTemplate'))}</button>
+        <label class="px-3 py-2 rounded-lg border border-slate-300 hover:bg-slate-50 text-sm cursor-pointer">
+          ⬆ ${escapeHtml(t('importExcel'))}
           <input id="attImportFile" type="file" accept=".xlsx,.xls,.csv" class="hidden">
         </label>
+        <button id="attAddBtn" class="px-4 py-2 rounded-lg bg-blue-700 text-white hover:bg-blue-800 text-sm font-medium">+ ${escapeHtml(t('attAddManual'))}</button>
       </div>
     </div>
 
@@ -1415,6 +1648,7 @@ async function renderAttendance() {
   };
 
   $('#attAddBtn').onclick = () => attendanceForm();
+  $('#attTplBtn').onclick = () => downloadTemplate('attendance');
   $('#attImportFile').onchange = importAttendanceHandler;
   ['att_emp_filter','att_from','att_to','att_search'].forEach(id => {
     $('#' + id).oninput = draw;
