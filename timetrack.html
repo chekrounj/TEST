@@ -185,7 +185,7 @@
       <button data-page="reconciliation" data-roles="admin,manager" class="nav-item flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-slate-100 text-slate-700 text-start">
         <span class="nav-ico text-slate-500">⚖</span><span data-i18n="navReconciliation">Conciliation</span>
       </button>
-      <button data-page="missions" data-roles="admin,manager" class="nav-item flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-slate-100 text-slate-700 text-start">
+      <button data-page="missions" data-roles="admin,manager,employe" class="nav-item flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-slate-100 text-slate-700 text-start">
         <span class="nav-ico text-slate-500">📋</span><span data-i18n="navMissions">Missions</span>
       </button>
       <button data-page="settings" data-roles="admin,manager,employe"  class="nav-item flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-slate-100 text-slate-700 text-start">
@@ -463,6 +463,9 @@ const I18N = {
     selectAssignees: "Sélectionner les employés",
     allowEmpAssignTitle: "Permissions des employés",
     allowEmpAssign: "Autoriser les employés à assigner des missions à d'autres",
+    canAssignTo: "Peut assigner des missions à",
+    selfAssignAlwaysHint: "L'auto-assignation est toujours autorisée.",
+    perEmpPermsHint: "Configurez les permissions par employé dans Employés → Modifier.",
     selected: "sélectionné(s)",
     selectAll: "Tout sélectionner", selectNone: "Tout désélectionner",
     detailsTitle: "Détails",
@@ -674,6 +677,9 @@ const I18N = {
     selectAssignees: "Select assignees",
     allowEmpAssignTitle: "Employee permissions",
     allowEmpAssign: "Allow employees to assign missions to others",
+    canAssignTo: "Can assign missions to",
+    selfAssignAlwaysHint: "Self-assignment is always allowed.",
+    perEmpPermsHint: "Configure per-employee permissions in Employees → Edit.",
     selected: "selected",
     selectAll: "Select all", selectNone: "Clear",
     detailsTitle: "Details",
@@ -885,6 +891,9 @@ const I18N = {
     selectAssignees: "בחר עובדים",
     allowEmpAssignTitle: "הרשאות עובדים",
     allowEmpAssign: "אפשר לעובדים להקצות משימות לאחרים",
+    canAssignTo: "יכול להקצות משימות ל",
+    selfAssignAlwaysHint: "הקצאה עצמית מותרת תמיד.",
+    perEmpPermsHint: "הגדר הרשאות לכל עובד דרך עובדים → עריכה.",
     selected: "נבחרו",
     selectAll: "בחר הכל", selectNone: "נקה",
     detailsTitle: "פרטים",
@@ -1496,12 +1505,6 @@ async function applyRoleVisibility() {
     const allowed = el.dataset.roles.split(',');
     el.classList.toggle('hidden', !allowed.includes(role));
   });
-  // Optional: employees can be allowed (by admin) to assign missions.
-  if (role === 'employe') {
-    const allow = !!(await DB.getSetting('permettreEmployesAssignerMissions', false));
-    const btn = document.querySelector('#nav [data-page="missions"]');
-    if (btn && allow) btn.classList.remove('hidden');
-  }
 }
 
 function guardRole(...roles) {
@@ -1533,12 +1536,7 @@ async function navigate(page) {
   if (page === 'validations')    { if (!guardRole('admin','manager')) return; return renderValidations(); }
   if (page === 'attendance')     { if (!guardRole('admin','manager')) return; return renderAttendance(); }
   if (page === 'reconciliation') { if (!guardRole('admin','manager')) return; return renderReconciliation(); }
-  if (page === 'missions')       {
-    const sess = Auth.getSession();
-    const allowEmp = sess?.role === 'employe' && !!(await DB.getSetting('permettreEmployesAssignerMissions', false));
-    if (!allowEmp && !guardRole('admin','manager')) return;
-    return renderMissions();
-  }
+  if (page === 'missions')       { if (!guardRole('admin','manager','employe')) return; return renderMissions(); }
   if (page === 'settings')       return renderSettings();
 }
 
@@ -2242,12 +2240,17 @@ async function renderEmployees() {
 async function employeeForm(rec) {
   const allEmps = await DB.getAll('employees');
   const managers = allEmps.filter(e => e.role === 'manager' || e.role === 'admin');
-  const r = rec || { numeroEmploye: '', nom: '', email: '', role: 'employe', tauxHoraire: '', managerId: null, actif: true };
+  const r = rec || { numeroEmploye: '', nom: '', email: '', role: 'employe', tauxHoraire: '', managerId: null, actif: true, peutAssignerA: [] };
+  const isAdmin = Auth.getSession()?.role === 'admin';
   const roleOptions = [
     { value: 'admin',   label: t('roleAdmin') },
     { value: 'manager', label: t('roleManager') },
     { value: 'employe', label: t('roleEmploye') }
   ];
+  // Other active employees this user can be granted permission to assign missions to
+  const others = allEmps.filter(e => e.actif !== false && (!rec || e.id !== rec.id));
+  const preChecked = new Set((r.peutAssignerA || []).map(Number));
+
   openModal({
     title: rec ? t('edit') : t('add'),
     bodyHtml: `
@@ -2266,6 +2269,19 @@ async function employeeForm(rec) {
           <p class="text-xs text-slate-500">${escapeHtml(t('pinRequired'))}</p>
         `}
         ${checkbox('actif', t('actif'), r.actif !== false)}
+        ${isAdmin ? `
+          <div id="assignWrap" class="border-t border-slate-200 pt-3">
+            <label class="block text-sm text-slate-600 mb-1">${escapeHtml(t('canAssignTo'))}</label>
+            <p class="text-xs text-slate-500 mb-2">${escapeHtml(t('selfAssignAlwaysHint'))}</p>
+            <div class="border border-slate-300 rounded-lg p-2 max-h-40 overflow-y-auto grid grid-cols-1 sm:grid-cols-2 gap-1">
+              ${others.length === 0
+                ? `<p class="text-xs text-slate-400 px-2 py-1">${escapeHtml(t('noResults'))}</p>`
+                : others.map(e => `<label class="inline-flex items-center gap-2 text-sm px-2 py-1 rounded hover:bg-slate-50">
+                    <input type="checkbox" class="ee-can-assign w-4 h-4" value="${e.id}" ${preChecked.has(Number(e.id)) ? 'checked' : ''}>
+                    ${escapeHtml((e.numeroEmploye ? e.numeroEmploye + ' — ' : '') + e.nom)}
+                  </label>`).join('')}
+            </div>
+          </div>` : ''}
       </div>`,
     onSave: async () => {
       const role = $('#f_role').value;
@@ -2278,6 +2294,9 @@ async function employeeForm(rec) {
         tauxHoraire: $('#f_tauxHoraire').value === '' ? null : Number($('#f_tauxHoraire').value),
         actif: $('#f_actif').checked
       };
+      if (isAdmin) {
+        data.peutAssignerA = Array.from(document.querySelectorAll('.ee-can-assign:checked')).map(c => Number(c.value));
+      }
       if (!data.nom) return false;
       if (!rec) {
         const p1 = $('#f_pin1').value.trim();
@@ -3773,22 +3792,26 @@ async function visibleEmployeesForMissions() {
     const mid = Number(sess.employeId);
     return active.filter(e => e.id === mid || Number(e.managerId) === mid);
   }
-  // employe — only if admin allowed it; otherwise just self
-  const allow = await DB.getSetting('permettreEmployesAssignerMissions', false);
-  if (allow) return active;
-  return active.filter(e => e.id === Number(sess.employeId));
+  // employe: self + any explicitly granted by admin via peutAssignerA
+  const me = active.find(e => e.id === Number(sess.employeId));
+  const allowedIds = new Set((me?.peutAssignerA || []).map(Number));
+  allowedIds.add(Number(sess.employeId));
+  return active.filter(e => allowedIds.has(Number(e.id)));
 }
 async function canManageMissionForEmployee(employeeId, allEmployees) {
   const sess = Auth.getSession();
   if (!sess) return false;
   if (sess.role === 'admin') return true;
+  // Self-assign is always allowed
+  if (Number(employeeId) === Number(sess.employeId)) return true;
   if (sess.role === 'manager') {
     const emp = allEmployees.find(e => e.id === Number(employeeId));
     if (!emp) return false;
-    return emp.id === Number(sess.employeId) || Number(emp.managerId) === Number(sess.employeId);
+    return Number(emp.managerId) === Number(sess.employeId);
   }
-  // employe with explicit permission
-  return !!(await DB.getSetting('permettreEmployesAssignerMissions', false));
+  // employe: only if explicitly listed in their peutAssignerA
+  const me = allEmployees.find(e => e.id === Number(sess.employeId));
+  return Array.isArray(me?.peutAssignerA) && me.peutAssignerA.map(Number).includes(Number(employeeId));
 }
 
 async function showMissionDetail(missionId) {
@@ -4395,11 +4418,8 @@ async function renderSettings() {
       <h2 class="font-semibold text-slate-900 mb-4">📋 ${escapeHtml(t('navMissions'))}</h2>
       <button id="genRecBtn" class="px-4 py-2 rounded-lg border border-slate-300 hover:bg-slate-50 text-sm mb-4">${escapeHtml(t('recGenerateNow'))}</button>
       <div class="border-t border-slate-200 pt-4">
-        <div class="text-sm font-medium text-slate-700 mb-2">${escapeHtml(t('allowEmpAssignTitle'))}</div>
-        <label class="inline-flex items-center gap-2 text-sm">
-          <input id="allowEmpAssign" type="checkbox" ${(await DB.getSetting('permettreEmployesAssignerMissions', false)) ? 'checked' : ''} class="w-4 h-4">
-          ${escapeHtml(t('allowEmpAssign'))}
-        </label>
+        <div class="text-sm font-medium text-slate-700 mb-1">${escapeHtml(t('allowEmpAssignTitle'))}</div>
+        <p class="text-xs text-slate-500">${escapeHtml(t('selfAssignAlwaysHint'))} ${escapeHtml(t('perEmpPermsHint'))}</p>
       </div>
     </div>
 
@@ -4487,12 +4507,6 @@ async function renderSettings() {
       } catch (e) {
         toast(String(e.message || e));
       }
-    };
-  }
-  if ($('#allowEmpAssign')) {
-    $('#allowEmpAssign').onchange = async (e) => {
-      await DB.setSetting('permettreEmployesAssignerMissions', !!e.target.checked);
-      toast(t('saved'));
     };
   }
 
