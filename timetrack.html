@@ -91,21 +91,145 @@
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 <style>
+  /* ============================================================
+     THEME — inspired by styles.css (dark navy sidebar, indigo
+     accents, soft shadows, uppercase muted labels for tables).
+     Layered ON TOP of Tailwind utilities so existing markup
+     continues to work; specific selectors override Tailwind.
+     ============================================================ */
+  :root {
+    --tt-primary: #4f46e5;
+    --tt-primary-2: #6366f1;
+    --tt-primary-soft: #eef2ff;
+    --tt-text: #0f172a;
+    --tt-muted: #64748b;
+    --tt-border: #e6eaf2;
+    --tt-bg-1: #f3f5fb;
+    --tt-bg-2: #eef1f9;
+    --tt-shadow: 0 10px 30px rgba(15, 23, 42, .08);
+    --tt-shadow-sm: 0 4px 14px rgba(79, 70, 229, .25);
+  }
+
   html, body { height: 100%; }
-  body { font-family: 'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; }
-  [dir="rtl"] .sidebar-border { border-right: 0; border-left: 1px solid #e5e7eb; }
-  .scroll-y { overflow-y: auto; }
-  .nav-item.active { background: #1e3a8a; color: white; }
-  .nav-item.active .nav-ico { color: white; }
+  body {
+    font-family: 'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+    color: var(--tt-text);
+  }
+  /* Subtle gradient background on the app shell */
+  body.bg-slate-50 { background: linear-gradient(180deg, var(--tt-bg-1), var(--tt-bg-2)); }
+
+  /* ----- Dark sidebar ----- */
+  aside.sidebar-border {
+    background: linear-gradient(180deg, #0b1530, #111a30);
+    border-right: 0 !important;
+    color: #cbd5e1;
+  }
+  aside.sidebar-border .border-slate-200 { border-color: rgba(255,255,255,.06) !important; }
+  aside.sidebar-border .font-semibold.text-slate-900 { color: #fff !important; }
+  aside.sidebar-border .text-slate-500 { color: #94a3b8 !important; }
+  aside.sidebar-border .text-slate-700 { color: #cbd5e1 !important; }
+  aside.sidebar-border .nav-item { transition: background .15s, color .15s; }
+  aside.sidebar-border .nav-item:hover {
+    background: rgba(255,255,255,.06) !important;
+    color: #fff !important;
+  }
+  aside.sidebar-border .nav-item:hover .text-slate-500 { color: #fff !important; }
+  aside.sidebar-border .nav-item.active {
+    background: linear-gradient(90deg, rgba(99,102,241,.30), rgba(99,102,241,.10)) !important;
+    color: #fff !important;
+    box-shadow: inset 3px 0 0 var(--tt-primary-2);
+  }
+  [dir="rtl"] aside.sidebar-border .nav-item.active {
+    box-shadow: inset -3px 0 0 var(--tt-primary-2);
+  }
+  aside.sidebar-border .nav-item.active .text-slate-500,
+  aside.sidebar-border .nav-item.active .nav-ico { color: #fff !important; }
+  aside.sidebar-border .nav-group-toggle:hover {
+    background: rgba(255,255,255,.06) !important; color: #fff !important;
+  }
+  aside.sidebar-border .border-s { border-color: rgba(255,255,255,.10) !important; }
+
+  /* Brand logo: indigo→violet gradient when no custom logo is set */
+  aside.sidebar-border [data-brand-logo] {
+    background: linear-gradient(135deg, var(--tt-primary), #8b5cf6) !important;
+    box-shadow: 0 6px 16px rgba(99, 102, 241, .4);
+    color: #fff;
+  }
+  /* When the user uploads a logo, the bg classes are replaced by bg-white via JS — keep that. */
+  aside.sidebar-border [data-brand-logo].bg-white {
+    background: #fff !important; box-shadow: none;
+  }
+
+  /* RTL sidebar border */
+  [dir="rtl"] .sidebar-border { border-right: 0; border-left: 0; }
+
+  /* ----- Cards: warmer shadow ----- */
+  main .bg-white.rounded-xl.border { box-shadow: var(--tt-shadow); }
+  main .bg-white.rounded-2xl { box-shadow: var(--tt-shadow); }
+
+  /* ----- Primary buttons (indigo) ----- */
+  button.bg-blue-700, .bg-blue-700 { background: var(--tt-primary) !important; }
+  button.bg-blue-700:hover, .bg-blue-700:hover {
+    background: var(--tt-primary-2) !important;
+  }
+  button.bg-blue-700 { box-shadow: var(--tt-shadow-sm); }
+
+  /* ----- Tables: muted uppercase headers ----- */
+  table thead tr th {
+    text-transform: uppercase;
+    letter-spacing: .04em;
+    font-size: 11px;
+    color: var(--tt-muted);
+    background: #f7f9fc !important;
+    font-weight: 600;
+  }
+
+  /* ----- Inputs / selects focus ring ----- */
+  input:focus, select:focus, textarea:focus {
+    outline: none;
+    border-color: var(--tt-primary) !important;
+    box-shadow: 0 0 0 3px var(--tt-primary-soft) !important;
+  }
+
+  /* ----- Stat cards: indigo left bar ----- */
+  #dashBody [data-detail],
+  #dashBody .bg-white.rounded-xl.border.border-slate-200.p-5 {
+    position: relative; overflow: hidden;
+  }
+  #dashBody [data-detail]::before,
+  #dashBody .bg-white.rounded-xl.border.border-slate-200.p-5::before {
+    content: ""; position: absolute; left: 0; top: 0; height: 100%; width: 4px;
+    background: linear-gradient(180deg, var(--tt-primary), #8b5cf6);
+  }
+  [dir="rtl"] #dashBody [data-detail]::before,
+  [dir="rtl"] #dashBody .bg-white.rounded-xl.border.border-slate-200.p-5::before {
+    left: auto; right: 0;
+  }
+
+  /* ----- Auth shell card polish ----- */
+  #authShell .rounded-2xl { box-shadow: var(--tt-shadow); }
+  #authShell [data-brand-logo] {
+    background: linear-gradient(135deg, var(--tt-primary), #8b5cf6) !important;
+    box-shadow: 0 6px 16px rgba(99, 102, 241, .4);
+  }
+
+  /* ----- Toast: soft style ----- */
+  #toast { box-shadow: var(--tt-shadow); border-radius: 12px; background: #0f172a; }
+
+  /* ----- Sidebar group / chevron ----- */
   .nav-group.open .nav-chevron { transform: rotate(90deg); }
   [dir="rtl"] .nav-chevron { transform: rotate(180deg); }
   [dir="rtl"] .nav-group.open .nav-chevron { transform: rotate(90deg); }
   .nav-group-items { display: none; flex-direction: column; }
   .nav-group.open .nav-group-items { display: flex; }
-  .modal-backdrop { background: rgba(15, 23, 42, 0.5); }
+
+  /* ----- Modal backdrop ----- */
+  .modal-backdrop { background: rgba(15, 23, 42, .5); }
   /* RTL tweaks for icons spacing */
   [dir="rtl"] .ml-auto { margin-left: 0; margin-right: auto; }
-  /* Print mode: hide everything except #printArea */
+  .scroll-y { overflow-y: auto; }
+
+  /* ----- Print mode ----- */
   @media print {
     body * { visibility: hidden; }
     #printArea, #printArea * { visibility: visible; }
