@@ -625,7 +625,7 @@ const I18N = {
     colDate: "Date", colEmployee: "Employé", colClient: "Client",
     colProject: "Projet", colTask: "Tâche", colHours: "Heures",
     colRate: "Taux horaire", colCost: "Coût", colDescription: "Description",
-    chartHoursByClient: "Heures par client (30 derniers jours)",
+    chartHoursByClient: "Heures par client — mois dernier · top 5",
     chartHoursByEmployee: "Heures par employé (30 derniers jours)",
     chartMissionStatus: "Répartition des missions",
     chartHoursOverTime: "Heures saisies (30 jours)",
@@ -864,7 +864,7 @@ const I18N = {
     colDate: "Date", colEmployee: "Employee", colClient: "Client",
     colProject: "Project", colTask: "Task", colHours: "Hours",
     colRate: "Rate", colCost: "Cost", colDescription: "Description",
-    chartHoursByClient: "Hours by client (last 30 days)",
+    chartHoursByClient: "Hours by client — last month · top 5",
     chartHoursByEmployee: "Hours by employee (last 30 days)",
     chartMissionStatus: "Mission status distribution",
     chartHoursOverTime: "Hours entered (30 days)",
@@ -1103,7 +1103,7 @@ const I18N = {
     colDate: "תאריך", colEmployee: "עובד", colClient: "לקוח",
     colProject: "פרויקט", colTask: "משימה", colHours: "שעות",
     colRate: "תעריף", colCost: "עלות", colDescription: "תיאור",
-    chartHoursByClient: "שעות לפי לקוח (30 ימים)",
+    chartHoursByClient: "שעות לפי לקוח — חודש שעבר · 5 הגדולים",
     chartHoursByEmployee: "שעות לפי עובד (30 ימים)",
     chartMissionStatus: "התפלגות סטטוס משימות",
     chartHoursOverTime: "שעות שהוזנו (30 ימים)",
@@ -3896,13 +3896,18 @@ async function drawAdminCharts(employees, missions, timeEntries) {
   const sinceIso = since.toISOString().slice(0,10);
   const recent = timeEntries.filter(en => (en.date || '') >= sinceIso);
 
-  // 1) Hours by client (top 10)
+  // 1) Hours by client — previous full calendar month, top 5
+  const lastMonthStart = new Date(today.getFullYear(), today.getMonth() - 1, 1);
+  const lastMonthEnd   = new Date(today.getFullYear(), today.getMonth(), 0);
+  const startIsoLM = lastMonthStart.toISOString().slice(0,10);
+  const endIsoLM   = lastMonthEnd.toISOString().slice(0,10);
+  const lastMonthEntries = timeEntries.filter(en => (en.date || '') >= startIsoLM && (en.date || '') <= endIsoLM);
   const byClient = {};
-  for (const en of recent) {
+  for (const en of lastMonthEntries) {
     const k = cById[en.clientId] || '—';
     byClient[k] = (byClient[k] || 0) + (Number(en.heures) || 0);
   }
-  const cliEntries = Object.entries(byClient).sort((a,b) => b[1] - a[1]).slice(0, 10);
+  const cliEntries = Object.entries(byClient).sort((a,b) => b[1] - a[1]).slice(0, 5);
   if ($('#ch_client')) new Chart($('#ch_client'), {
     type: 'bar',
     data: { labels: cliEntries.map(x => x[0]),
