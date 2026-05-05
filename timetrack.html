@@ -108,7 +108,26 @@
 </head>
 <body class="bg-slate-50 text-slate-800">
 
-<div class="flex min-h-screen">
+<!-- AUTH SHELL (login / admin init) -->
+<div id="authShell" class="hidden flex min-h-screen items-center justify-center p-6">
+  <div class="w-full max-w-md bg-white rounded-2xl shadow-lg border border-slate-200 p-6">
+    <div class="flex items-center gap-3 mb-6">
+      <div class="w-10 h-10 rounded-lg bg-blue-700 text-white grid place-items-center font-bold">TT</div>
+      <div>
+        <div class="font-semibold text-slate-900">TimeTrack</div>
+        <div class="text-xs text-slate-500" data-i18n="appSubtitle">Suivi du temps</div>
+      </div>
+    </div>
+    <div id="authBody"></div>
+    <div class="mt-6 p-3 rounded-lg bg-amber-50 border border-amber-200 text-xs text-amber-900">
+      <div class="font-semibold" data-i18n="securityWarningTitle">⚠ Avertissement de sécurité</div>
+      <p class="mt-1" data-i18n="securityWarning">L'authentification par PIN est une protection d'usage local uniquement…</p>
+    </div>
+  </div>
+</div>
+
+<!-- APP SHELL -->
+<div id="appShell" class="hidden flex min-h-screen">
 
   <!-- SIDEBAR -->
   <aside class="sidebar-border w-60 bg-white border-r border-slate-200 flex flex-col shrink-0">
@@ -122,39 +141,48 @@
       </div>
     </div>
     <nav id="nav" class="p-3 flex flex-col gap-1 text-sm">
-      <button data-page="clients"   class="nav-item active flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-slate-100 text-slate-700 text-start">
+      <button data-page="dashboard" data-roles="admin,manager,employe" class="nav-item flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-slate-100 text-slate-700 text-start">
+        <span class="nav-ico text-slate-500">📊</span><span data-i18n="navDashboard">Tableau de bord</span>
+      </button>
+      <button data-page="clients" data-roles="admin,manager"   class="nav-item flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-slate-100 text-slate-700 text-start">
         <span class="nav-ico text-slate-500">👥</span><span data-i18n="navClients">Clients</span>
       </button>
 
-      <div class="nav-group" data-group="projmgmt">
+      <div class="nav-group" data-group="projmgmt" data-roles="admin,manager">
         <button class="nav-group-toggle w-full flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-slate-100 text-slate-700 text-start">
           <span class="nav-ico text-slate-500">📁</span>
           <span data-i18n="navProjectMgmt">Gestion des projets</span>
           <span class="nav-chevron ms-auto text-slate-400 transition-transform">▸</span>
         </button>
         <div class="nav-group-items hidden flex-col gap-1 mt-1 ms-3 ps-3 border-s border-slate-200">
-          <button data-page="projects" class="nav-item flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-slate-100 text-slate-700 text-start">
+          <button data-page="projects" data-roles="admin,manager" class="nav-item flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-slate-100 text-slate-700 text-start">
             <span class="nav-ico text-slate-500">•</span><span data-i18n="navProjects">Projets</span>
           </button>
-          <button data-page="tasks" class="nav-item flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-slate-100 text-slate-700 text-start">
+          <button data-page="tasks" data-roles="admin,manager" class="nav-item flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-slate-100 text-slate-700 text-start">
             <span class="nav-ico text-slate-500">•</span><span data-i18n="navTasks">Tâches</span>
           </button>
         </div>
       </div>
 
-      <button data-page="employees" class="nav-item flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-slate-100 text-slate-700 text-start">
+      <button data-page="employees" data-roles="admin,manager" class="nav-item flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-slate-100 text-slate-700 text-start">
         <span class="nav-ico text-slate-500">👤</span><span data-i18n="navEmployees">Employés</span>
       </button>
-      <button data-page="time"      class="nav-item flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-slate-100 text-slate-700 text-start">
+      <button data-page="time" data-roles="admin,manager,employe"      class="nav-item flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-slate-100 text-slate-700 text-start">
         <span class="nav-ico text-slate-500">⏱</span><span data-i18n="navTime">Saisie heures</span>
       </button>
-      <button data-page="attendance" class="nav-item flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-slate-100 text-slate-700 text-start">
+      <button data-page="mySubmissions" data-roles="admin,manager,employe" class="nav-item flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-slate-100 text-slate-700 text-start">
+        <span class="nav-ico text-slate-500">📝</span><span data-i18n="navMySubmissions">Mes saisies</span>
+      </button>
+      <button data-page="validations" data-roles="admin,manager" class="nav-item flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-slate-100 text-slate-700 text-start">
+        <span class="nav-ico text-slate-500">✅</span><span data-i18n="navValidations">Validations à traiter</span>
+      </button>
+      <button data-page="attendance" data-roles="admin,manager,employe" class="nav-item flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-slate-100 text-slate-700 text-start">
         <span class="nav-ico text-slate-500">🕘</span><span data-i18n="navAttendance">Présences</span>
       </button>
-      <button data-page="reconciliation" class="nav-item flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-slate-100 text-slate-700 text-start">
+      <button data-page="reconciliation" data-roles="admin,manager" class="nav-item flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-slate-100 text-slate-700 text-start">
         <span class="nav-ico text-slate-500">⚖</span><span data-i18n="navReconciliation">Conciliation</span>
       </button>
-      <button data-page="settings"  class="nav-item flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-slate-100 text-slate-700 text-start">
+      <button data-page="settings" data-roles="admin,manager,employe"  class="nav-item flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-slate-100 text-slate-700 text-start">
         <span class="nav-ico text-slate-500">⚙</span><span data-i18n="navSettings">Paramètres</span>
       </button>
     </nav>
@@ -166,6 +194,12 @@
   <!-- MAIN -->
   <main class="flex-1 min-w-0 p-8">
     <div class="max-w-6xl mx-auto">
+      <div id="topbar" class="flex items-center justify-end gap-3 mb-4 text-sm">
+        <span class="text-slate-500" id="userBadge"></span>
+        <button id="logoutBtn" class="px-3 py-1.5 rounded-lg border border-slate-300 hover:bg-slate-100 text-slate-700">
+          <span data-i18n="logout">Se déconnecter</span>
+        </button>
+      </div>
       <div id="globalBanner" class="hidden mb-4 p-3 rounded-lg border text-sm flex items-start gap-3"></div>
       <div id="page"></div>
     </div>
@@ -281,6 +315,64 @@ const I18N = {
     importedRows: "lignes importées",
     importErr: "Erreur lors de l'import",
     downloadTemplate: "Télécharger un modèle",
+    // Auth & roles
+    login: "Se connecter", logout: "Se déconnecter",
+    pin: "Code PIN", confirmPin: "Confirmer le PIN",
+    selectUser: "— Sélectionner un utilisateur —",
+    incorrectPin: "PIN incorrect",
+    accountBlocked: "Trop de tentatives — réessayez dans 30 s",
+    noPinSet: "Aucun PIN défini pour ce compte",
+    accountInactive: "Compte désactivé",
+    role: "Rôle", roleAdmin: "Administrateur", roleManager: "Manager", roleEmploye: "Employé",
+    manager: "Manager", noManager: "— sans manager —",
+    initAdminTitle: "Première utilisation — créer un compte administrateur",
+    initAdminInfo: "Aucun administrateur n'existe. Créez le premier compte admin pour démarrer.",
+    create: "Créer", pinMismatch: "Les deux PIN ne correspondent pas",
+    pinRequired: "PIN requis (4 chiffres minimum)",
+    welcomeBack: "Bonjour",
+    securityWarningTitle: "⚠ Avertissement de sécurité",
+    securityWarning: "L'authentification par PIN est une protection d'usage local uniquement, pas une sécurité réelle. Les données restent accessibles à toute personne ayant accès à ce navigateur (DevTools, IndexedDB visible). Pour une vraie sécurité, un backend est nécessaire — c'est prévu pour plus tard.",
+    forbidden: "Accès refusé",
+    actif: "Actif",
+    activate: "Activer", deactivate: "Désactiver",
+    resetPin: "Réinitialiser PIN",
+    newPin: "Nouveau PIN",
+    pinUpdated: "PIN mis à jour",
+    unlockEntries: "Déverrouiller saisies",
+    confirmUnlock: "Déverrouiller toutes les saisies validées de cet employé ? Action exceptionnelle.",
+    entriesUnlocked: "saisies déverrouillées",
+    // Validation workflow
+    statusBrouillon: "Brouillon", statusSoumis: "Soumis",
+    statusValide: "Validé", statusRejete: "Rejeté", statusReouvert: "Rouvert",
+    navMySubmissions: "Mes saisies",
+    navValidations: "Validations à traiter",
+    navDashboard: "Tableau de bord",
+    mySubmissionsTitle: "Mes saisies",
+    submissionsTitle: "Validations à traiter",
+    period: "Période", periodWeek: "Semaine", periodMonth: "Mois",
+    periodStart: "Début", periodEnd: "Fin",
+    submitPeriod: "Soumettre cette période pour validation",
+    nothingToSubmit: "Aucune saisie en brouillon sur cette période",
+    submissionHistory: "Historique des soumissions",
+    submissionDate: "Soumise le", submittedBy: "Soumise par",
+    totalHours: "Total (h)",
+    review: "Examiner", validate: "Valider", reject: "Rejeter",
+    rejectComment: "Commentaire (obligatoire en cas de rejet)",
+    commentRequired: "Le commentaire est obligatoire pour rejeter",
+    submissionRejected: "Soumission du {date} rejetée — voir le commentaire",
+    submissionValidated: "Soumission validée",
+    locked: "Validée — verrouillée",
+    lockedTooltip: "Saisie validée — contacter votre manager pour modification",
+    // Dashboard
+    dashTitle: "Tableau de bord",
+    statActiveEmployees: "Employés actifs",
+    statPendingSubs: "Soumissions en attente",
+    statRejectedThisMonth: "Soumissions rejetées ce mois",
+    statHoursDraft: "Vos heures en brouillon",
+    statLastSubmission: "Dernière soumission",
+    statToValidate: "Soumissions à valider",
+    goToValidations: "Voir les validations",
+    goToMySubs: "Mes saisies",
   },
   en: {
     appSubtitle: "Time Tracking",
@@ -359,6 +451,61 @@ const I18N = {
     importedRows: "rows imported",
     importErr: "Import error",
     downloadTemplate: "Download template",
+    login: "Sign in", logout: "Sign out",
+    pin: "PIN code", confirmPin: "Confirm PIN",
+    selectUser: "— Select a user —",
+    incorrectPin: "Incorrect PIN",
+    accountBlocked: "Too many attempts — try again in 30 s",
+    noPinSet: "No PIN set for this account",
+    accountInactive: "Account disabled",
+    role: "Role", roleAdmin: "Administrator", roleManager: "Manager", roleEmploye: "Employee",
+    manager: "Manager", noManager: "— no manager —",
+    initAdminTitle: "First run — create an administrator account",
+    initAdminInfo: "No administrator exists. Create the first admin account to start.",
+    create: "Create", pinMismatch: "PINs don't match",
+    pinRequired: "PIN required (min 4 digits)",
+    welcomeBack: "Hello",
+    securityWarningTitle: "⚠ Security warning",
+    securityWarning: "PIN authentication is a local convenience only, not real security. Data is accessible to anyone with browser access (DevTools, IndexedDB). For real security a backend is needed — planned for later.",
+    forbidden: "Access denied",
+    actif: "Active",
+    activate: "Activate", deactivate: "Deactivate",
+    resetPin: "Reset PIN",
+    newPin: "New PIN",
+    pinUpdated: "PIN updated",
+    unlockEntries: "Unlock entries",
+    confirmUnlock: "Unlock all validated entries for this employee? Exceptional action.",
+    entriesUnlocked: "entries unlocked",
+    statusBrouillon: "Draft", statusSoumis: "Submitted",
+    statusValide: "Validated", statusRejete: "Rejected", statusReouvert: "Reopened",
+    navMySubmissions: "My entries",
+    navValidations: "Validations queue",
+    navDashboard: "Dashboard",
+    mySubmissionsTitle: "My entries",
+    submissionsTitle: "Validations queue",
+    period: "Period", periodWeek: "Week", periodMonth: "Month",
+    periodStart: "Start", periodEnd: "End",
+    submitPeriod: "Submit this period for validation",
+    nothingToSubmit: "No draft entries in this period",
+    submissionHistory: "Submission history",
+    submissionDate: "Submitted on", submittedBy: "Submitted by",
+    totalHours: "Total (h)",
+    review: "Review", validate: "Validate", reject: "Reject",
+    rejectComment: "Comment (required when rejecting)",
+    commentRequired: "Comment required to reject",
+    submissionRejected: "Submission of {date} rejected — see comment",
+    submissionValidated: "Submission validated",
+    locked: "Validated — locked",
+    lockedTooltip: "Validated entry — contact your manager to modify",
+    dashTitle: "Dashboard",
+    statActiveEmployees: "Active employees",
+    statPendingSubs: "Pending submissions",
+    statRejectedThisMonth: "Rejected this month",
+    statHoursDraft: "Your draft hours",
+    statLastSubmission: "Last submission",
+    statToValidate: "Submissions to validate",
+    goToValidations: "Go to validations",
+    goToMySubs: "My entries",
   },
   he: {
     appSubtitle: "מעקב זמן",
@@ -437,6 +584,61 @@ const I18N = {
     importedRows: "שורות יובאו",
     importErr: "שגיאת ייבוא",
     downloadTemplate: "הורד תבנית",
+    login: "כניסה", logout: "יציאה",
+    pin: "קוד PIN", confirmPin: "אישור PIN",
+    selectUser: "— בחר משתמש —",
+    incorrectPin: "PIN שגוי",
+    accountBlocked: "ניסיונות רבים מדי — נסה שוב בעוד 30 שניות",
+    noPinSet: "לא הוגדר PIN לחשבון זה",
+    accountInactive: "החשבון מושבת",
+    role: "תפקיד", roleAdmin: "מנהל מערכת", roleManager: "מנהל", roleEmploye: "עובד",
+    manager: "מנהל", noManager: "— ללא מנהל —",
+    initAdminTitle: "שימוש ראשון — צור חשבון מנהל מערכת",
+    initAdminInfo: "לא קיים מנהל מערכת. צור חשבון ראשון כדי להתחיל.",
+    create: "צור", pinMismatch: "הקודים אינם תואמים",
+    pinRequired: "PIN נדרש (לפחות 4 ספרות)",
+    welcomeBack: "שלום",
+    securityWarningTitle: "⚠ אזהרת אבטחה",
+    securityWarning: "אימות PIN הוא הגנה מקומית בלבד, לא אבטחה אמיתית. הנתונים נגישים לכל מי שיש לו גישה לדפדפן. לאבטחה אמיתית נדרש שרת — מתוכנן בהמשך.",
+    forbidden: "הגישה נדחתה",
+    actif: "פעיל",
+    activate: "הפעל", deactivate: "השבת",
+    resetPin: "אפס PIN",
+    newPin: "PIN חדש",
+    pinUpdated: "PIN עודכן",
+    unlockEntries: "בטל נעילה",
+    confirmUnlock: "לבטל נעילת כל הרישומים המאושרים של עובד זה? פעולה חריגה.",
+    entriesUnlocked: "רישומים שוחררו",
+    statusBrouillon: "טיוטה", statusSoumis: "הוגש",
+    statusValide: "אושר", statusRejete: "נדחה", statusReouvert: "נפתח מחדש",
+    navMySubmissions: "הרישומים שלי",
+    navValidations: "אישורים לטיפול",
+    navDashboard: "לוח מחוונים",
+    mySubmissionsTitle: "הרישומים שלי",
+    submissionsTitle: "אישורים לטיפול",
+    period: "תקופה", periodWeek: "שבוע", periodMonth: "חודש",
+    periodStart: "התחלה", periodEnd: "סיום",
+    submitPeriod: "הגש את התקופה לאישור",
+    nothingToSubmit: "אין רישומי טיוטה לתקופה זו",
+    submissionHistory: "היסטוריית הגשות",
+    submissionDate: "הוגש בתאריך", submittedBy: "הוגש על ידי",
+    totalHours: "סה״כ (שעות)",
+    review: "בדוק", validate: "אשר", reject: "דחה",
+    rejectComment: "הערה (חובה בעת דחייה)",
+    commentRequired: "הערה נדרשת לדחייה",
+    submissionRejected: "ההגשה מתאריך {date} נדחתה — ראה הערה",
+    submissionValidated: "ההגשה אושרה",
+    locked: "אושר — נעול",
+    lockedTooltip: "רישום מאושר — פנה למנהל לשינוי",
+    dashTitle: "לוח מחוונים",
+    statActiveEmployees: "עובדים פעילים",
+    statPendingSubs: "הגשות ממתינות",
+    statRejectedThisMonth: "הגשות שנדחו החודש",
+    statHoursDraft: "שעות בטיוטה",
+    statLastSubmission: "הגשה אחרונה",
+    statToValidate: "הגשות לאישור",
+    goToValidations: "עבור לאישורים",
+    goToMySubs: "הרישומים שלי",
   }
 };
 let LANG = 'fr';
@@ -475,7 +677,7 @@ async function setProjectTypes(list) {
    ===================================================================== */
 const DB = (() => {
   const DB_NAME = 'TimeTrackDB';
-  const DB_VERSION = 2;
+  const DB_VERSION = 3;
   let _dbPromise = null;
 
   function open() {
@@ -486,6 +688,41 @@ const DB = (() => {
       req.onsuccess = () => resolve(req.result);
       req.onupgradeneeded = (e) => {
         const db = e.target.result;
+        const upgradeTx = e.target.transaction;
+        // v3: submissions store + role/PIN/managerId/actif on employees + statutValidation/submissionId/verrouille on timeEntries
+        if (!db.objectStoreNames.contains('submissions')) {
+          const s = db.createObjectStore('submissions', { keyPath: 'id', autoIncrement: true });
+          s.createIndex('employeId', 'employeId', { unique: false });
+          s.createIndex('statut', 'statut', { unique: false });
+          s.createIndex('validePar', 'validePar', { unique: false });
+        }
+        if (e.oldVersion >= 1 && e.oldVersion < 3 && db.objectStoreNames.contains('employees')) {
+          const empStore = upgradeTx.objectStore('employees');
+          empStore.openCursor().onsuccess = (ev) => {
+            const c = ev.target.result;
+            if (!c) return;
+            const v = c.value;
+            if (v.role == null) v.role = 'employe';
+            if (v.pin === undefined) v.pin = null;
+            if (v.managerId === undefined) v.managerId = null;
+            if (v.actif === undefined) v.actif = true;
+            c.update(v);
+            c.continue();
+          };
+        }
+        if (e.oldVersion >= 1 && e.oldVersion < 3 && db.objectStoreNames.contains('timeEntries')) {
+          const teStore = upgradeTx.objectStore('timeEntries');
+          teStore.openCursor().onsuccess = (ev) => {
+            const c = ev.target.result;
+            if (!c) return;
+            const v = c.value;
+            if (v.statutValidation == null || v.statutValidation === 'draft') v.statutValidation = 'brouillon';
+            if (v.submissionId === undefined) v.submissionId = null;
+            if (v.verrouille === undefined) v.verrouille = false;
+            c.update(v);
+            c.continue();
+          };
+        }
         // v2: attendance store added without touching existing data
         if (!db.objectStoreNames.contains('attendance')) {
           const s = db.createObjectStore('attendance', { keyPath: 'id', autoIncrement: true });
@@ -631,6 +868,86 @@ const DB = (() => {
 })();
 
 /* =====================================================================
+   AUTH MODULE — local PIN authentication.
+   ⚠ SECURITY NOTICE:
+   PIN authentication here is a *local convenience* only, NOT real
+   security. The data is fully accessible via browser DevTools and the
+   IndexedDB inspector. Real multi-user security requires a backend.
+   ===================================================================== */
+const Auth = (() => {
+  const SESSION_KEY = 'sessionActive';
+  const failedAttempts = new Map(); // employeId -> { count, blockedUntil }
+
+  async function hashPin(pin) {
+    if (pin == null || pin === '') return null;
+    const data = new TextEncoder().encode(String(pin));
+    const buf = await crypto.subtle.digest('SHA-256', data);
+    return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, '0')).join('');
+  }
+
+  function getSession() {
+    try {
+      const v = sessionStorage.getItem(SESSION_KEY);
+      return v ? JSON.parse(v) : null;
+    } catch { return null; }
+  }
+
+  async function getCurrentUser() {
+    const s = getSession();
+    if (!s) return null;
+    return await DB.getById('employees', s.employeId);
+  }
+
+  async function login(employeId, pin) {
+    const id = Number(employeId);
+    const emp = await DB.getById('employees', id);
+    if (!emp) throw new Error('user');
+    if (emp.actif === false) throw new Error('inactive');
+    const tracker = failedAttempts.get(id) || { count: 0, blockedUntil: 0 };
+    if (tracker.blockedUntil > Date.now()) throw new Error('blocked');
+    if (emp.pin == null) throw new Error('nopin');
+    const h = await hashPin(pin);
+    if (h !== emp.pin) {
+      tracker.count++;
+      if (tracker.count >= 5) {
+        tracker.blockedUntil = Date.now() + 30000;
+        tracker.count = 0;
+      }
+      failedAttempts.set(id, tracker);
+      throw new Error('badpin');
+    }
+    failedAttempts.delete(id);
+    const session = { employeId: emp.id, role: emp.role, nom: emp.nom };
+    sessionStorage.setItem(SESSION_KEY, JSON.stringify(session));
+    return session;
+  }
+
+  function logout() {
+    sessionStorage.removeItem(SESSION_KEY);
+  }
+
+  function requireRole(...roles) {
+    const s = getSession();
+    if (!s || !roles.includes(s.role)) {
+      const err = new Error('forbidden');
+      err.code = 'forbidden';
+      throw err;
+    }
+  }
+
+  async function canValidate(submissionEmployeId) {
+    const s = getSession();
+    if (!s) return false;
+    if (s.role === 'admin') return true;
+    if (s.role !== 'manager') return false;
+    const emp = await DB.getById('employees', Number(submissionEmployeId));
+    return !!emp && Number(emp.managerId) === Number(s.employeId);
+  }
+
+  return { hashPin, login, logout, getSession, getCurrentUser, requireRole, canValidate };
+})();
+
+/* =====================================================================
    3. UI HELPERS
    ===================================================================== */
 const $ = (sel, root = document) => root.querySelector(sel);
@@ -714,23 +1031,44 @@ function confirmModal(message) {
 const PAGE = $('#page');
 let currentPage = 'clients';
 
+function applyRoleVisibility() {
+  const role = Auth.getSession()?.role;
+  if (!role) return;
+  $$('#nav [data-roles]').forEach(el => {
+    const allowed = el.dataset.roles.split(',');
+    el.classList.toggle('hidden', !allowed.includes(role));
+  });
+}
+
+function guardRole(...roles) {
+  try {
+    Auth.requireRole(...roles);
+    return true;
+  } catch {
+    PAGE.innerHTML = `<div class="bg-red-50 border border-red-200 text-red-800 rounded-lg p-6">${escapeHtml(t('forbidden'))}</div>`;
+    return false;
+  }
+}
+
 async function navigate(page) {
   currentPage = page;
   hideBanner();
   $$('#nav .nav-item').forEach(b => b.classList.toggle('active', b.dataset.page === page));
-  // Auto-expand any nav group that contains the active page
   $$('#nav .nav-group').forEach(g => {
     const has = !!g.querySelector(`.nav-item[data-page="${page}"]`);
     if (has) g.classList.add('open');
   });
-  if (page === 'clients')   await renderClients();
-  else if (page === 'projects') await renderProjects();
-  else if (page === 'tasks')    await renderTasks();
-  else if (page === 'employees') await renderEmployees();
-  else if (page === 'time')      await renderTimeEntries();
-  else if (page === 'attendance') await renderAttendance();
-  else if (page === 'reconciliation') await renderReconciliation();
-  else if (page === 'settings')  await renderSettings();
+  if (page === 'dashboard')      return renderDashboard();
+  if (page === 'clients')        { if (!guardRole('admin','manager')) return; return renderClients(); }
+  if (page === 'projects')       { if (!guardRole('admin','manager')) return; return renderProjects(); }
+  if (page === 'tasks')          { if (!guardRole('admin','manager')) return; return renderTasks(); }
+  if (page === 'employees')      { if (!guardRole('admin','manager')) return; return renderEmployees(); }
+  if (page === 'time')           return renderTimeEntries();
+  if (page === 'mySubmissions')  return renderMySubmissions();
+  if (page === 'validations')    { if (!guardRole('admin','manager')) return; return renderValidations(); }
+  if (page === 'attendance')     return renderAttendance();
+  if (page === 'reconciliation') { if (!guardRole('admin','manager')) return; return renderReconciliation(); }
+  if (page === 'settings')       return renderSettings();
 }
 
 function showBanner(html, level = 'warn') {
@@ -752,6 +1090,31 @@ function hideBanner() { $('#globalBanner').classList.add('hidden'); }
 function fmt(n) { return (Math.round(Number(n) * 100) / 100).toString(); }
 function fillTpl(s, vars) {
   return Object.entries(vars).reduce((acc, [k, v]) => acc.replaceAll(`{${k}}`, v), s);
+}
+async function filterTimeEntriesByRole(entries, allEmployees) {
+  const s = Auth.getSession();
+  if (!s || s.role === 'admin') return entries;
+  if (s.role === 'manager') {
+    const teamIds = new Set([s.employeId, ...(allEmployees || []).filter(e => Number(e.managerId) === Number(s.employeId)).map(e => e.id)]);
+    return entries.filter(e => teamIds.has(Number(e.employeId)));
+  }
+  // employe
+  return entries.filter(e => Number(e.employeId) === Number(s.employeId));
+}
+async function filterAttendanceByRole(records, allEmployees) {
+  return filterTimeEntriesByRole(records, allEmployees);
+}
+
+function statusBadge(statut, verrouille) {
+  const labels = {
+    brouillon: { txt: t('statusBrouillon'), cls: 'bg-slate-100 text-slate-700' },
+    soumis:    { txt: t('statusSoumis'),    cls: 'bg-blue-100 text-blue-800' },
+    valide:    { txt: t('statusValide'),    cls: 'bg-green-100 text-green-800' },
+    rejete:    { txt: t('statusRejete'),    cls: 'bg-red-100 text-red-800' }
+  };
+  const s = labels[statut] || labels.brouillon;
+  const lock = verrouille ? ' 🔒' : '';
+  return `<span class="px-2 py-0.5 rounded-full text-xs ${s.cls}">${escapeHtml(s.txt)}${lock}</span>`;
 }
 
 /* ----- Per-entity Excel templates + import ----- */
@@ -1244,35 +1607,76 @@ async function renderEmployees() {
     entity: 'employees',
     refreshFn: renderEmployees
   });
+  const isAdmin = Auth.getSession()?.role === 'admin';
   const draw = async () => {
     const all = await DB.getAll('employees');
+    const empById = Object.fromEntries(all.map(e => [e.id, e]));
     const q = $('#searchInput').value.trim().toLowerCase();
     const filtered = all.filter(e => !q
       || (e.nom||'').toLowerCase().includes(q)
       || (e.email||'').toLowerCase().includes(q)
       || (e.numeroEmploye||'').toLowerCase().includes(q));
-    const rows = filtered.map(e => `
+    const rows = filtered.map(e => {
+      const mgr = e.managerId ? empById[e.managerId]?.nom : '';
+      const actBadge = e.actif === false
+        ? `<span class="px-2 py-0.5 rounded-full bg-slate-200 text-slate-600 text-xs">—</span>`
+        : `<span class="px-2 py-0.5 rounded-full bg-green-100 text-green-700 text-xs">●</span>`;
+      const adminBtns = isAdmin ? `
+        <button data-act="resetpin" data-id="${e.id}" class="text-blue-700 hover:underline text-sm ms-3">${escapeHtml(t('resetPin'))}</button>
+        <button data-act="toggle"   data-id="${e.id}" class="text-slate-700 hover:underline text-sm ms-3">${escapeHtml(e.actif === false ? t('activate') : t('deactivate'))}</button>
+        <button data-act="unlock"   data-id="${e.id}" class="text-amber-700 hover:underline text-sm ms-3">${escapeHtml(t('unlockEntries'))}</button>
+      ` : '';
+      const editDel = isAdmin
+        ? rowActions(e.id)
+        : `<span class="text-slate-400 text-xs">${escapeHtml(t('forbidden'))}</span>`;
+      return `
       <tr class="hover:bg-slate-50">
         <td class="px-4 py-3 text-slate-600">${escapeHtml(e.numeroEmploye || '')}</td>
         <td class="px-4 py-3">${escapeHtml(e.nom)}</td>
         <td class="px-4 py-3 text-slate-600">${escapeHtml(e.email || '')}</td>
-        <td class="px-4 py-3 text-slate-600">${escapeHtml(e.role || '')}</td>
+        <td class="px-4 py-3 text-slate-600">${escapeHtml(roleLabel(e.role || 'employe'))}</td>
+        <td class="px-4 py-3 text-slate-600">${escapeHtml(mgr || '')}</td>
+        <td class="px-4 py-3">${actBadge}</td>
         <td class="px-4 py-3 text-slate-600">${e.tauxHoraire ?? ''}</td>
-        <td class="px-4 py-3">${rowActions(e.id)}</td>
-      </tr>`).join('');
+        <td class="px-4 py-3">${editDel}${adminBtns}</td>
+      </tr>`;
+    }).join('');
     $('#listBody').innerHTML = tableEl(
-      [t('empNumber'), t('empName'), t('empEmail'), t('empRole'), t('empRate'), t('actions')],
+      [t('empNumber'), t('empName'), t('empEmail'), t('role'), t('manager'), t('actif'), t('empRate'), t('actions')],
       rows
     );
     $$('#listBody [data-act]').forEach(b => b.onclick = async () => {
       const id = Number(b.dataset.id);
-      if (b.dataset.act === 'edit') employeeForm(await DB.getById('employees', id));
-      else if (b.dataset.act === 'delete') {
+      const act = b.dataset.act;
+      if (act === 'edit') {
+        if (!isAdmin) return;
+        employeeForm(await DB.getById('employees', id));
+      } else if (act === 'delete') {
+        if (!isAdmin) return;
         if (await confirmModal(t('confirmDelete'))) {
           await DB.remove('employees', id);
           toast(t('deleted'));
           draw();
         }
+      } else if (act === 'resetpin') {
+        if (!isAdmin) return;
+        resetPinForm(id);
+      } else if (act === 'toggle') {
+        if (!isAdmin) return;
+        const emp = await DB.getById('employees', id);
+        await DB.update('employees', id, { actif: !(emp.actif !== false) });
+        toast(t('saved'));
+        draw();
+      } else if (act === 'unlock') {
+        if (!isAdmin) return;
+        if (!await confirmModal(t('confirmUnlock'))) return;
+        const entries = await DB.getAll('timeEntries');
+        let n = 0;
+        for (const en of entries.filter(x => Number(x.employeId) === id && x.verrouille)) {
+          await DB.update('timeEntries', en.id, { verrouille: false, statutValidation: 'brouillon', submissionId: null });
+          n++;
+        }
+        toast(`${n} ${t('entriesUnlocked')}`);
       }
     });
   };
@@ -1280,8 +1684,15 @@ async function renderEmployees() {
   await draw();
 }
 
-function employeeForm(rec) {
-  const r = rec || { numeroEmploye: '', nom: '', email: '', role: '', tauxHoraire: '' };
+async function employeeForm(rec) {
+  const allEmps = await DB.getAll('employees');
+  const managers = allEmps.filter(e => e.role === 'manager' || e.role === 'admin');
+  const r = rec || { numeroEmploye: '', nom: '', email: '', role: 'employe', tauxHoraire: '', managerId: null, actif: true };
+  const roleOptions = [
+    { value: 'admin',   label: t('roleAdmin') },
+    { value: 'manager', label: t('roleManager') },
+    { value: 'employe', label: t('roleEmploye') }
+  ];
   openModal({
     title: rec ? t('edit') : t('add'),
     bodyHtml: `
@@ -1289,21 +1700,68 @@ function employeeForm(rec) {
         ${field('numeroEmploye', t('empNumber'), r.numeroEmploye)}
         ${field('nom', t('empName'), r.nom, 'text', true)}
         ${field('email', t('empEmail'), r.email, 'email')}
-        ${field('role', t('empRole'), r.role)}
+        ${selectField('role', t('role'), roleOptions, r.role || 'employe', true)}
+        <div id="mgr_wrap">
+          ${selectField('managerId', t('manager'), [{value:'',label:t('noManager')}, ...managers.map(m => ({ value: m.id, label: m.nom }))], r.managerId || '')}
+        </div>
         ${field('tauxHoraire', t('empRate'), r.tauxHoraire, 'number')}
+        ${rec ? '' : `
+          ${field('pin1', t('pin'), '', 'password')}
+          ${field('pin2', t('confirmPin'), '', 'password')}
+          <p class="text-xs text-slate-500">${escapeHtml(t('pinRequired'))}</p>
+        `}
+        ${checkbox('actif', t('actif'), r.actif !== false)}
       </div>`,
     onSave: async () => {
+      const role = $('#f_role').value;
       const data = {
         numeroEmploye: $('#f_numeroEmploye').value.trim(),
         nom: $('#f_nom').value.trim(),
         email: $('#f_email').value.trim(),
-        role: $('#f_role').value.trim(),
-        tauxHoraire: $('#f_tauxHoraire').value === '' ? null : Number($('#f_tauxHoraire').value)
+        role,
+        managerId: role === 'employe' ? (Number($('#f_managerId').value) || null) : null,
+        tauxHoraire: $('#f_tauxHoraire').value === '' ? null : Number($('#f_tauxHoraire').value),
+        actif: $('#f_actif').checked
       };
       if (!data.nom) return false;
-      if (rec) await DB.update('employees', rec.id, data);
-      else await DB.add('employees', data);
+      if (!rec) {
+        const p1 = $('#f_pin1').value.trim();
+        const p2 = $('#f_pin2').value.trim();
+        if (!p1 || p1.length < 4) { toast(t('pinRequired')); return false; }
+        if (p1 !== p2) { toast(t('pinMismatch')); return false; }
+        data.pin = await Auth.hashPin(p1);
+        await DB.add('employees', data);
+      } else {
+        await DB.update('employees', rec.id, data);
+      }
       toast(t('saved'));
+      renderEmployees();
+    }
+  });
+  // Hide manager select if role isn't 'employe'
+  const updateMgrVis = () => {
+    $('#mgr_wrap').style.display = $('#f_role').value === 'employe' ? '' : 'none';
+  };
+  $('#f_role').onchange = updateMgrVis;
+  updateMgrVis();
+}
+
+function resetPinForm(employeId) {
+  openModal({
+    title: t('resetPin'),
+    bodyHtml: `
+      <div class="space-y-3">
+        ${field('pin1', t('newPin'), '', 'password', true)}
+        ${field('pin2', t('confirmPin'), '', 'password', true)}
+      </div>
+    `,
+    onSave: async () => {
+      const p1 = $('#f_pin1').value.trim();
+      const p2 = $('#f_pin2').value.trim();
+      if (!p1 || p1.length < 4) { toast(t('pinRequired')); return false; }
+      if (p1 !== p2) { toast(t('pinMismatch')); return false; }
+      await DB.update('employees', employeId, { pin: await Auth.hashPin(p1) });
+      toast(t('pinUpdated'));
       renderEmployees();
     }
   });
@@ -1311,10 +1769,17 @@ function employeeForm(rec) {
 
 /* ----- TIME ENTRIES ----- */
 async function renderTimeEntries() {
-  const [clients, projects, tasks, employees, entries] = await Promise.all([
+  const [clients, projects, tasks, allEmployees, entries] = await Promise.all([
     DB.getAll('clients'), DB.getAll('projects'), DB.getAll('tasks'),
     DB.getAll('employees'), DB.getAll('timeEntries')
   ]);
+  const session = Auth.getSession();
+  let employees = allEmployees;
+  if (session?.role === 'employe') {
+    employees = allEmployees.filter(e => e.id === session.employeId);
+  } else if (session?.role === 'manager') {
+    employees = allEmployees.filter(e => e.id === session.employeId || Number(e.managerId) === Number(session.employeId));
+  }
   const clientById = Object.fromEntries(clients.map(c => [c.id, c]));
   const projectById = Object.fromEntries(projects.map(p => [p.id, p]));
   const taskById = Object.fromEntries(tasks.map(x => [x.id, x]));
@@ -1458,9 +1923,10 @@ async function renderTimeEntries() {
 
   const drawList = async () => {
     const all = await DB.getAll('timeEntries');
-    all.sort((a,b) => (b.date || '').localeCompare(a.date || ''));
+    const visible = await filterTimeEntriesByRole(all, allEmployees);
+    visible.sort((a,b) => (b.date || '').localeCompare(a.date || ''));
     const q = $('#searchInput').value.trim().toLowerCase();
-    const filtered = all.filter(en => {
+    const filtered = visible.filter(en => {
       if (!q) return true;
       const blob = [
         empById[en.employeId]?.nom, clientById[en.clientId]?.nom,
@@ -1470,7 +1936,7 @@ async function renderTimeEntries() {
       return blob.includes(q);
     });
     const rows = filtered.map(en => `
-      <tr class="hover:bg-slate-50">
+      <tr class="hover:bg-slate-50 ${en.verrouille ? 'opacity-80' : ''}">
         <td class="px-4 py-3">${escapeHtml(en.date)}</td>
         <td class="px-4 py-3">${escapeHtml(empById[en.employeId]?.nom || '')}</td>
         <td class="px-4 py-3 text-slate-600">${escapeHtml(clientById[en.clientId]?.nom || '')}</td>
@@ -1478,10 +1944,15 @@ async function renderTimeEntries() {
         <td class="px-4 py-3 text-slate-600">${escapeHtml(taskById[en.taskId]?.nom || '')}</td>
         <td class="px-4 py-3 font-medium">${en.heures}</td>
         <td class="px-4 py-3 text-slate-600">${escapeHtml(en.description || '')}</td>
-        <td class="px-4 py-3"><button data-act="delete" data-id="${en.id}" class="text-red-600 hover:underline text-sm">${escapeHtml(t('delete'))}</button></td>
+        <td class="px-4 py-3">${statusBadge(en.statutValidation || 'brouillon', en.verrouille)}</td>
+        <td class="px-4 py-3">
+          ${en.verrouille
+            ? `<span class="text-slate-400 text-xs" title="${escapeHtml(t('lockedTooltip'))}">${escapeHtml(t('locked'))}</span>`
+            : `<button data-act="delete" data-id="${en.id}" class="text-red-600 hover:underline text-sm">${escapeHtml(t('delete'))}</button>`}
+        </td>
       </tr>`).join('');
     $('#listBody').innerHTML = tableEl(
-      [t('timeDate'), t('timeEmployee'), t('timeClient'), t('timeProject'), t('timeTask'), t('timeHours'), t('timeDescription'), t('actions')],
+      [t('timeDate'), t('timeEmployee'), t('timeClient'), t('timeProject'), t('timeTask'), t('timeHours'), t('timeDescription'), t('timeStatus'), t('actions')],
       rows
     );
     $$('#listBody [data-act="delete"]').forEach(b => b.onclick = async () => {
@@ -1607,7 +2078,9 @@ async function renderAttendance() {
   `;
 
   const draw = async () => {
-    const all = (await DB.getAll('attendance')).slice().sort((a,b) => (b.date||'').localeCompare(a.date||''));
+    const allRaw = await DB.getAll('attendance');
+    const visible = await filterAttendanceByRole(allRaw, employees);
+    const all = visible.slice().sort((a,b) => (b.date||'').localeCompare(a.date||''));
     const fEmp = $('#att_emp_filter').value;
     const fFrom = $('#att_from').value;
     const fTo = $('#att_to').value;
@@ -1830,9 +2303,12 @@ function showImportReport({ imported, updated, ignored, errors, employees }) {
 
 /* ----- RECONCILIATION PAGE ----- */
 async function renderReconciliation() {
-  const [employees, attendance, timeEntries] = await Promise.all([
+  const [employeesAll, attendanceRaw, timeEntriesRaw] = await Promise.all([
     DB.getAll('employees'), DB.getAll('attendance'), DB.getAll('timeEntries')
   ]);
+  const attendance = await filterAttendanceByRole(attendanceRaw, employeesAll);
+  const timeEntries = await filterTimeEntriesByRole(timeEntriesRaw, employeesAll);
+  const employees = employeesAll;
   const empById = Object.fromEntries(employees.map(e => [e.id, e]));
   const seuil = Number(await DB.getSetting('seuilEcartHeures', 0.5));
   const seuilType = await DB.getSetting('seuilEcartType', 'absolu');
@@ -1945,14 +2421,388 @@ async function renderReconciliation() {
   draw();
 }
 
+/* ----- DASHBOARD ----- */
+async function renderDashboard() {
+  const session = Auth.getSession();
+  if (!session) { showAuthShell(); return; }
+  const role = session.role;
+  const [employees, submissions, timeEntries] = await Promise.all([
+    DB.getAll('employees'), DB.getAll('submissions'), DB.getAll('timeEntries')
+  ]);
+  const monthStart = new Date(); monthStart.setDate(1);
+  const monthStartIso = monthStart.toISOString().slice(0,10);
+
+  let body = '';
+  if (role === 'admin') {
+    const activeEmployees = employees.filter(e => e.actif !== false).length;
+    const pending = submissions.filter(s => s.statut === 'soumis').length;
+    const rejected = submissions.filter(s => s.statut === 'rejete' && (s.dateValidation || '') >= monthStartIso).length;
+    body = `
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+        ${statCard('👥', t('statActiveEmployees'), activeEmployees, 'bg-blue-50 text-blue-800')}
+        ${statCard('⏳', t('statPendingSubs'), pending, 'bg-amber-50 text-amber-800')}
+        ${statCard('⛔', t('statRejectedThisMonth'), rejected, 'bg-red-50 text-red-800')}
+      </div>
+    `;
+  } else if (role === 'manager') {
+    const teamIds = new Set([session.employeId, ...employees.filter(e => Number(e.managerId) === Number(session.employeId)).map(e => e.id)]);
+    const pending = submissions.filter(s => s.statut === 'soumis' && teamIds.has(Number(s.employeId))).length;
+    body = `
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+        ${statCard('✅', t('statToValidate'), pending, 'bg-blue-50 text-blue-800')}
+        <div class="bg-white rounded-xl border border-slate-200 p-5 flex items-center justify-center">
+          <button id="goValidations" class="px-4 py-2 rounded-lg bg-blue-700 text-white hover:bg-blue-800 text-sm">${escapeHtml(t('goToValidations'))}</button>
+        </div>
+      </div>
+    `;
+  } else {
+    const myDraft = timeEntries.filter(e => Number(e.employeId) === Number(session.employeId) && (e.statutValidation || 'brouillon') === 'brouillon');
+    const draftHours = myDraft.reduce((s, e) => s + (Number(e.heures) || 0), 0);
+    const mySubs = submissions.filter(s => Number(s.employeId) === Number(session.employeId)).sort((a,b) => (b.dateSubmission||'').localeCompare(a.dateSubmission||''));
+    const last = mySubs[0];
+    const lastTxt = last
+      ? `${escapeHtml(last.dateSubmission || '')} — <span class="font-medium">${escapeHtml(submissionStatusLabel(last.statut))}</span>${last.statut === 'rejete' && last.commentaire ? `<div class="mt-1 text-xs text-red-700">${escapeHtml(last.commentaire)}</div>` : ''}`
+      : '—';
+    body = `
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+        ${statCard('📝', t('statHoursDraft'), fmt(draftHours), 'bg-slate-100 text-slate-800')}
+        <div class="bg-white rounded-xl border border-slate-200 p-5">
+          <div class="text-xs uppercase tracking-wide text-slate-500 mb-1">${escapeHtml(t('statLastSubmission'))}</div>
+          <div class="text-sm">${lastTxt}</div>
+          <button id="goMySubs" class="mt-3 px-3 py-1.5 rounded-lg border border-slate-300 hover:bg-slate-50 text-sm">${escapeHtml(t('goToMySubs'))}</button>
+        </div>
+      </div>
+    `;
+  }
+
+  PAGE.innerHTML = `
+    <h1 class="text-2xl font-bold text-slate-900 mb-6">${escapeHtml(t('dashTitle'))}</h1>
+    ${body}
+  `;
+  $('#goValidations')?.addEventListener('click', () => navigate('validations'));
+  $('#goMySubs')?.addEventListener('click', () => navigate('mySubmissions'));
+
+  // Show banner if last submission is rejected (employees)
+  if (role === 'employe') {
+    const mySubs = submissions.filter(s => Number(s.employeId) === Number(session.employeId)).sort((a,b) => (b.dateSubmission||'').localeCompare(a.dateSubmission||''));
+    const last = mySubs[0];
+    if (last && last.statut === 'rejete') {
+      showBanner(fillTpl(t('submissionRejected'), { date: last.dateSubmission || '' }), 'error');
+    }
+  }
+}
+
+function statCard(icon, label, value, cls = 'bg-slate-100 text-slate-700') {
+  return `
+    <div class="bg-white rounded-xl border border-slate-200 p-5">
+      <div class="flex items-center gap-3">
+        <div class="w-10 h-10 rounded-lg ${cls} grid place-items-center text-lg">${icon}</div>
+        <div>
+          <div class="text-xs uppercase tracking-wide text-slate-500">${escapeHtml(label)}</div>
+          <div class="text-2xl font-bold text-slate-900">${escapeHtml(String(value))}</div>
+        </div>
+      </div>
+    </div>`;
+}
+
+function submissionStatusLabel(s) {
+  return s === 'soumis' ? t('statusSoumis') : s === 'valide' ? t('statusValide') : s === 'rejete' ? t('statusRejete') : s === 'reouvert' ? t('statusReouvert') : s;
+}
+function submissionStatusBadge(s) {
+  const cls = s === 'valide' ? 'bg-green-100 text-green-800'
+            : s === 'rejete' ? 'bg-red-100 text-red-800'
+            : s === 'soumis' ? 'bg-blue-100 text-blue-800'
+            : 'bg-slate-100 text-slate-700';
+  return `<span class="px-2 py-0.5 rounded-full ${cls} text-xs">${escapeHtml(submissionStatusLabel(s))}</span>`;
+}
+
+/* ----- MES SAISIES (employee submission) ----- */
+async function renderMySubmissions() {
+  const session = Auth.getSession();
+  if (!session) { showAuthShell(); return; }
+  const myId = Number(session.employeId);
+  const [allEntries, allSubs] = await Promise.all([DB.getAll('timeEntries'), DB.getAll('submissions')]);
+  const mine = allEntries.filter(e => Number(e.employeId) === myId);
+  const mySubs = allSubs.filter(s => Number(s.employeId) === myId).sort((a,b) => (b.dateSubmission||'').localeCompare(a.dateSubmission||''));
+  const lastRejected = mySubs.find(s => s.statut === 'rejete');
+
+  const today = new Date();
+  const monday = new Date(today);
+  monday.setDate(today.getDate() - ((today.getDay() + 6) % 7));
+  const sunday = new Date(monday);
+  sunday.setDate(monday.getDate() + 6);
+
+  PAGE.innerHTML = `
+    <h1 class="text-2xl font-bold text-slate-900 mb-6">${escapeHtml(t('mySubmissionsTitle'))}</h1>
+
+    ${lastRejected ? `
+      <div class="mb-4 p-3 rounded-lg border bg-red-50 border-red-300 text-red-900 text-sm">
+        ⚠ ${escapeHtml(fillTpl(t('submissionRejected'), { date: lastRejected.dateSubmission || '' }))}
+        ${lastRejected.commentaire ? `<div class="mt-1 text-xs">${escapeHtml(lastRejected.commentaire)}</div>` : ''}
+      </div>` : ''}
+
+    <div class="bg-white rounded-xl border border-slate-200 shadow-sm p-6 mb-6">
+      <h2 class="font-semibold text-slate-900 mb-4">${escapeHtml(t('period'))}</h2>
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-3 mb-4">
+        <div>
+          <label class="block text-sm text-slate-600 mb-1">${escapeHtml(t('periodStart'))}</label>
+          <input id="ms_from" type="date" value="${monday.toISOString().slice(0,10)}" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm">
+        </div>
+        <div>
+          <label class="block text-sm text-slate-600 mb-1">${escapeHtml(t('periodEnd'))}</label>
+          <input id="ms_to" type="date" value="${sunday.toISOString().slice(0,10)}" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm">
+        </div>
+        <div class="flex items-end">
+          <button id="ms_submit" class="px-4 py-2 rounded-lg bg-blue-700 text-white hover:bg-blue-800 text-sm">${escapeHtml(t('submitPeriod'))}</button>
+        </div>
+      </div>
+      <div id="ms_preview"></div>
+    </div>
+
+    <div class="bg-white rounded-xl border border-slate-200 shadow-sm">
+      <div class="p-4 border-b border-slate-200 font-semibold text-slate-900">${escapeHtml(t('submissionHistory'))}</div>
+      <div id="ms_history"></div>
+    </div>
+  `;
+
+  const drawPreview = () => {
+    const from = $('#ms_from').value;
+    const to = $('#ms_to').value;
+    const drafts = mine.filter(e => (e.statutValidation || 'brouillon') === 'brouillon' && e.date >= from && e.date <= to);
+    const total = drafts.reduce((s, e) => s + (Number(e.heures) || 0), 0);
+    if (drafts.length === 0) {
+      $('#ms_preview').innerHTML = `<p class="text-sm text-slate-500">${escapeHtml(t('nothingToSubmit'))}</p>`;
+      $('#ms_submit').disabled = true;
+      $('#ms_submit').classList.add('opacity-50','cursor-not-allowed');
+      return;
+    }
+    $('#ms_submit').disabled = false;
+    $('#ms_submit').classList.remove('opacity-50','cursor-not-allowed');
+    const rows = drafts.sort((a,b)=>(a.date||'').localeCompare(b.date||'')).map(e => `
+      <tr class="hover:bg-slate-50">
+        <td class="px-4 py-2">${escapeHtml(e.date)}</td>
+        <td class="px-4 py-2">${e.heures}</td>
+        <td class="px-4 py-2 text-slate-600">${escapeHtml(e.description || '')}</td>
+        <td class="px-4 py-2">${statusBadge(e.statutValidation || 'brouillon', e.verrouille)}</td>
+      </tr>`).join('');
+    $('#ms_preview').innerHTML = `
+      <p class="text-sm text-slate-700 mb-2"><span class="font-medium">${drafts.length}</span> ${escapeHtml(t('linesImported').replace('imported','').trim() || 'entries')} · <span class="font-medium">${fmt(total)}h</span></p>
+      <table class="w-full text-sm border border-slate-200 rounded">
+        <thead class="bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
+          <tr><th class="px-4 py-2 text-start">${escapeHtml(t('timeDate'))}</th><th class="px-4 py-2 text-start">${escapeHtml(t('timeHours'))}</th><th class="px-4 py-2 text-start">${escapeHtml(t('timeDescription'))}</th><th class="px-4 py-2 text-start">${escapeHtml(t('timeStatus'))}</th></tr>
+        </thead>
+        <tbody class="divide-y divide-slate-100">${rows}</tbody>
+      </table>
+    `;
+  };
+  $('#ms_from').onchange = drawPreview;
+  $('#ms_to').onchange = drawPreview;
+  drawPreview();
+
+  $('#ms_submit').onclick = async () => {
+    const from = $('#ms_from').value;
+    const to = $('#ms_to').value;
+    const drafts = mine.filter(e => (e.statutValidation || 'brouillon') === 'brouillon' && e.date >= from && e.date <= to);
+    if (!drafts.length) return;
+    const subId = await DB.add('submissions', {
+      employeId: myId,
+      periodeDebut: from,
+      periodeFin: to,
+      dateSubmission: new Date().toISOString().slice(0,10),
+      statut: 'soumis',
+      validePar: null,
+      dateValidation: null,
+      commentaire: '',
+      timeEntryIds: drafts.map(e => e.id)
+    });
+    for (const e of drafts) {
+      await DB.update('timeEntries', e.id, { statutValidation: 'soumis', submissionId: subId });
+    }
+    toast(t('saved'));
+    renderMySubmissions();
+  };
+
+  // History
+  const historyRows = mySubs.map(s => `
+    <tr class="hover:bg-slate-50">
+      <td class="px-4 py-3">${escapeHtml(s.dateSubmission || '')}</td>
+      <td class="px-4 py-3">${escapeHtml(s.periodeDebut || '')} → ${escapeHtml(s.periodeFin || '')}</td>
+      <td class="px-4 py-3">${submissionStatusBadge(s.statut)}</td>
+      <td class="px-4 py-3 text-slate-600 text-sm">${escapeHtml(s.commentaire || '')}</td>
+    </tr>`).join('');
+  $('#ms_history').innerHTML = tableEl(
+    [t('submissionDate'), t('period'), t('timeStatus'), 'Commentaire'],
+    historyRows
+  );
+}
+
+/* ----- VALIDATIONS (manager queue) ----- */
+async function renderValidations() {
+  const session = Auth.getSession();
+  if (!session) return;
+  const [employees, submissions, timeEntries, attendance] = await Promise.all([
+    DB.getAll('employees'), DB.getAll('submissions'),
+    DB.getAll('timeEntries'), DB.getAll('attendance')
+  ]);
+  const empById = Object.fromEntries(employees.map(e => [e.id, e]));
+  const isAdmin = session.role === 'admin';
+  const teamIds = new Set([session.employeId, ...employees.filter(e => Number(e.managerId) === Number(session.employeId)).map(e => e.id)]);
+  const visible = submissions.filter(s => s.statut === 'soumis' && (isAdmin || teamIds.has(Number(s.employeId))))
+    .sort((a,b) => (a.dateSubmission || '').localeCompare(b.dateSubmission || ''));
+
+  PAGE.innerHTML = `
+    <h1 class="text-2xl font-bold text-slate-900 mb-6">${escapeHtml(t('submissionsTitle'))}</h1>
+    <div class="bg-white rounded-xl border border-slate-200 shadow-sm">
+      <div id="listBody"></div>
+    </div>
+  `;
+
+  const rows = await Promise.all(visible.map(async s => {
+    const entries = timeEntries.filter(e => Number(e.submissionId) === Number(s.id));
+    const total = entries.reduce((sum, e) => sum + (Number(e.heures) || 0), 0);
+    // discrepancy (sum across period)
+    const att = attendance.filter(a => Number(a.employeId) === Number(s.employeId) && a.date >= s.periodeDebut && a.date <= s.periodeFin);
+    const presence = att.reduce((sum, a) => sum + (Number(a.totalHeures) || 0), 0);
+    const ecart = att.length ? Math.abs(total - presence) : null;
+    return `
+      <tr class="hover:bg-slate-50">
+        <td class="px-4 py-3">${escapeHtml(empById[s.employeId]?.nom || '?')}</td>
+        <td class="px-4 py-3">${escapeHtml(s.periodeDebut)} → ${escapeHtml(s.periodeFin)}</td>
+        <td class="px-4 py-3">${escapeHtml(s.dateSubmission || '')}</td>
+        <td class="px-4 py-3 font-medium">${fmt(total)}</td>
+        <td class="px-4 py-3 text-slate-600">${ecart == null ? '—' : fmt(ecart) + ' h'}</td>
+        <td class="px-4 py-3"><button data-act="review" data-id="${s.id}" class="text-blue-700 hover:underline text-sm">${escapeHtml(t('review'))}</button></td>
+      </tr>`;
+  }));
+  $('#listBody').innerHTML = tableEl(
+    [t('timeEmployee'), t('period'), t('submissionDate'), t('totalHours'), t('recDiff'), t('actions')],
+    rows.join('')
+  );
+
+  $$('#listBody [data-act="review"]').forEach(b => b.onclick = () => reviewSubmission(Number(b.dataset.id)));
+}
+
+async function reviewSubmission(submissionId) {
+  const sub = await DB.getById('submissions', submissionId);
+  if (!sub) return;
+  if (!await Auth.canValidate(sub.employeId)) {
+    toast(t('forbidden'));
+    return;
+  }
+  const [employees, allEntries, projects, tasks, clients] = await Promise.all([
+    DB.getAll('employees'), DB.getAll('timeEntries'),
+    DB.getAll('projects'), DB.getAll('tasks'), DB.getAll('clients')
+  ]);
+  const emp = employees.find(e => e.id === sub.employeId);
+  const projectById = Object.fromEntries(projects.map(p => [p.id, p]));
+  const taskById = Object.fromEntries(tasks.map(x => [x.id, x]));
+  const clientById = Object.fromEntries(clients.map(c => [c.id, c]));
+  const entries = allEntries.filter(e => Number(e.submissionId) === Number(submissionId));
+  const total = entries.reduce((s, e) => s + (Number(e.heures) || 0), 0);
+
+  const grouped = {};
+  for (const e of entries) {
+    const key = `${projectById[e.projectId]?.nom || '?'} / ${taskById[e.taskId]?.nom || '?'}`;
+    grouped[key] = (grouped[key] || 0) + (Number(e.heures) || 0);
+  }
+
+  const detailRows = entries.sort((a,b)=>(a.date||'').localeCompare(b.date||'')).map(e => `
+    <tr>
+      <td class="px-3 py-2 text-sm">${escapeHtml(e.date)}</td>
+      <td class="px-3 py-2 text-sm">${escapeHtml(clientById[e.clientId]?.nom || '')}</td>
+      <td class="px-3 py-2 text-sm">${escapeHtml(projectById[e.projectId]?.nom || '')}</td>
+      <td class="px-3 py-2 text-sm">${escapeHtml(taskById[e.taskId]?.nom || '')}</td>
+      <td class="px-3 py-2 text-sm font-medium">${e.heures}</td>
+      <td class="px-3 py-2 text-sm text-slate-600">${escapeHtml(e.description || '')}</td>
+    </tr>`).join('');
+  const groupRows = Object.entries(grouped).map(([k, v]) => `
+    <tr><td class="px-3 py-1.5 text-sm">${escapeHtml(k)}</td><td class="px-3 py-1.5 text-sm font-medium">${fmt(v)}</td></tr>`).join('');
+
+  openModal({
+    title: `${t('review')} — ${emp?.nom || ''} (${sub.periodeDebut} → ${sub.periodeFin})`,
+    bodyHtml: `
+      <div class="space-y-4 max-h-[70vh] overflow-y-auto">
+        <div class="bg-slate-50 border border-slate-200 rounded p-3 text-sm">
+          <strong>${escapeHtml(t('totalHours'))}:</strong> ${fmt(total)}
+        </div>
+        <div>
+          <p class="text-sm font-medium text-slate-700 mb-1">${escapeHtml(t('timeProject'))} / ${escapeHtml(t('timeTask'))}</p>
+          <table class="w-full border border-slate-200 rounded"><tbody class="divide-y divide-slate-100">${groupRows}</tbody></table>
+        </div>
+        <div>
+          <p class="text-sm font-medium text-slate-700 mb-1">${escapeHtml(t('recentEntries'))}</p>
+          <table class="w-full border border-slate-200 rounded">
+            <thead class="bg-slate-50 text-xs uppercase text-slate-500"><tr>
+              <th class="px-3 py-1.5 text-start">${escapeHtml(t('timeDate'))}</th>
+              <th class="px-3 py-1.5 text-start">${escapeHtml(t('timeClient'))}</th>
+              <th class="px-3 py-1.5 text-start">${escapeHtml(t('timeProject'))}</th>
+              <th class="px-3 py-1.5 text-start">${escapeHtml(t('timeTask'))}</th>
+              <th class="px-3 py-1.5 text-start">${escapeHtml(t('timeHours'))}</th>
+              <th class="px-3 py-1.5 text-start">${escapeHtml(t('timeDescription'))}</th>
+            </tr></thead>
+            <tbody class="divide-y divide-slate-100">${detailRows}</tbody>
+          </table>
+        </div>
+        <div>
+          <label class="block text-sm text-slate-600 mb-1">${escapeHtml(t('rejectComment'))}</label>
+          <textarea id="rev_comment" rows="2" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm"></textarea>
+        </div>
+        <div class="flex gap-2 justify-end">
+          <button id="rev_reject" class="px-4 py-2 rounded-lg bg-red-600 text-white hover:bg-red-700 text-sm">${escapeHtml(t('reject'))}</button>
+          <button id="rev_validate" class="px-4 py-2 rounded-lg bg-green-600 text-white hover:bg-green-700 text-sm">${escapeHtml(t('validate'))}</button>
+        </div>
+      </div>`,
+    hideSave: true,
+    onSave: async () => true
+  });
+
+  $('#rev_validate').onclick = async () => {
+    await DB.update('submissions', sub.id, {
+      statut: 'valide',
+      validePar: Auth.getSession().employeId,
+      dateValidation: new Date().toISOString().slice(0,10),
+      commentaire: $('#rev_comment').value.trim() || ''
+    });
+    for (const e of entries) {
+      await DB.update('timeEntries', e.id, { statutValidation: 'valide', verrouille: true });
+    }
+    toast(t('submissionValidated'));
+    $('#modalClose').click();
+    renderValidations();
+  };
+  $('#rev_reject').onclick = async () => {
+    const c = $('#rev_comment').value.trim();
+    if (!c) { toast(t('commentRequired')); return; }
+    await DB.update('submissions', sub.id, {
+      statut: 'rejete',
+      validePar: Auth.getSession().employeId,
+      dateValidation: new Date().toISOString().slice(0,10),
+      commentaire: c
+    });
+    for (const e of entries) {
+      await DB.update('timeEntries', e.id, { statutValidation: 'rejete', verrouille: false });
+    }
+    toast(t('saved'));
+    $('#modalClose').click();
+    renderValidations();
+  };
+}
+
 /* ----- SETTINGS ----- */
 async function renderSettings() {
   const types = await getProjectTypes();
   const seuil = Number(await DB.getSetting('seuilEcartHeures', 0.5));
   const seuilType = await DB.getSetting('seuilEcartType', 'absolu');
   const blocking = !!(await DB.getSetting('bloquerSiDepassement', false));
+  const role = Auth.getSession()?.role;
+  const isAdmin = role === 'admin';
   PAGE.innerHTML = `
     <h1 class="text-2xl font-bold text-slate-900 mb-6">${escapeHtml(t('settingsTitle'))}</h1>
+
+    <div class="bg-amber-50 border border-amber-300 text-amber-900 rounded-xl p-5 mb-6">
+      <div class="font-semibold flex items-center gap-2">${escapeHtml(t('securityWarningTitle'))}</div>
+      <p class="text-sm mt-1">${escapeHtml(t('securityWarning'))}</p>
+    </div>
 
     <div class="bg-white rounded-xl border border-slate-200 shadow-sm p-6 mb-6">
       <h2 class="font-semibold text-slate-900 mb-4">${escapeHtml(t('language'))}</h2>
@@ -1963,7 +2813,7 @@ async function renderSettings() {
       </select>
     </div>
 
-    <div class="bg-white rounded-xl border border-slate-200 shadow-sm p-6 mb-6">
+    <div class="bg-white rounded-xl border border-slate-200 shadow-sm p-6 mb-6 ${isAdmin ? '' : 'hidden'}">
       <h2 class="font-semibold text-slate-900 mb-4">${escapeHtml(t('recoSettings'))}</h2>
       <div class="grid grid-cols-1 md:grid-cols-3 gap-4 max-w-3xl">
         <div>
@@ -1988,6 +2838,7 @@ async function renderSettings() {
 
     <div class="bg-white rounded-xl border border-slate-200 shadow-sm p-6 mb-6">
       <h2 class="font-semibold text-slate-900 mb-4">${escapeHtml(t('projectTypesMgmt'))}</h2>
+      <p class="text-xs text-slate-500 mb-3 ${isAdmin ? 'hidden' : ''}">${escapeHtml(t('forbidden'))}</p>
       <div class="flex gap-2 mb-4">
         <input id="newTypeInput" type="text" placeholder="${escapeHtml(t('typeName'))}" class="flex-1 max-w-sm px-3 py-2 border border-slate-300 rounded-lg text-sm">
         <button id="addTypeBtn" class="px-4 py-2 rounded-lg bg-blue-700 text-white hover:bg-blue-800 text-sm">+ ${escapeHtml(t('addType'))}</button>
@@ -2005,7 +2856,7 @@ async function renderSettings() {
       </div>
     </div>
 
-    <div class="bg-white rounded-xl border border-slate-200 shadow-sm p-6 mb-6">
+    <div class="bg-white rounded-xl border border-slate-200 shadow-sm p-6 mb-6 ${isAdmin ? '' : 'hidden'}">
       <h2 class="font-semibold text-slate-900 mb-4">${escapeHtml(t('dataMgmt'))}</h2>
       <div class="flex flex-wrap gap-3">
         <button id="exportJson" class="px-4 py-2 rounded-lg bg-blue-700 text-white hover:bg-blue-800 text-sm">${escapeHtml(t('exportJson'))}</button>
@@ -2021,7 +2872,7 @@ async function renderSettings() {
       <p class="text-xs text-slate-500 mt-3">${escapeHtml(t('importExcelHint'))}</p>
     </div>
 
-    <div class="bg-white rounded-xl border border-red-200 shadow-sm p-6">
+    <div class="bg-white rounded-xl border border-red-200 shadow-sm p-6 ${isAdmin ? '' : 'hidden'}">
       <h2 class="font-semibold text-red-700 mb-4">${escapeHtml(t('dangerZone'))}</h2>
       <button id="clearAllBtn" class="px-4 py-2 rounded-lg bg-red-600 text-white hover:bg-red-700 text-sm">${escapeHtml(t('clearAll'))}</button>
     </div>
@@ -2071,17 +2922,18 @@ async function renderSettings() {
     renderSettings();
   });
 
-  $('#exportJson').onclick = exportJson;
-  $('#importJsonFile').onchange = importJsonHandler;
-  $('#importXlsxFile').onchange = importXlsxHandler;
-  $('#clearAllBtn').onclick = async () => {
+  $('#exportJson') && ($('#exportJson').onclick = exportJson);
+  $('#importJsonFile') && ($('#importJsonFile').onchange = importJsonHandler);
+  $('#importXlsxFile') && ($('#importXlsxFile').onchange = importXlsxHandler);
+  $('#clearAllBtn') && ($('#clearAllBtn').onclick = async () => {
     if (await confirmModal(t('confirmClearAll'))) {
       await DB.clearAll();
       await DB.setSetting('lang', LANG);
+      Auth.logout();
       toast(t('cleared'));
-      navigate('clients');
+      boot();
     }
-  };
+  });
 }
 
 /* =====================================================================
@@ -2270,6 +3122,103 @@ function parseBool(v, def = false) {
 /* =====================================================================
    7. BOOT
    ===================================================================== */
+/* =====================================================================
+   AUTH UI — login screen + first-run admin creation
+   ===================================================================== */
+function showAuthShell() {
+  $('#authShell').classList.remove('hidden');
+  $('#appShell').classList.add('hidden');
+}
+function showAppShell() {
+  $('#authShell').classList.add('hidden');
+  $('#appShell').classList.remove('hidden');
+}
+
+async function renderAdminInit() {
+  showAuthShell();
+  $('#authBody').innerHTML = `
+    <h2 class="text-lg font-semibold text-slate-900 mb-2">${escapeHtml(t('initAdminTitle'))}</h2>
+    <p class="text-sm text-slate-600 mb-4">${escapeHtml(t('initAdminInfo'))}</p>
+    <div class="space-y-3">
+      ${field('a_nom', t('empName'), '', 'text', true)}
+      ${field('a_email', t('empEmail'), '', 'email')}
+      ${field('a_pin', t('pin'), '', 'password', true)}
+      ${field('a_pin2', t('confirmPin'), '', 'password', true)}
+    </div>
+    <button id="createAdminBtn" class="mt-5 w-full px-4 py-2 rounded-lg bg-blue-700 text-white hover:bg-blue-800 text-sm font-medium">${escapeHtml(t('create'))}</button>
+    <p id="initErr" class="hidden mt-3 text-sm text-red-600"></p>
+  `;
+  $('#createAdminBtn').onclick = async () => {
+    const nom = $('#f_a_nom').value.trim();
+    const email = $('#f_a_email').value.trim();
+    const pin = $('#f_a_pin').value.trim();
+    const pin2 = $('#f_a_pin2').value.trim();
+    const err = $('#initErr');
+    err.classList.add('hidden');
+    if (!nom) { err.textContent = '!'; err.classList.remove('hidden'); return; }
+    if (!pin || pin.length < 4) { err.textContent = t('pinRequired'); err.classList.remove('hidden'); return; }
+    if (pin !== pin2) { err.textContent = t('pinMismatch'); err.classList.remove('hidden'); return; }
+    const id = await DB.add('employees', {
+      nom, email,
+      role: 'admin',
+      pin: await Auth.hashPin(pin),
+      managerId: null,
+      actif: true,
+      numeroEmploye: '',
+      tauxHoraire: null,
+      role_legacy: ''
+    });
+    sessionStorage.setItem('sessionActive', JSON.stringify({ employeId: id, role: 'admin', nom }));
+    await bootApp();
+  };
+}
+
+async function renderLogin() {
+  showAuthShell();
+  const employees = (await DB.getAll('employees')).filter(e => e.actif !== false);
+  $('#authBody').innerHTML = `
+    <h2 class="text-lg font-semibold text-slate-900 mb-4">${escapeHtml(t('login'))}</h2>
+    <div class="space-y-3">
+      <div>
+        <label class="block text-sm text-slate-600 mb-1">${escapeHtml(t('timeEmployee'))}</label>
+        <select id="login_user" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm">
+          <option value="">${escapeHtml(t('selectUser'))}</option>
+          ${employees.map(e => `<option value="${e.id}">${escapeHtml((e.numeroEmploye ? e.numeroEmploye + ' — ' : '') + e.nom + ' (' + roleLabel(e.role) + ')')}</option>`).join('')}
+        </select>
+      </div>
+      ${field('login_pin', t('pin'), '', 'password', true)}
+    </div>
+    <button id="loginBtn" class="mt-5 w-full px-4 py-2 rounded-lg bg-blue-700 text-white hover:bg-blue-800 text-sm font-medium">${escapeHtml(t('login'))}</button>
+    <p id="loginErr" class="hidden mt-3 text-sm text-red-600"></p>
+  `;
+  const submit = async () => {
+    const id = $('#login_user').value;
+    const pin = $('#f_login_pin').value;
+    const err = $('#loginErr');
+    err.classList.add('hidden');
+    if (!id) return;
+    try {
+      await Auth.login(id, pin);
+      await bootApp();
+    } catch (e) {
+      let msg = t('incorrectPin');
+      if (e.message === 'blocked') msg = t('accountBlocked');
+      else if (e.message === 'nopin') msg = t('noPinSet');
+      else if (e.message === 'inactive') msg = t('accountInactive');
+      err.textContent = msg;
+      err.classList.remove('hidden');
+    }
+  };
+  $('#loginBtn').onclick = submit;
+  $('#f_login_pin').onkeydown = (e) => { if (e.key === 'Enter') submit(); };
+}
+
+function roleLabel(r) {
+  if (r === 'admin') return t('roleAdmin');
+  if (r === 'manager') return t('roleManager');
+  return t('roleEmploye');
+}
+
 async function seedDefaultSettings() {
   if (await DB.getSetting('seuilEcartHeures', null) == null) {
     await DB.setSetting('seuilEcartHeures', 0.5);
@@ -2291,13 +3240,6 @@ async function boot() {
   }
   applyI18n();
 
-  $$('#nav .nav-item').forEach(b => {
-    b.onclick = () => navigate(b.dataset.page);
-  });
-  $$('#nav .nav-group-toggle').forEach(b => {
-    b.onclick = () => b.closest('.nav-group').classList.toggle('open');
-  });
-
   // Close modal on backdrop click
   $('#modal').onclick = (e) => {
     if (e.target.id === 'modal') {
@@ -2306,7 +3248,46 @@ async function boot() {
     }
   };
 
-  await navigate('clients');
+  // Gate by auth: forced admin init OR login OR app
+  const employees = await DB.getAll('employees');
+  const hasAdmin = employees.some(e => e.role === 'admin' && e.actif !== false);
+  if (!hasAdmin) {
+    await renderAdminInit();
+    return;
+  }
+  if (!Auth.getSession()) {
+    await renderLogin();
+    return;
+  }
+  await bootApp();
+}
+
+async function bootApp() {
+  showAppShell();
+  applyI18n();
+
+  // Wire nav (idempotent — re-bind in case sidebar was rebuilt)
+  applyRoleVisibility();
+  $$('#nav .nav-item').forEach(b => {
+    b.onclick = () => navigate(b.dataset.page);
+  });
+  $$('#nav .nav-group-toggle').forEach(b => {
+    b.onclick = () => b.closest('.nav-group').classList.toggle('open');
+  });
+
+  $('#logoutBtn').onclick = () => {
+    Auth.logout();
+    boot();
+  };
+  const s = Auth.getSession();
+  if (s) {
+    $('#userBadge').textContent = `${t('welcomeBack')} ${s.nom} · ${roleLabel(s.role)}`;
+  }
+
+  // Default landing page based on role
+  const role = s?.role;
+  const start = role === 'employe' ? 'mySubmissions' : 'dashboard';
+  await navigate(start);
 }
 
 boot();
