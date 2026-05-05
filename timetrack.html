@@ -161,6 +161,9 @@
           <button data-page="tasks" data-roles="admin,manager" class="nav-item flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-slate-100 text-slate-700 text-start">
             <span class="nav-ico text-slate-500">•</span><span data-i18n="navTasks">Tâches</span>
           </button>
+          <button data-page="billingTypes" data-roles="admin,manager" class="nav-item flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-slate-100 text-slate-700 text-start">
+            <span class="nav-ico text-slate-500">💲</span><span data-i18n="navBillingTypes">Types de facturation</span>
+          </button>
         </div>
       </div>
 
@@ -199,6 +202,16 @@
     <div class="max-w-6xl mx-auto">
       <div id="topbar" class="flex items-center justify-end gap-3 mb-4 text-sm">
         <span class="text-slate-500" id="userBadge"></span>
+        <div class="relative">
+          <button id="langBtn" type="button" class="px-2 py-1.5 rounded-lg border border-slate-300 hover:bg-slate-100 text-base leading-none" title="Langue / Language / שפה">
+            <span id="langFlag">🇫🇷</span>
+          </button>
+          <div id="langMenu" class="hidden absolute right-0 mt-1 bg-white border border-slate-200 rounded-lg shadow-lg z-40 min-w-[140px] overflow-hidden">
+            <button data-lang="fr" class="lang-opt w-full text-start px-3 py-2 hover:bg-slate-50 flex items-center gap-2"><span>🇫🇷</span> Français</button>
+            <button data-lang="en" class="lang-opt w-full text-start px-3 py-2 hover:bg-slate-50 flex items-center gap-2"><span>🇬🇧</span> English</button>
+            <button data-lang="he" class="lang-opt w-full text-start px-3 py-2 hover:bg-slate-50 flex items-center gap-2"><span>🇮🇱</span> עברית</button>
+          </div>
+        </div>
         <button id="logoutBtn" class="px-3 py-1.5 rounded-lg border border-slate-300 hover:bg-slate-100 text-slate-700">
           <span data-i18n="logout">Se déconnecter</span>
         </button>
@@ -288,6 +301,13 @@ const I18N = {
     projectTypesMgmt: "Types de projet", addType: "Ajouter un type",
     typeName: "Nom du type", noTypes: "Aucun type défini",
     typeAlreadyExists: "Ce type existe déjà",
+    navBillingTypes: "Types de facturation",
+    billingTypesTitle: "Types de facturation",
+    billingTypeName: "Nom du type",
+    addBillingType: "Ajouter un type",
+    noBillingTypes: "Aucun type de facturation défini",
+    projectBillingType: "Type de facturation",
+    projectPrice: "Prix",
     // Tasks
     tasksTitle: "Tâches", taskProject: "Projet", taskName: "Nom",
     taskDesc: "Description", taskStatus: "Statut", taskType: "Type de tâche",
@@ -502,6 +522,13 @@ const I18N = {
     projectTypesMgmt: "Project types", addType: "Add a type",
     typeName: "Type name", noTypes: "No types defined",
     typeAlreadyExists: "This type already exists",
+    navBillingTypes: "Billing types",
+    billingTypesTitle: "Billing types",
+    billingTypeName: "Type name",
+    addBillingType: "Add a type",
+    noBillingTypes: "No billing types defined",
+    projectBillingType: "Billing type",
+    projectPrice: "Price",
     tasksTitle: "Tasks", taskProject: "Project", taskName: "Name",
     taskDesc: "Description", taskStatus: "Status", taskType: "Task type",
     employeesTitle: "Employees", empName: "Name", empEmail: "Email",
@@ -706,6 +733,13 @@ const I18N = {
     projectTypesMgmt: "סוגי פרויקטים", addType: "הוסף סוג",
     typeName: "שם הסוג", noTypes: "לא הוגדרו סוגים",
     typeAlreadyExists: "סוג זה כבר קיים",
+    navBillingTypes: "סוגי חיוב",
+    billingTypesTitle: "סוגי חיוב",
+    billingTypeName: "שם הסוג",
+    addBillingType: "הוסף סוג",
+    noBillingTypes: "לא הוגדרו סוגי חיוב",
+    projectBillingType: "סוג חיוב",
+    projectPrice: "מחיר",
     tasksTitle: "משימות", taskProject: "פרויקט", taskName: "שם",
     taskDesc: "תיאור", taskStatus: "סטטוס", taskType: "סוג משימה",
     employeesTitle: "עובדים", empName: "שם", empEmail: "דוא״ל",
@@ -889,6 +923,13 @@ async function getProjectTypes() {
 }
 async function setProjectTypes(list) {
   return DB.setSetting('projectTypes', list);
+}
+async function getBillingTypes() {
+  const v = await DB.getSetting('billingTypes', null);
+  return Array.isArray(v) ? v : [];
+}
+async function setBillingTypes(list) {
+  return DB.setSetting('billingTypes', list);
 }
 
 /* =====================================================================
@@ -1485,6 +1526,7 @@ async function navigate(page) {
   if (page === 'clients')        { if (!guardRole('admin','manager')) return; return renderClients(); }
   if (page === 'projects')       { if (!guardRole('admin','manager')) return; return renderProjects(); }
   if (page === 'tasks')          { if (!guardRole('admin','manager')) return; return renderTasks(); }
+  if (page === 'billingTypes')   { if (!guardRole('admin','manager')) return; return renderBillingTypes(); }
   if (page === 'employees')      { if (!guardRole('admin','manager')) return; return renderEmployees(); }
   if (page === 'time')           return renderTimeEntries();
   if (page === 'mySubmissions')  return renderMySubmissions();
@@ -1567,8 +1609,8 @@ const ENTITY_IMPORTS = {
   },
   projects: {
     template: {
-      headers: ['clientId', 'nom', 'code', 'tauxHoraire', 'budgetHeures', 'actif', 'typeProjet', 'statutProjet'],
-      sample: [['Acme Corp', 'Site web v2', 'WEB-2025', 80, 120, true, 'Forfait', 'active']]
+      headers: ['clientId', 'nom', 'code', 'tauxHoraire', 'budgetHeures', 'actif', 'typeProjet', 'statutProjet', 'prix', 'typeFacturation'],
+      sample: [['Acme Corp', 'Site web v2', 'WEB-2025', 80, 120, true, 'Forfait', 'active', 5000, 'mensuel']]
     },
     buildContext: async () => {
       const clients = await DB.getAll('clients');
@@ -1597,7 +1639,9 @@ const ENTITY_IMPORTS = {
         budgetHeures: row.budgetHeures === '' ? null : Number(row.budgetHeures),
         actif: parseBool(row.actif, true),
         typeProjet: type,
-        statutProjet: String(row.statutProjet || 'active').trim()
+        statutProjet: String(row.statutProjet || 'active').trim(),
+        prix: row.prix === '' || row.prix == null ? null : Number(row.prix),
+        typeFacturation: String(row.typeFacturation || '').trim()
       });
       return true;
     },
@@ -1909,13 +1953,16 @@ async function renderProjects() {
         <td class="px-4 py-3 text-slate-600">${escapeHtml(clientById[p.clientId]?.nom || '')}</td>
         <td class="px-4 py-3 text-slate-600">${escapeHtml(p.typeProjet || '')}</td>
         <td class="px-4 py-3 text-slate-600">${escapeHtml(projectStatusLabel(p.statutProjet))}</td>
+        <td class="px-4 py-3 text-slate-600">${p.prix ?? ''}</td>
+        <td class="px-4 py-3 text-slate-600">${escapeHtml(p.typeFacturation || '')}</td>
         <td class="px-4 py-3 text-slate-600">${p.tauxHoraire ?? ''}</td>
         <td class="px-4 py-3 text-slate-600">${p.budgetHeures ?? ''}</td>
         <td class="px-4 py-3">${p.actif ? '<span class="px-2 py-0.5 rounded-full bg-green-100 text-green-700 text-xs">●</span>' : '<span class="px-2 py-0.5 rounded-full bg-slate-100 text-slate-500 text-xs">—</span>'}</td>
         <td class="px-4 py-3">${rowActions(p.id)}</td>
       </tr>`).join('');
     $('#listBody').innerHTML = tableEl(
-      [t('projectName'), t('projectCode'), t('projectClient'), t('projectType'), t('projectStatus'), t('projectRate'), t('projectBudget'), t('projectActive'), t('actions')],
+      [t('projectName'), t('projectCode'), t('projectClient'), t('projectType'), t('projectStatus'),
+       t('projectPrice'), t('projectBillingType'), t('projectRate'), t('projectBudget'), t('projectActive'), t('actions')],
       rows
     );
     $$('#listBody [data-act]').forEach(b => b.onclick = async () => {
@@ -1936,10 +1983,12 @@ async function renderProjects() {
 }
 
 async function projectForm(rec) {
-  const r = rec || { clientId: '', nom: '', code: '', tauxHoraire: '', budgetHeures: '', actif: true, typeProjet: '', statutProjet: 'active' };
+  const r = rec || { clientId: '', nom: '', code: '', tauxHoraire: '', budgetHeures: '', actif: true, typeProjet: '', statutProjet: 'active', prix: '', typeFacturation: '' };
   const clients = await DB.getAll('clients');
   const types = await getProjectTypes();
+  const billingTypes = await getBillingTypes();
   const typeOptions = types.map(name => ({ value: name, label: name }));
+  const billingOptions = billingTypes.map(name => ({ value: name, label: name }));
   const statusOptions = PROJECT_STATUSES.map(s => ({ value: s.value, label: t(s.labelKey) }));
   openModal({
     title: rec ? t('edit') : t('add'),
@@ -1951,6 +2000,11 @@ async function projectForm(rec) {
         ${selectField('typeProjet', t('projectType'), typeOptions, r.typeProjet)}
         ${types.length === 0 ? `<p class="text-xs text-slate-500 -mt-2">${escapeHtml(t('noTypes'))} — ${escapeHtml(t('settingsTitle'))} → ${escapeHtml(t('projectTypesMgmt'))}</p>` : ''}
         ${selectField('statutProjet', t('projectStatus'), statusOptions, r.statutProjet || 'active', true)}
+        <div class="grid grid-cols-2 gap-3">
+          ${field('prix', t('projectPrice'), r.prix ?? '', 'number')}
+          ${selectField('typeFacturation', t('projectBillingType'), billingOptions, r.typeFacturation)}
+        </div>
+        ${billingTypes.length === 0 ? `<p class="text-xs text-slate-500 -mt-2">${escapeHtml(t('noBillingTypes'))} — ${escapeHtml(t('navProjectMgmt'))} → ${escapeHtml(t('navBillingTypes'))}</p>` : ''}
         ${field('tauxHoraire', t('projectRate'), r.tauxHoraire, 'number')}
         ${field('budgetHeures', t('projectBudget'), r.budgetHeures, 'number')}
         ${checkbox('actif', t('projectActive'), r.actif)}
@@ -1962,6 +2016,8 @@ async function projectForm(rec) {
         code: $('#f_code').value.trim(),
         typeProjet: $('#f_typeProjet').value.trim(),
         statutProjet: $('#f_statutProjet').value || 'active',
+        prix: $('#f_prix').value === '' ? null : Number($('#f_prix').value),
+        typeFacturation: $('#f_typeFacturation').value.trim(),
         tauxHoraire: $('#f_tauxHoraire').value === '' ? null : Number($('#f_tauxHoraire').value),
         budgetHeures: $('#f_budgetHeures').value === '' ? null : Number($('#f_budgetHeures').value),
         actif: $('#f_actif').checked
@@ -2041,6 +2097,58 @@ async function taskForm(rec) {
       toast(t('saved'));
       renderTasks();
     }
+  });
+}
+
+/* ----- BILLING TYPES ----- */
+async function renderBillingTypes() {
+  const list = await getBillingTypes();
+  PAGE.innerHTML = `
+    <div class="flex items-center justify-between mb-6">
+      <h1 class="text-2xl font-bold text-slate-900">💲 ${escapeHtml(t('billingTypesTitle'))}</h1>
+    </div>
+    <div class="bg-white rounded-xl border border-slate-200 shadow-sm p-6 max-w-2xl">
+      <div class="flex gap-2 mb-4">
+        <input id="newBtInput" type="text" placeholder="${escapeHtml(t('billingTypeName'))}" class="flex-1 px-3 py-2 border border-slate-300 rounded-lg text-sm">
+        <button id="addBtBtn" class="px-4 py-2 rounded-lg bg-blue-700 text-white hover:bg-blue-800 text-sm">+ ${escapeHtml(t('addBillingType'))}</button>
+      </div>
+      <div id="btList">
+        ${list.length === 0
+          ? `<p class="text-sm text-slate-500">${escapeHtml(t('noBillingTypes'))}</p>`
+          : `<ul class="divide-y divide-slate-100 border border-slate-200 rounded-lg">
+              ${list.map((tp, i) => `
+                <li class="flex items-center justify-between px-3 py-2 text-sm">
+                  <span>${escapeHtml(tp)}</span>
+                  <button data-idx="${i}" class="del-bt text-red-600 hover:underline text-xs">${escapeHtml(t('delete'))}</button>
+                </li>`).join('')}
+            </ul>`}
+      </div>
+    </div>
+  `;
+
+  $('#addBtBtn').onclick = async () => {
+    const input = $('#newBtInput');
+    const v = input.value.trim();
+    if (!v) return;
+    const cur = await getBillingTypes();
+    if (cur.some(x => x.toLowerCase() === v.toLowerCase())) {
+      toast(t('typeAlreadyExists'));
+      return;
+    }
+    cur.push(v);
+    await setBillingTypes(cur);
+    input.value = '';
+    toast(t('saved'));
+    renderBillingTypes();
+  };
+  $('#newBtInput').onkeydown = (e) => { if (e.key === 'Enter') $('#addBtBtn').click(); };
+  $$('#btList .del-bt').forEach(b => b.onclick = async () => {
+    const idx = Number(b.dataset.idx);
+    const cur = await getBillingTypes();
+    cur.splice(idx, 1);
+    await setBillingTypes(cur);
+    toast(t('deleted'));
+    renderBillingTypes();
   });
 }
 
@@ -4363,6 +4471,10 @@ async function renderSettings() {
   $('#langSel').onchange = async (e) => {
     LANG = e.target.value;
     await DB.setSetting('lang', LANG);
+    const sess = Auth.getSession();
+    if (sess?.employeId) await DB.update('employees', sess.employeId, { lang: LANG });
+    const flagFor = (l) => l === 'fr' ? '🇫🇷' : l === 'en' ? '🇬🇧' : '🇮🇱';
+    if ($('#langFlag')) $('#langFlag').textContent = flagFor(LANG);
     applyI18n();
     navigate(currentPage);
   };
@@ -4811,6 +4923,11 @@ async function boot() {
 
 async function bootApp() {
   showAppShell();
+  // Load this user's preferred language (per-user), fall back to global.
+  const sessUser = await Auth.getCurrentUser();
+  if (sessUser?.lang && I18N[sessUser.lang]) {
+    LANG = sessUser.lang;
+  }
   applyI18n();
   // Auto-generate any missed recurring missions on every login.
   try { await genererMissionsRecurrentes(); } catch (e) { console.warn('scheduler', e); }
@@ -4832,6 +4949,25 @@ async function bootApp() {
   if (s) {
     $('#userBadge').textContent = `${t('welcomeBack')} ${s.nom} · ${roleLabel(s.role)}`;
   }
+
+  // Language switcher (per-user): persist on the employee record.
+  const flagFor = (l) => l === 'fr' ? '🇫🇷' : l === 'en' ? '🇬🇧' : '🇮🇱';
+  $('#langFlag').textContent = flagFor(LANG);
+  $('#langBtn').onclick = (ev) => {
+    ev.stopPropagation();
+    $('#langMenu').classList.toggle('hidden');
+  };
+  document.addEventListener('click', () => $('#langMenu')?.classList.add('hidden'));
+  $$('#langMenu .lang-opt').forEach(btn => btn.onclick = async () => {
+    const newLang = btn.dataset.lang;
+    if (!newLang || newLang === LANG) { $('#langMenu').classList.add('hidden'); return; }
+    LANG = newLang;
+    if (s?.employeId) await DB.update('employees', s.employeId, { lang: newLang });
+    $('#langFlag').textContent = flagFor(LANG);
+    $('#langMenu').classList.add('hidden');
+    applyI18n();
+    navigate(currentPage);
+  });
 
   // Default landing page based on role
   const role = s?.role;
