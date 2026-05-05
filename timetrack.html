@@ -1260,9 +1260,17 @@ const ENTITY_IMPORTS = {
     }
   },
   attendance: {
+    // Template covers ALL accepted entry fields. Provide an employee
+    // identifier in any of: email | numeroEmploye (matricule) | nom.
+    // pause is in hours (1.5 = 1h30) but values >= 5 are interpreted
+    // as minutes by the importer. totalHeures takes precedence over
+    // entrée/sortie when present; otherwise it is computed.
     template: {
-      headers: ['email', 'date', 'heureEntree', 'heureSortie', 'pause', 'totalHeures'],
-      sample: [['jean.dupont@example.com', '2025-05-01', '09:00', '17:30', 60, 7.5]]
+      headers: ['email', 'numeroEmploye', 'nom', 'date', 'heureEntree', 'heureSortie', 'pause', 'totalHeures', 'source'],
+      sample: [
+        ['jean.dupont@example.com', 'EMP001', 'Jean Dupont', '2025-05-01', '09:00', '17:30', 0.5, 8, 'import'],
+        ['', 'EMP002', 'Carla Dev',                          '2025-05-01', '08:30', '17:00', 30,  '',  'import']
+      ]
     }
     // NOTE: actual import handled by importAttendanceHandler (richer report).
   }
@@ -1809,7 +1817,7 @@ async function renderTimeEntries() {
           <label class="block text-sm text-slate-600 mb-1">${escapeHtml(t('timeClient'))}</label>
           <select id="te_client" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm">
             <option value="">${escapeHtml(t('selectClient'))}</option>
-            ${clients.map(c => `<option value="${c.id}">${escapeHtml(c.nom)}</option>`).join('')}
+            ${clients.filter(c => c.actif !== false).map(c => `<option value="${c.id}">${escapeHtml(c.nom)}</option>`).join('')}
           </select>
         </div>
         <div>
@@ -1854,10 +1862,15 @@ async function renderTimeEntries() {
   const selProject = $('#te_project');
   const selTask = $('#te_task');
 
+  // Map of active clients for fast lookup; inactive clients never reach this dropdown.
+  const activeClientIds = new Set(clients.filter(c => c.actif !== false).map(c => c.id));
   selClient.onchange = () => {
     const cid = Number(selClient.value);
     selProject.disabled = !cid;
-    const projs = projects.filter(p => p.clientId === cid);
+    // Only active projects of an ACTIVE client are offered.
+    const projs = projects.filter(p =>
+      p.clientId === cid && p.actif !== false && activeClientIds.has(p.clientId)
+    );
     selProject.innerHTML = `<option value="">${escapeHtml(t('selectProject'))}</option>` +
       projs.map(p => `<option value="${p.id}">${escapeHtml(p.nom)}</option>`).join('');
     selTask.disabled = true;
@@ -2014,6 +2027,15 @@ function diffHours(entree, sortie, pauseHours = 0) {
   if (h < 0) h += 24;
   return Math.max(0, h - (pauseHours || 0));
 }
+function timeAdd(timeStr, hoursToAdd) {
+  if (!timeStr) return '';
+  const [h, m] = timeStr.split(':').map(Number);
+  const totalMin = h * 60 + m + Math.round(Number(hoursToAdd) * 60);
+  const wrapped = ((totalMin % 1440) + 1440) % 1440;
+  const nh = Math.floor(wrapped / 60);
+  const nm = wrapped % 60;
+  return String(nh).padStart(2,'0') + ':' + String(nm).padStart(2,'0');
+}
 function parsePauseHours(v) {
   if (v == null || v === '') return 0;
   const n = Number(v);
@@ -2151,7 +2173,7 @@ async function attendanceForm(rec) {
           ${field('pause', t('attBreak') + ' (h)', r.pause ?? 0, 'number')}
           ${field('totalHeures', t('attTotal'), r.totalHeures, 'number')}
         </div>
-        <p class="text-xs text-slate-500">${escapeHtml(t('attTotal'))} = optional, computed from clock in/out if empty.</p>
+        <p class="text-xs text-slate-500">${escapeHtml(t('attTotal'))} ⇄ ${escapeHtml(t('attClockOut'))} : ${LANG === 'fr' ? "saisissez l'un, l'autre se calcule" : LANG === 'he' ? 'הזן אחד, השני יחושב' : 'enter one, the other is computed'}.</p>
       </div>`,
     onSave: async () => {
       const employeId = Number($('#f_employeId').value) || null;
@@ -2173,6 +2195,32 @@ async function attendanceForm(rec) {
       toast(t('saved'));
       renderAttendance();
     }
+  });
+
+  // Live auto-compute: typing end recomputes total; typing total recomputes end.
+  const fEntree = $('#f_heureEntree');
+  const fSortie = $('#f_heureSortie');
+  const fPause  = $('#f_pause');
+  const fTotal  = $('#f_totalHeures');
+  const recomputeTotal = () => {
+    if (!fEntree.value || !fSortie.value) return;
+    const h = diffHours(fEntree.value, fSortie.value, Number(fPause.value) || 0);
+    if (h != null) fTotal.value = fmt(h);
+  };
+  const recomputeSortie = () => {
+    if (!fEntree.value || !fTotal.value) return;
+    fSortie.value = timeAdd(fEntree.value, Number(fTotal.value) + (Number(fPause.value) || 0));
+  };
+  fSortie.addEventListener('input', recomputeTotal);
+  fTotal.addEventListener('input', recomputeSortie);
+  fEntree.addEventListener('input', () => {
+    if (fSortie.value) recomputeTotal();
+    else if (fTotal.value) recomputeSortie();
+  });
+  fPause.addEventListener('input', () => {
+    if (fSortie.value && !fTotal.value) recomputeTotal();
+    else if (fTotal.value) recomputeSortie();
+    else if (fSortie.value) recomputeTotal();
   });
 }
 
