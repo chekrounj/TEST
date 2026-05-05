@@ -176,7 +176,7 @@
       <button data-page="validations" data-roles="admin,manager" class="nav-item flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-slate-100 text-slate-700 text-start">
         <span class="nav-ico text-slate-500">✅</span><span data-i18n="navValidations">Validations à traiter</span>
       </button>
-      <button data-page="attendance" data-roles="admin,manager,employe" class="nav-item flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-slate-100 text-slate-700 text-start">
+      <button data-page="attendance" data-roles="admin,manager" class="nav-item flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-slate-100 text-slate-700 text-start">
         <span class="nav-ico text-slate-500">🕘</span><span data-i18n="navAttendance">Présences</span>
       </button>
       <button data-page="reconciliation" data-roles="admin,manager" class="nav-item flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-slate-100 text-slate-700 text-start">
@@ -437,6 +437,19 @@ const I18N = {
     statActiveMissions: "Missions actives",
     statActiveRecurrences: "Récurrences actives",
     statRespectRate: "Taux de respect des délais",
+    assignedBy: "Attribuée par",
+    creePar: "Créée par",
+    multiAssign: "Assignation multiple",
+    selectAssignees: "Sélectionner les employés",
+    allowEmpAssignTitle: "Permissions des employés",
+    allowEmpAssign: "Autoriser les employés à assigner des missions à d'autres",
+    selected: "sélectionné(s)",
+    selectAll: "Tout sélectionner", selectNone: "Tout désélectionner",
+    detailsTitle: "Détails",
+    nMissionsCreated: "{n} mission(s) créée(s)",
+    nRecurrencesCreated: "{n} récurrence(s) créée(s)",
+    viewDetails: "Voir le détail",
+    closeDetails: "Fermer",
   },
   en: {
     appSubtitle: "Time Tracking",
@@ -628,6 +641,19 @@ const I18N = {
     statActiveMissions: "Active missions",
     statActiveRecurrences: "Active recurrences",
     statRespectRate: "On-time rate",
+    assignedBy: "Assigned by",
+    creePar: "Created by",
+    multiAssign: "Bulk assign",
+    selectAssignees: "Select assignees",
+    allowEmpAssignTitle: "Employee permissions",
+    allowEmpAssign: "Allow employees to assign missions to others",
+    selected: "selected",
+    selectAll: "Select all", selectNone: "Clear",
+    detailsTitle: "Details",
+    nMissionsCreated: "{n} mission(s) created",
+    nRecurrencesCreated: "{n} recurrence(s) created",
+    viewDetails: "View details",
+    closeDetails: "Close",
   },
   he: {
     appSubtitle: "מעקב זמן",
@@ -819,6 +845,19 @@ const I18N = {
     statActiveMissions: "משימות פעילות",
     statActiveRecurrences: "חזרות פעילות",
     statRespectRate: "אחוז עמידה בזמן",
+    assignedBy: "הוקצה על ידי",
+    creePar: "נוצר על ידי",
+    multiAssign: "הקצאה מרובה",
+    selectAssignees: "בחר עובדים",
+    allowEmpAssignTitle: "הרשאות עובדים",
+    allowEmpAssign: "אפשר לעובדים להקצות משימות לאחרים",
+    selected: "נבחרו",
+    selectAll: "בחר הכל", selectNone: "נקה",
+    detailsTitle: "פרטים",
+    nMissionsCreated: "{n} משימות נוצרו",
+    nRecurrencesCreated: "{n} חזרות נוצרו",
+    viewDetails: "הצג פרטים",
+    closeDetails: "סגור",
   }
 };
 let LANG = 'fr';
@@ -1409,13 +1448,19 @@ function confirmModal(message) {
 const PAGE = $('#page');
 let currentPage = 'clients';
 
-function applyRoleVisibility() {
+async function applyRoleVisibility() {
   const role = Auth.getSession()?.role;
   if (!role) return;
   $$('#nav [data-roles]').forEach(el => {
     const allowed = el.dataset.roles.split(',');
     el.classList.toggle('hidden', !allowed.includes(role));
   });
+  // Optional: employees can be allowed (by admin) to assign missions.
+  if (role === 'employe') {
+    const allow = !!(await DB.getSetting('permettreEmployesAssignerMissions', false));
+    const btn = document.querySelector('#nav [data-page="missions"]');
+    if (btn && allow) btn.classList.remove('hidden');
+  }
 }
 
 function guardRole(...roles) {
@@ -1444,9 +1489,14 @@ async function navigate(page) {
   if (page === 'time')           return renderTimeEntries();
   if (page === 'mySubmissions')  return renderMySubmissions();
   if (page === 'validations')    { if (!guardRole('admin','manager')) return; return renderValidations(); }
-  if (page === 'attendance')     return renderAttendance();
+  if (page === 'attendance')     { if (!guardRole('admin','manager')) return; return renderAttendance(); }
   if (page === 'reconciliation') { if (!guardRole('admin','manager')) return; return renderReconciliation(); }
-  if (page === 'missions')       { if (!guardRole('admin','manager')) return; return renderMissions(); }
+  if (page === 'missions')       {
+    const sess = Auth.getSession();
+    const allowEmp = sess?.role === 'employe' && !!(await DB.getSetting('permettreEmployesAssignerMissions', false));
+    if (!allowEmp && !guardRole('admin','manager')) return;
+    return renderMissions();
+  }
   if (page === 'settings')       return renderSettings();
 }
 
@@ -2895,16 +2945,17 @@ async function renderDashboard() {
     const respect = done.length ? Math.round(100 * done.filter(m => m.respectDelaiDemande === true).length / done.length) : null;
     $('#dashBody').innerHTML = `
       <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
-        ${statCard('👥', t('statActiveEmployees'), activeEmployees, 'bg-blue-50 text-blue-800')}
-        ${statCard('⏳', t('statPendingSubs'), pending, 'bg-amber-50 text-amber-800')}
-        ${statCard('⛔', t('statRejectedThisMonth'), rejected, 'bg-red-50 text-red-800')}
+        ${statCard('👥', t('statActiveEmployees'), activeEmployees, 'bg-blue-50 text-blue-800', 'activeEmployees')}
+        ${statCard('⏳', t('statPendingSubs'), pending, 'bg-amber-50 text-amber-800', 'pendingSubs')}
+        ${statCard('⛔', t('statRejectedThisMonth'), rejected, 'bg-red-50 text-red-800', 'rejectedSubs')}
       </div>
       <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
-        ${statCard('📋', t('statActiveMissions'), activeMissions, 'bg-slate-100 text-slate-800')}
-        ${statCard('🔥', t('statTeamMissionsLate'), lateMissions, 'bg-red-50 text-red-800')}
-        ${statCard('🔁', t('statActiveRecurrences'), activeRecs, 'bg-blue-50 text-blue-800')}
-        ${statCard('✅', t('statRespectRate'), respect == null ? '—' : respect + '%', 'bg-green-50 text-green-800')}
+        ${statCard('📋', t('statActiveMissions'), activeMissions, 'bg-slate-100 text-slate-800', 'activeMissions')}
+        ${statCard('🔥', t('statTeamMissionsLate'), lateMissions, 'bg-red-50 text-red-800', 'lateMissions')}
+        ${statCard('🔁', t('statActiveRecurrences'), activeRecs, 'bg-blue-50 text-blue-800', 'activeRecs')}
+        ${statCard('✅', t('statRespectRate'), respect == null ? '—' : respect + '%', 'bg-green-50 text-green-800', 'respectRate')}
       </div>`;
+    wireAdminDashboardClicks(employees, submissions, missions, recurrences);
   } else if (role === 'manager') {
     const teamIds = new Set([session.employeId, ...employees.filter(e => Number(e.managerId) === Number(session.employeId)).map(e => e.id)]);
     const pending = submissions.filter(s => s.statut === 'soumis' && teamIds.has(Number(s.employeId))).length;
@@ -2921,8 +2972,8 @@ async function renderDashboard() {
       .slice(0, 5);
     $('#dashBody').innerHTML = `
       <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
-        ${statCard('✅', t('statToValidate'), pending, 'bg-blue-50 text-blue-800')}
-        ${statCard('🔥', t('statTeamMissionsLate'), lateTeam.length, 'bg-red-50 text-red-800')}
+        ${statCard('✅', t('statToValidate'), pending, 'bg-blue-50 text-blue-800', 'mgr_pending')}
+        ${statCard('🔥', t('statTeamMissionsLate'), lateTeam.length, 'bg-red-50 text-red-800', 'mgr_late')}
         <div class="bg-white rounded-xl border border-slate-200 p-5 flex items-center justify-center gap-3">
           <button id="goValidations" class="px-4 py-2 rounded-lg bg-blue-700 text-white hover:bg-blue-800 text-sm">${escapeHtml(t('goToValidations'))}</button>
         </div>
@@ -2936,10 +2987,30 @@ async function renderDashboard() {
         <div class="bg-white rounded-xl border border-slate-200 p-5">
           <div class="text-xs uppercase tracking-wide text-slate-500 mb-3">${escapeHtml(t('statTopUrgent'))}</div>
           ${urgent.length === 0 ? '<div class="text-sm text-slate-400">—</div>' :
-            urgent.map(m => `<div class="text-sm py-1"><span class="font-medium">${escapeHtml(m.libelle)}</span> · ${escapeHtml(empById[m.assigneEmployeId]?.nom || '?')} · <span class="text-slate-500">${escapeHtml(m.dateRealisationDemandee || '')}</span></div>`).join('')}
+            urgent.map(m => `<div data-mid="${m.id}" class="text-sm py-1 cursor-pointer hover:bg-slate-50 rounded px-2"><span class="font-medium">${escapeHtml(m.libelle)}</span> · ${escapeHtml(empById[m.assigneEmployeId]?.nom || '?')} · <span class="text-slate-500">${escapeHtml(m.dateRealisationDemandee || '')}</span></div>`).join('')}
         </div>
       </div>`;
     $('#goValidations')?.addEventListener('click', () => navigate('validations'));
+    // Top-5 urgent entries — clickable to detail
+    $$('#dashBody [data-mid]').forEach(el => el.onclick = () => showMissionDetail(Number(el.dataset.mid)));
+
+    // Manager: clickable detail cards
+    const teamSubs = submissions.filter(s => s.statut === 'soumis' && teamIds.has(Number(s.employeId)));
+    const mgrHandlers = {
+      mgr_pending: () => showListModal(t('statToValidate'),
+        [t('timeEmployee'), t('period'), t('submissionDate')],
+        teamSubs.map(s => `<tr><td class="px-3 py-2">${escapeHtml(empById[s.employeId]?.nom||'?')}</td><td class="px-3 py-2 text-slate-600">${escapeHtml(s.periodeDebut||'')} → ${escapeHtml(s.periodeFin||'')}</td><td class="px-3 py-2 text-slate-600">${escapeHtml(s.dateSubmission||'')}</td></tr>`)),
+      mgr_late: () => showListModal(t('statTeamMissionsLate'),
+        [t('missionLibelle'), t('missionAssignee'), t('missionDateDemandee')],
+        lateTeam.map(m => `<tr class="cursor-pointer hover:bg-slate-50" data-mid="${m.id}"><td class="px-3 py-2">${escapeHtml(m.libelle)}</td><td class="px-3 py-2 text-slate-600">${escapeHtml(empById[m.assigneEmployeId]?.nom||'?')}</td><td class="px-3 py-2 text-red-700">${escapeHtml(m.dateRealisationDemandee||'')}</td></tr>`))
+    };
+    $$('[data-detail]').forEach(el => {
+      const fn = mgrHandlers[el.dataset.detail];
+      if (fn) el.onclick = () => {
+        fn();
+        setTimeout(() => $$('#modalBody [data-mid]').forEach(tr => tr.onclick = () => showMissionDetail(Number(tr.dataset.mid))), 0);
+      };
+    });
   } else {
     // EMPLOYEE: missions cards FIRST, then existing stats
     await renderEmployeeMissions(session.employeId, clients, missions);
@@ -2954,7 +3025,7 @@ async function renderDashboard() {
     const extra = document.createElement('div');
     extra.className = 'grid grid-cols-1 md:grid-cols-2 gap-4 mt-6';
     extra.innerHTML = `
-      ${statCard('📝', t('statHoursDraft'), fmt(draftHours), 'bg-slate-100 text-slate-800')}
+      ${statCard('📝', t('statHoursDraft'), fmt(draftHours), 'bg-slate-100 text-slate-800', 'emp_drafts')}
       <div class="bg-white rounded-xl border border-slate-200 p-5">
         <div class="text-xs uppercase tracking-wide text-slate-500 mb-1">${escapeHtml(t('statLastSubmission'))}</div>
         <div class="text-sm">${lastTxt}</div>
@@ -2963,6 +3034,16 @@ async function renderDashboard() {
     `;
     $('#dashBody').appendChild(extra);
     $('#goMySubs')?.addEventListener('click', () => navigate('mySubmissions'));
+
+    // Employee: drafts card → list modal
+    const empCli = Object.fromEntries((await DB.getAll('clients')).map(c => [c.id, c]));
+    const empPro = Object.fromEntries((await DB.getAll('projects')).map(p => [p.id, p]));
+    $('[data-detail="emp_drafts"]')?.addEventListener('click', () => {
+      showListModal(t('statHoursDraft'),
+        [t('timeDate'), t('timeClient'), t('timeProject'), t('timeHours')],
+        myDraft.sort((a,b)=>(b.date||'').localeCompare(a.date||''))
+          .map(en => `<tr><td class="px-3 py-2">${escapeHtml(en.date)}</td><td class="px-3 py-2 text-slate-600">${escapeHtml(empCli[en.clientId]?.nom||'')}</td><td class="px-3 py-2 text-slate-600">${escapeHtml(empPro[en.projectId]?.nom||'')}</td><td class="px-3 py-2 font-medium">${en.heures}</td></tr>`));
+    });
 
     if (last && last.statut === 'rejete') {
       showBanner(fillTpl(t('submissionRejected'), { date: last.dateSubmission || '' }), 'error');
@@ -2973,6 +3054,9 @@ async function renderDashboard() {
 /* ----- Employee mission cards (dashboard section) ----- */
 async function renderEmployeeMissions(employeId, clients, allMissions) {
   const clientById = Object.fromEntries(clients.map(c => [c.id, c]));
+  const allEmps = await DB.getAll('employees');
+  const empByIdLocal = Object.fromEntries(allEmps.map(e => [e.id, e]));
+  renderEmployeeMissions._empById = empByIdLocal;
   const myMissions = allMissions.filter(m => Number(m.assigneEmployeId) === Number(employeId));
   // Don't show effectuees older than 24h
   const cutoff = Date.now() - 24 * 3600 * 1000;
@@ -3080,11 +3164,14 @@ async function renderEmployeeMissions(employeId, clients, allMissions) {
         const txt = fillTpl(t('completedOn'), { date: (m.dateRealisation||'').slice(0,16).replace('T',' '), n: days });
         bottom = `<div class="text-xs text-slate-500">${escapeHtml(txt)}</div>`;
       }
+      const empById = renderEmployeeMissions._empById || {};
+      const assignedBy = m.creePar ? (empById[m.creePar]?.nom || '?') : null;
       return `
-        <div class="bg-white rounded-xl ${priorityBorderClass(m.priorite)} border border-slate-200 p-4 ${isDone ? 'opacity-60' : ''}">
+        <div data-mid="${m.id}" class="cursor-pointer bg-white rounded-xl ${priorityBorderClass(m.priorite)} border border-slate-200 p-4 ${isDone ? 'opacity-60' : ''} hover:shadow-md transition-shadow">
           <div class="font-semibold text-slate-900">${escapeHtml(m.libelle)}</div>
           <div class="mt-1"><span class="px-2 py-0.5 rounded-full bg-slate-100 text-slate-700 text-xs">${escapeHtml(clientById[m.clientId]?.nom || '?')}</span> ${priorityBadge(m.priorite)} ${missionStatusBadge(m.statut)}</div>
           <div class="mt-2 text-sm ${dueCls}">${escapeHtml(t('forDate'))} ${escapeHtml(m.dateRealisationDemandee || '?')}${isLate ? ' ⚠' : ''}</div>
+          ${assignedBy ? `<div class="mt-1 text-xs text-slate-500">${escapeHtml(t('assignedBy'))} ${escapeHtml(assignedBy)}</div>` : ''}
           ${m.description ? `<div class="mt-2 text-sm text-slate-600 line-clamp-2">${escapeHtml(m.description)}</div>` : ''}
           ${bottom ? `<div class="mt-3 flex gap-2 flex-wrap">${bottom}</div>` : ''}
         </div>`;
@@ -3107,6 +3194,13 @@ async function renderEmployeeMissions(employeId, clients, allMissions) {
       $('#emCards').innerHTML = `<div class="grid grid-cols-1 md:grid-cols-3 gap-3">${list.map(renderCard).join('')}</div>`;
     }
 
+    $$('#emCards [data-mid]').forEach(card => {
+      card.onclick = (ev) => {
+        if (ev.target.closest('[data-act]')) return; // ignore action buttons
+        const mid = Number(card.dataset.mid);
+        showMissionDetail(mid);
+      };
+    });
     $$('#emCards [data-act]').forEach(b => b.onclick = async () => {
       const id = Number(b.dataset.id);
       const act = b.dataset.act;
@@ -3134,17 +3228,94 @@ async function renderEmployeeMissions(employeId, clients, allMissions) {
   redraw();
 }
 
-function statCard(icon, label, value, cls = 'bg-slate-100 text-slate-700') {
+function statCard(icon, label, value, cls = 'bg-slate-100 text-slate-700', detailKey = null) {
+  const clickable = detailKey ? `data-detail="${detailKey}" class="cursor-pointer hover:shadow-md transition-shadow"` : '';
   return `
-    <div class="bg-white rounded-xl border border-slate-200 p-5">
+    <div ${clickable ? clickable : ''} class="bg-white rounded-xl border border-slate-200 p-5 ${detailKey ? 'cursor-pointer hover:shadow-md transition-shadow' : ''}" ${detailKey ? `data-detail="${detailKey}"` : ''}>
       <div class="flex items-center gap-3">
         <div class="w-10 h-10 rounded-lg ${cls} grid place-items-center text-lg">${icon}</div>
         <div>
           <div class="text-xs uppercase tracking-wide text-slate-500">${escapeHtml(label)}</div>
           <div class="text-2xl font-bold text-slate-900">${escapeHtml(String(value))}</div>
         </div>
+        ${detailKey ? '<div class="ms-auto text-slate-300 text-sm">▸</div>' : ''}
       </div>
     </div>`;
+}
+
+function wireAdminDashboardClicks(employees, submissions, missions, recurrences) {
+  const empById = Object.fromEntries(employees.map(e => [e.id, e]));
+  const today = new Date().toISOString().slice(0,10);
+  const monthIso = (() => { const d = new Date(); d.setDate(1); return d.toISOString().slice(0,10); })();
+  const handlers = {
+    activeEmployees: () => showListModal(t('statActiveEmployees'),
+      [t('empName'), t('empEmail'), t('role')],
+      employees.filter(e => e.actif !== false)
+        .map(e => `<tr><td class="px-3 py-2">${escapeHtml(e.nom)}</td><td class="px-3 py-2 text-slate-600">${escapeHtml(e.email||'')}</td><td class="px-3 py-2 text-slate-600">${escapeHtml(roleLabel(e.role||'employe'))}</td></tr>`)),
+    pendingSubs: () => showListModal(t('statPendingSubs'),
+      [t('timeEmployee'), t('period'), t('submissionDate')],
+      submissions.filter(s => s.statut === 'soumis')
+        .map(s => `<tr><td class="px-3 py-2">${escapeHtml(empById[s.employeId]?.nom||'?')}</td><td class="px-3 py-2 text-slate-600">${escapeHtml(s.periodeDebut||'')} → ${escapeHtml(s.periodeFin||'')}</td><td class="px-3 py-2 text-slate-600">${escapeHtml(s.dateSubmission||'')}</td></tr>`)),
+    rejectedSubs: () => showListModal(t('statRejectedThisMonth'),
+      [t('timeEmployee'), t('period'), 'Commentaire'],
+      submissions.filter(s => s.statut === 'rejete' && (s.dateValidation||'') >= monthIso)
+        .map(s => `<tr><td class="px-3 py-2">${escapeHtml(empById[s.employeId]?.nom||'?')}</td><td class="px-3 py-2 text-slate-600">${escapeHtml(s.periodeDebut||'')} → ${escapeHtml(s.periodeFin||'')}</td><td class="px-3 py-2 text-red-700 text-sm">${escapeHtml(s.commentaire||'')}</td></tr>`)),
+    activeMissions: () => showListModal(t('statActiveMissions'),
+      [t('missionLibelle'), t('missionAssignee'), t('missionDateDemandee'), t('missionStatut')],
+      missions.filter(m => m.statut !== 'effectuee' && m.statut !== 'annulee')
+        .map(m => `<tr class="cursor-pointer hover:bg-slate-50" data-mid="${m.id}"><td class="px-3 py-2">${escapeHtml(m.libelle)}</td><td class="px-3 py-2 text-slate-600">${escapeHtml(empById[m.assigneEmployeId]?.nom||'?')}</td><td class="px-3 py-2 ${dueDateClass(m.dateRealisationDemandee, m.statut)}">${escapeHtml(m.dateRealisationDemandee||'')}</td><td class="px-3 py-2">${missionStatusBadge(m.statut)}</td></tr>`)),
+    lateMissions: () => showListModal(t('statTeamMissionsLate'),
+      [t('missionLibelle'), t('missionAssignee'), t('missionDateDemandee')],
+      missions.filter(m => m.statut !== 'effectuee' && m.statut !== 'annulee' && (m.dateRealisationDemandee||'') < today)
+        .map(m => `<tr class="cursor-pointer hover:bg-slate-50" data-mid="${m.id}"><td class="px-3 py-2">${escapeHtml(m.libelle)}</td><td class="px-3 py-2 text-slate-600">${escapeHtml(empById[m.assigneEmployeId]?.nom||'?')}</td><td class="px-3 py-2 text-red-700">${escapeHtml(m.dateRealisationDemandee||'')}</td></tr>`)),
+    activeRecs: () => showListModal(t('statActiveRecurrences'),
+      [t('missionLibelle'), t('missionAssignee'), t('recPeriodicity')],
+      recurrences.filter(r => r.actif !== false)
+        .map(r => `<tr><td class="px-3 py-2">${escapeHtml(r.libelle)}</td><td class="px-3 py-2 text-slate-600">${escapeHtml(empById[r.assigneEmployeId]?.nom||'?')}</td><td class="px-3 py-2 text-slate-600">${escapeHtml(summarizeRecurrence(r))}</td></tr>`)),
+    respectRate: () => {
+      const done = missions.filter(m => m.statut === 'effectuee');
+      const grouped = {};
+      for (const m of done) {
+        const k = m.assigneEmployeId;
+        if (!grouped[k]) grouped[k] = { total: 0, ok: 0 };
+        grouped[k].total++;
+        if (m.respectDelaiDemande === true) grouped[k].ok++;
+      }
+      const rows = Object.entries(grouped).map(([eid, v]) => {
+        const pct = v.total ? Math.round(100 * v.ok / v.total) : 0;
+        return `<tr><td class="px-3 py-2">${escapeHtml(empById[eid]?.nom||'?')}</td><td class="px-3 py-2 text-slate-600">${v.total}</td><td class="px-3 py-2 ${pct >= 80 ? 'text-green-700' : pct >= 50 ? 'text-amber-700' : 'text-red-700'} font-medium">${pct}%</td></tr>`;
+      });
+      showListModal(t('statRespectRate'), [t('timeEmployee'), t('totalHours'), '%'], rows);
+    }
+  };
+  $$('[data-detail]').forEach(el => el.onclick = () => {
+    const fn = handlers[el.dataset.detail];
+    if (fn) {
+      fn();
+      // Make rows with data-mid clickable for mission detail.
+      setTimeout(() => {
+        $$('#modalBody [data-mid]').forEach(tr => tr.onclick = () => showMissionDetail(Number(tr.dataset.mid)));
+      }, 0);
+    }
+  });
+}
+
+function showListModal(title, headers, rows) {
+  const html = rows.length
+    ? `<table class="w-full text-sm">
+         <thead class="bg-slate-50 text-xs uppercase tracking-wide text-slate-500"><tr>${headers.map(h => `<th class="px-3 py-2 text-start font-medium">${escapeHtml(h)}</th>`).join('')}</tr></thead>
+         <tbody class="divide-y divide-slate-100">${rows.join('')}</tbody>
+       </table>`
+    : `<p class="text-sm text-slate-500">${escapeHtml(t('noResults'))}</p>`;
+  openModal({
+    title,
+    bodyHtml: `<div class="max-h-[60vh] overflow-y-auto">${html}</div>`,
+    hideSave: true,
+    onSave: async () => true
+  });
+  // Replace cancel button label
+  const cb = $('#modalCancel');
+  if (cb) cb.textContent = t('closeDetails');
 }
 
 function submissionStatusLabel(s) {
@@ -3487,22 +3658,70 @@ function summarizeRecurrence(rec) {
 async function visibleEmployeesForMissions() {
   const sess = Auth.getSession();
   const all = await DB.getAll('employees');
-  if (!sess) return all;
-  if (sess.role === 'admin') return all;
+  const active = all.filter(e => e.actif !== false);
+  if (!sess) return active;
+  if (sess.role === 'admin') return active;
   if (sess.role === 'manager') {
     const mid = Number(sess.employeId);
-    return all.filter(e => e.id === mid || Number(e.managerId) === mid);
+    return active.filter(e => e.id === mid || Number(e.managerId) === mid);
   }
-  return all.filter(e => e.id === Number(sess.employeId));
+  // employe — only if admin allowed it; otherwise just self
+  const allow = await DB.getSetting('permettreEmployesAssignerMissions', false);
+  if (allow) return active;
+  return active.filter(e => e.id === Number(sess.employeId));
 }
-function canManageMissionForEmployee(employeeId, allEmployees) {
+async function canManageMissionForEmployee(employeeId, allEmployees) {
   const sess = Auth.getSession();
   if (!sess) return false;
   if (sess.role === 'admin') return true;
-  if (sess.role !== 'manager') return false;
-  const emp = allEmployees.find(e => e.id === Number(employeeId));
-  if (!emp) return false;
-  return emp.id === Number(sess.employeId) || Number(emp.managerId) === Number(sess.employeId);
+  if (sess.role === 'manager') {
+    const emp = allEmployees.find(e => e.id === Number(employeeId));
+    if (!emp) return false;
+    return emp.id === Number(sess.employeId) || Number(emp.managerId) === Number(sess.employeId);
+  }
+  // employe with explicit permission
+  return !!(await DB.getSetting('permettreEmployesAssignerMissions', false));
+}
+
+async function showMissionDetail(missionId) {
+  const m = await DB.getById('missions', missionId);
+  if (!m) return;
+  const [clients, employees] = await Promise.all([DB.getAll('clients'), DB.getAll('employees')]);
+  const empById = Object.fromEntries(employees.map(e => [e.id, e]));
+  const clientById = Object.fromEntries(clients.map(c => [c.id, c]));
+  const sess = Auth.getSession();
+  const days = m.delaiRealisationMs != null ? (m.delaiRealisationMs / 86400000).toFixed(1) : '—';
+  const respect = m.respectDelaiDemande === true ? '✓' : m.respectDelaiDemande === false ? '✗' : '—';
+
+  openModal({
+    title: `📋 ${m.libelle}`,
+    bodyHtml: `
+      <div class="space-y-2 text-sm">
+        <div class="flex flex-wrap gap-2">${priorityBadge(m.priorite)} ${missionStatusBadge(m.statut)}</div>
+        <div><span class="text-slate-500">${escapeHtml(t('timeClient'))}:</span> ${escapeHtml(clientById[m.clientId]?.nom || '?')}</div>
+        <div><span class="text-slate-500">${escapeHtml(t('missionAssignee'))}:</span> ${escapeHtml(empById[m.assigneEmployeId]?.nom || '?')}</div>
+        ${m.creePar ? `<div><span class="text-slate-500">${escapeHtml(t('assignedBy'))}:</span> ${escapeHtml(empById[m.creePar]?.nom || '?')}</div>` : ''}
+        <div><span class="text-slate-500">${escapeHtml(t('missionDateDemandee'))}:</span> ${escapeHtml(m.dateRealisationDemandee || '?')}</div>
+        ${m.dateAssignation ? `<div><span class="text-slate-500">${escapeHtml(t('attDate'))} d'assignation:</span> ${escapeHtml(m.dateAssignation.slice(0,16).replace('T',' '))}</div>` : ''}
+        ${m.dateRealisation ? `<div><span class="text-slate-500">${escapeHtml(t('missionStatusEffectuee'))}:</span> ${escapeHtml(m.dateRealisation.slice(0,16).replace('T',' '))} (${days} j, ${respect})</div>` : ''}
+        ${m.recurrenceId ? `<div class="text-xs text-slate-500">🔁 mission générée par récurrence #${m.recurrenceId}</div>` : ''}
+        ${m.description ? `<div class="pt-2 border-t border-slate-200"><div class="text-slate-500 mb-1">${escapeHtml(t('taskDesc'))}</div><div>${escapeHtml(m.description)}</div></div>` : ''}
+        ${sess && Number(sess.employeId) === Number(m.assigneEmployeId)
+          ? `<div class="pt-2 border-t border-slate-200">
+               <div class="text-slate-500 mb-1">${escapeHtml(t('missionNotes'))}</div>
+               <textarea id="md_notes" rows="3" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm">${escapeHtml(m.notes || '')}</textarea>
+             </div>`
+          : (m.notes ? `<div class="pt-2 border-t border-slate-200"><div class="text-slate-500 mb-1">${escapeHtml(t('missionNotes'))}</div><div>${escapeHtml(m.notes)}</div></div>` : '')}
+      </div>`,
+    onSave: async () => {
+      const ta = $('#md_notes');
+      if (ta) {
+        await DB.update('missions', missionId, { notes: ta.value.trim() });
+        toast(t('saved'));
+      }
+    },
+    hideSave: !(sess && Number(sess.employeId) === Number(m.assigneEmployeId))
+  });
 }
 
 /* ----- MISSIONS PAGE (admin/manager) ----- */
@@ -3598,25 +3817,28 @@ async function renderMissionsPonctuelles() {
           <td class="px-4 py-3">${escapeHtml(m.libelle)}</td>
           <td class="px-4 py-3 text-slate-600">${escapeHtml(clientById[m.clientId]?.nom || '')}</td>
           <td class="px-4 py-3 text-slate-600">${escapeHtml(empById[m.assigneEmployeId]?.nom || '?')}</td>
+          <td class="px-4 py-3 text-slate-500 text-sm">${escapeHtml(empById[m.creePar]?.nom || '—')}</td>
           <td class="px-4 py-3">${priorityBadge(m.priorite)}</td>
           <td class="px-4 py-3 ${dueDateClass(m.dateRealisationDemandee, m.statut)}">${escapeHtml(m.dateRealisationDemandee || '')}</td>
           <td class="px-4 py-3">${missionStatusBadge(m.statut)}</td>
           <td class="px-4 py-3 text-slate-600 text-sm">${delai}</td>
           <td class="px-4 py-3 text-center">${respect}</td>
           <td class="px-4 py-3">
-            <button data-act="edit" data-id="${m.id}" class="text-blue-700 hover:underline text-sm">${escapeHtml(t('edit'))}</button>
+            <button data-act="view"   data-id="${m.id}" class="text-slate-700 hover:underline text-sm">${escapeHtml(t('viewDetails'))}</button>
+            <button data-act="edit"   data-id="${m.id}" class="text-blue-700 hover:underline text-sm ms-3">${escapeHtml(t('edit'))}</button>
             <button data-act="delete" data-id="${m.id}" class="text-red-600 hover:underline text-sm ms-3">${escapeHtml(t('delete'))}</button>
           </td>
         </tr>`;
     }).join('');
     $('#mp_body').innerHTML = tableEl(
-      [t('missionLibelle'), t('timeClient'), t('missionAssignee'), t('missionPriorite'),
+      [t('missionLibelle'), t('timeClient'), t('missionAssignee'), t('creePar'), t('missionPriorite'),
        t('missionDateDemandee'), t('missionStatut'), t('missionDelai'), t('missionRespect'), t('actions')],
       rows
     );
     $$('#mp_body [data-act]').forEach(b => b.onclick = async () => {
       const id = Number(b.dataset.id);
-      if (b.dataset.act === 'edit') missionForm(await DB.getById('missions', id));
+      if (b.dataset.act === 'view') showMissionDetail(id);
+      else if (b.dataset.act === 'edit') missionForm(await DB.getById('missions', id));
       else if (b.dataset.act === 'delete') {
         if (await confirmModal(t('confirmDelete'))) {
           await DB.remove('missions', id);
@@ -3645,6 +3867,10 @@ async function missionForm(rec) {
     { value: 'normale', label: t('priorityNormale') },
     { value: 'basse',   label: t('priorityBasse') }
   ];
+  // For new missions, allow multi-select. For edits, a single record is bound to one assignee.
+  const isNew = !rec;
+  const preselected = new Set(rec ? [Number(rec.assigneEmployeId)] : []);
+
   openModal({
     title: rec ? t('edit') : t('newMission'),
     bodyHtml: `
@@ -3652,7 +3878,21 @@ async function missionForm(rec) {
         ${field('libelle', t('missionLibelle'), r.libelle, 'text', true)}
         ${textarea('description', t('taskDesc'), r.description)}
         ${selectField('clientId', t('timeClient'), clients.filter(c => c.actif !== false).map(c => ({ value: c.id, label: c.nom })), r.clientId, true)}
-        ${selectField('assigneEmployeId', t('missionAssignee'), visibleEmps.map(e => ({ value: e.id, label: e.nom })), r.assigneEmployeId, true)}
+        ${isNew ? `
+          <div>
+            <div class="flex items-center justify-between mb-1">
+              <label class="block text-sm text-slate-600">${escapeHtml(t('selectAssignees'))} <span class="text-red-600">*</span></label>
+              <div class="text-xs flex gap-2">
+                <button type="button" id="selAll" class="text-blue-700 hover:underline">${escapeHtml(t('selectAll'))}</button>
+                <button type="button" id="selNone" class="text-slate-500 hover:underline">${escapeHtml(t('selectNone'))}</button>
+              </div>
+            </div>
+            <div id="empBoxes" class="border border-slate-300 rounded-lg p-2 max-h-40 overflow-y-auto grid grid-cols-1 sm:grid-cols-2 gap-1">
+              ${visibleEmps.map(e => `<label class="inline-flex items-center gap-2 text-sm px-2 py-1 rounded hover:bg-slate-50"><input type="checkbox" class="emp-pick w-4 h-4" value="${e.id}">${escapeHtml((e.numeroEmploye ? e.numeroEmploye + ' — ' : '') + e.nom)}</label>`).join('')}
+            </div>
+            <p class="text-xs text-slate-500 mt-1"><span id="selCount">0</span> ${escapeHtml(t('selected'))} — ${escapeHtml(t('multiAssign'))}</p>
+          </div>
+        ` : selectField('assigneEmployeId', t('missionAssignee'), visibleEmps.map(e => ({ value: e.id, label: e.nom })), r.assigneEmployeId, true)}
         ${selectField('priorite', t('missionPriorite'), priOpts, r.priorite || 'normale', true)}
         ${field('dateRealisationDemandee', t('missionDateDemandee'), r.dateRealisationDemandee, 'date', true)}
         ${textarea('notes', t('missionNotes'), r.notes)}
@@ -3662,22 +3902,42 @@ async function missionForm(rec) {
         libelle: $('#f_libelle').value.trim(),
         description: $('#f_description').value.trim(),
         clientId: Number($('#f_clientId').value) || null,
-        assigneEmployeId: Number($('#f_assigneEmployeId').value) || null,
         priorite: $('#f_priorite').value,
         dateRealisationDemandee: $('#f_dateRealisationDemandee').value,
         notes: $('#f_notes').value.trim()
       };
-      if (!data.libelle || !data.clientId || !data.assigneEmployeId || !data.dateRealisationDemandee) return false;
-      if (!canManageMissionForEmployee(data.assigneEmployeId, allEmployees)) {
-        toast(t('forbidden'));
-        return false;
+      if (!data.libelle || !data.clientId || !data.dateRealisationDemandee) return false;
+      if (rec) {
+        const assignee = Number($('#f_assigneEmployeId').value) || null;
+        if (!assignee) return false;
+        if (!await canManageMissionForEmployee(assignee, allEmployees)) { toast(t('forbidden')); return false; }
+        await DB.update('missions', rec.id, { ...data, assigneEmployeId: assignee });
+        toast(t('saved'));
+      } else {
+        const ids = Array.from(document.querySelectorAll('.emp-pick:checked')).map(c => Number(c.value));
+        if (!ids.length) return false;
+        for (const id of ids) {
+          if (!await canManageMissionForEmployee(id, allEmployees)) { toast(t('forbidden')); return false; }
+        }
+        for (const id of ids) {
+          await DB.creerMission({ ...data, assigneEmployeId: id });
+        }
+        toast(fillTpl(t('nMissionsCreated'), { n: ids.length }));
       }
-      if (rec) await DB.update('missions', rec.id, data);
-      else await DB.creerMission(data);
-      toast(t('saved'));
       renderMissionsPonctuelles();
     }
   });
+
+  if (isNew) {
+    const updateCount = () => {
+      const n = document.querySelectorAll('.emp-pick:checked').length;
+      const c = $('#selCount'); if (c) c.textContent = String(n);
+    };
+    document.querySelectorAll('.emp-pick').forEach(c => c.onchange = updateCount);
+    $('#selAll').onclick = () => { document.querySelectorAll('.emp-pick').forEach(c => c.checked = true); updateCount(); };
+    $('#selNone').onclick = () => { document.querySelectorAll('.emp-pick').forEach(c => c.checked = false); updateCount(); };
+    updateCount();
+  }
 }
 
 async function renderMissionsRecurrences() {
@@ -3756,6 +4016,7 @@ async function renderMissionsRecurrences() {
 async function recurrenceForm(rec) {
   const [allEmployees, clients] = await Promise.all([DB.getAll('employees'), DB.getAll('clients')]);
   const visibleEmps = await visibleEmployeesForMissions();
+  const isNew = !rec;
   const r = rec || {
     libelle: '', description: '', clientId: '', assigneEmployeId: '',
     priorite: 'normale', notes: '',
@@ -3783,7 +4044,21 @@ async function recurrenceForm(rec) {
         ${field('libelle', t('missionLibelle'), r.libelle, 'text', true)}
         ${textarea('description', t('taskDesc'), r.description)}
         ${selectField('clientId', t('timeClient'), clients.filter(c => c.actif !== false).map(c => ({ value: c.id, label: c.nom })), r.clientId, true)}
-        ${selectField('assigneEmployeId', t('missionAssignee'), visibleEmps.map(e => ({ value: e.id, label: e.nom })), r.assigneEmployeId, true)}
+        ${isNew ? `
+          <div>
+            <div class="flex items-center justify-between mb-1">
+              <label class="block text-sm text-slate-600">${escapeHtml(t('selectAssignees'))} <span class="text-red-600">*</span></label>
+              <div class="text-xs flex gap-2">
+                <button type="button" id="recSelAll" class="text-blue-700 hover:underline">${escapeHtml(t('selectAll'))}</button>
+                <button type="button" id="recSelNone" class="text-slate-500 hover:underline">${escapeHtml(t('selectNone'))}</button>
+              </div>
+            </div>
+            <div class="border border-slate-300 rounded-lg p-2 max-h-40 overflow-y-auto grid grid-cols-1 sm:grid-cols-2 gap-1">
+              ${visibleEmps.map(e => `<label class="inline-flex items-center gap-2 text-sm px-2 py-1 rounded hover:bg-slate-50"><input type="checkbox" class="rec-emp-pick w-4 h-4" value="${e.id}">${escapeHtml((e.numeroEmploye ? e.numeroEmploye + ' — ' : '') + e.nom)}</label>`).join('')}
+            </div>
+            <p class="text-xs text-slate-500 mt-1"><span id="recSelCount">0</span> ${escapeHtml(t('selected'))}</p>
+          </div>
+        ` : selectField('assigneEmployeId', t('missionAssignee'), visibleEmps.map(e => ({ value: e.id, label: e.nom })), r.assigneEmployeId, true)}
         ${selectField('priorite', t('missionPriorite'), priOpts, r.priorite || 'normale', true)}
 
         <div>
@@ -3817,11 +4092,10 @@ async function recurrenceForm(rec) {
     onSave: async () => {
       const periodicite = $('#recPerBtns [data-per].bg-blue-700')?.dataset.per || 'hebdomadaire';
       const noEnd = $('#f_noEnd').checked;
-      const data = {
+      const baseData = {
         libelle: $('#f_libelle').value.trim(),
         description: $('#f_description').value.trim(),
         clientId: Number($('#f_clientId').value) || null,
-        assigneEmployeId: Number($('#f_assigneEmployeId').value) || null,
         priorite: $('#f_priorite').value,
         periodicite,
         parametre: paramFromForm(periodicite),
@@ -3831,17 +4105,39 @@ async function recurrenceForm(rec) {
         notes: $('#f_notes').value.trim(),
         actif: $('#f_actif').checked
       };
-      if (!data.libelle || !data.clientId || !data.assigneEmployeId || !data.dateDebut) return false;
-      if (!canManageMissionForEmployee(data.assigneEmployeId, allEmployees)) {
-        toast(t('forbidden'));
-        return false;
+      if (!baseData.libelle || !baseData.clientId || !baseData.dateDebut) return false;
+      if (rec) {
+        const assignee = Number($('#f_assigneEmployeId').value) || null;
+        if (!assignee) return false;
+        if (!await canManageMissionForEmployee(assignee, allEmployees)) { toast(t('forbidden')); return false; }
+        await DB.update('recurrences', rec.id, { ...baseData, assigneEmployeId: assignee });
+        toast(t('saved'));
+      } else {
+        const ids = Array.from(document.querySelectorAll('.rec-emp-pick:checked')).map(c => Number(c.value));
+        if (!ids.length) return false;
+        for (const id of ids) {
+          if (!await canManageMissionForEmployee(id, allEmployees)) { toast(t('forbidden')); return false; }
+        }
+        const sess = Auth.getSession();
+        for (const id of ids) {
+          await DB.add('recurrences', { ...baseData, assigneEmployeId: id, derniereGeneration: null, creePar: sess?.employeId || null });
+        }
+        toast(fillTpl(t('nRecurrencesCreated'), { n: ids.length }));
       }
-      if (rec) await DB.update('recurrences', rec.id, data);
-      else await DB.add('recurrences', { ...data, derniereGeneration: null });
-      toast(t('saved'));
       renderMissionsRecurrences();
     }
   });
+
+  if (isNew) {
+    const updateRecCount = () => {
+      const n = document.querySelectorAll('.rec-emp-pick:checked').length;
+      const c = $('#recSelCount'); if (c) c.textContent = String(n);
+    };
+    document.querySelectorAll('.rec-emp-pick').forEach(c => c.onchange = updateRecCount);
+    $('#recSelAll').onclick = () => { document.querySelectorAll('.rec-emp-pick').forEach(c => c.checked = true); updateRecCount(); };
+    $('#recSelNone').onclick = () => { document.querySelectorAll('.rec-emp-pick').forEach(c => c.checked = false); updateRecCount(); };
+    updateRecCount();
+  }
 
   // Param sub-form rendering + preview wiring
   const renderParam = (per) => {
@@ -3989,7 +4285,14 @@ async function renderSettings() {
 
     <div class="bg-white rounded-xl border border-slate-200 shadow-sm p-6 mb-6 ${isAdmin ? '' : 'hidden'}">
       <h2 class="font-semibold text-slate-900 mb-4">📋 ${escapeHtml(t('navMissions'))}</h2>
-      <button id="genRecBtn" class="px-4 py-2 rounded-lg border border-slate-300 hover:bg-slate-50 text-sm">${escapeHtml(t('recGenerateNow'))}</button>
+      <button id="genRecBtn" class="px-4 py-2 rounded-lg border border-slate-300 hover:bg-slate-50 text-sm mb-4">${escapeHtml(t('recGenerateNow'))}</button>
+      <div class="border-t border-slate-200 pt-4">
+        <div class="text-sm font-medium text-slate-700 mb-2">${escapeHtml(t('allowEmpAssignTitle'))}</div>
+        <label class="inline-flex items-center gap-2 text-sm">
+          <input id="allowEmpAssign" type="checkbox" ${(await DB.getSetting('permettreEmployesAssignerMissions', false)) ? 'checked' : ''} class="w-4 h-4">
+          ${escapeHtml(t('allowEmpAssign'))}
+        </label>
+      </div>
     </div>
 
     <div class="bg-white rounded-xl border border-slate-200 shadow-sm p-6 mb-6 ${isAdmin ? '' : 'hidden'}">
@@ -4072,6 +4375,12 @@ async function renderSettings() {
       } catch (e) {
         toast(String(e.message || e));
       }
+    };
+  }
+  if ($('#allowEmpAssign')) {
+    $('#allowEmpAssign').onchange = async (e) => {
+      await DB.setSetting('permettreEmployesAssignerMissions', !!e.target.checked);
+      toast(t('saved'));
     };
   }
 
@@ -4507,7 +4816,7 @@ async function bootApp() {
   try { await genererMissionsRecurrentes(); } catch (e) { console.warn('scheduler', e); }
 
   // Wire nav (idempotent — re-bind in case sidebar was rebuilt)
-  applyRoleVisibility();
+  await applyRoleVisibility();
   $$('#nav .nav-item').forEach(b => {
     b.onclick = () => navigate(b.dataset.page);
   });
