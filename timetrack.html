@@ -3543,7 +3543,52 @@ async function renderDashboard() {
   PAGE.innerHTML = `<h1 class="text-2xl font-bold text-slate-900 mb-6">${escapeHtml(t('dashTitle'))}</h1><div id="dashBody"></div>`;
 
   if (role === 'admin') {
-    await renderAdminTypeChart(employees, timeEntries);
+    const activeEmployees = employees.filter(e => e.actif !== false).length;
+    const pending = submissions.filter(s => s.statut === 'soumis').length;
+    const rejected = submissions.filter(s => s.statut === 'rejete' && (s.dateValidation || '') >= monthStartIso).length;
+    const activeMissions = missions.filter(m => m.statut !== 'effectuee' && m.statut !== 'annulee').length;
+    const lateMissions = missions.filter(m => m.statut !== 'effectuee' && m.statut !== 'annulee' && (m.dateRealisationDemandee || '') < today).length;
+    const activeRecs = recurrences.filter(r => r.actif !== false).length;
+    const done = missions.filter(m => m.statut === 'effectuee');
+    const respect = done.length ? Math.round(100 * done.filter(m => m.respectDelaiDemande === true).length / done.length) : null;
+    $('#dashBody').innerHTML = `
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+        ${statCard('👥', t('statActiveEmployees'), activeEmployees, 'bg-blue-50 text-blue-800', 'activeEmployees')}
+        ${statCard('⏳', t('statPendingSubs'), pending, 'bg-amber-50 text-amber-800', 'pendingSubs')}
+        ${statCard('⛔', t('statRejectedThisMonth'), rejected, 'bg-red-50 text-red-800', 'rejectedSubs')}
+      </div>
+      <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+        ${statCard('📋', t('statActiveMissions'), activeMissions, 'bg-slate-100 text-slate-800', 'activeMissions')}
+        ${statCard('🔥', t('statTeamMissionsLate'), lateMissions, 'bg-red-50 text-red-800', 'lateMissions')}
+        ${statCard('🔁', t('statActiveRecurrences'), activeRecs, 'bg-blue-50 text-blue-800', 'activeRecs')}
+        ${statCard('✅', t('statRespectRate'), respect == null ? '—' : respect + '%', 'bg-green-50 text-green-800', 'respectRate')}
+      </div>
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+        <div class="bg-white rounded-xl border border-slate-200 p-4">
+          <div class="text-xs uppercase tracking-wide text-slate-500 mb-2">${escapeHtml(t('chartHoursByClient'))}</div>
+          <canvas id="ch_client" height="80" style="max-width:320px"></canvas>
+        </div>
+        <div class="bg-white rounded-xl border border-slate-200 p-4">
+          <div class="text-xs uppercase tracking-wide text-slate-500 mb-2">${escapeHtml(t('chartHoursByEmployee'))}</div>
+          <canvas id="ch_emp" height="80" style="max-width:320px"></canvas>
+        </div>
+        <div class="bg-white rounded-xl border border-slate-200 p-4">
+          <div class="text-xs uppercase tracking-wide text-slate-500 mb-2">${escapeHtml(t('chartMissionStatus'))}</div>
+          <canvas id="ch_miss" height="90"></canvas>
+        </div>
+      </div>
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+        <div class="bg-white rounded-xl border border-slate-200 p-4">
+          <div class="text-xs uppercase tracking-wide text-slate-500 mb-2">${escapeHtml(t('chartHoursByType'))}</div>
+          <canvas id="ch_typeH" height="100"></canvas>
+        </div>
+        <div class="bg-white rounded-xl border border-slate-200 p-4">
+          <div class="text-xs uppercase tracking-wide text-slate-500 mb-2">${escapeHtml(t('chartCostByType'))}</div>
+          <canvas id="ch_typeC" height="100"></canvas>
+        </div>
+      </div>`;
+    wireAdminDashboardClicks(employees, submissions, missions, recurrences);
+    drawAdminCharts(employees, missions, timeEntries);
   } else if (role === 'manager') {
     const teamIds = new Set([session.employeId, ...employees.filter(e => Number(e.managerId) === Number(session.employeId)).map(e => e.id)]);
     const pending = submissions.filter(s => s.statut === 'soumis' && teamIds.has(Number(s.employeId))).length;
