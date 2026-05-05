@@ -78,17 +78,87 @@ const saveCardsSnapshot = (obj) => {
   localStorage.setItem('cards:current', JSON.stringify(obj));
 };
 
-/* ---------- Statement parsers (stubs — to be implemented in next prompts) ---------- */
+/* ---------- Statement parsers ---------- */
+// Date Excel → 'YYYY-MM-DD' en local (évite les décalages de timezone que provoquerait toISOString).
+const dateToISO = (d) => {
+  if (!(d instanceof Date) || isNaN(d)) return null;
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+};
+const parseStringDate = (s) => {
+  if (typeof s !== 'string') return null;
+  const m = s.match(/^(\d{1,2})[\/.\-](\d{1,2})[\/.\-](\d{2,4})/);
+  if (!m) return null;
+  let yy = m[3];
+  if (yy.length === 2) yy = (Number(yy) > 50 ? '19' : '20') + yy;
+  return `${yy}-${m[2].padStart(2,'0')}-${m[1].padStart(2,'0')}`;
+};
+
 const parseBankStatement = async (file) => {
-  console.log("Parser bancaire non implémenté", file?.name);
-  await new Promise(r => setTimeout(r, 600));
+  const buf = await file.arrayBuffer();
+  const wb = XLSX.read(buf, { type: 'array', cellDates: true });
+  const sheet = wb.Sheets[wb.SheetNames[0]];
+  const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
+
+  // Lignes 1-5 = titres / en-têtes ; les transactions commencent à l'index 5 (ligne 6).
+  const transactions = [];
+  for (let i = 5; i < rows.length; i++) {
+    const row = rows[i];
+    if (!row || row.length === 0) continue;
+
+    let date = null;
+    if (row[0] instanceof Date) date = dateToISO(row[0]);
+    else if (typeof row[0] === 'string') date = parseStringDate(row[0]);
+    if (!date) continue;
+
+    const debit  = Number(row[6]) || 0;
+    const credit = Number(row[7]) || 0;
+    if (debit === 0 && credit === 0) continue;
+
+    const reference = String(row[4] || '').trim();
+    const amount    = debit - credit; // positif = sortie, négatif = entrée
+
+    transactions.push({
+      reference,
+      date,
+      description: String(row[2] || '').trim(),
+      details:     String(row[3] || '').trim(),
+      debit, credit,
+      balance: Number(row[8]) || 0,
+      amount,
+      direction: debit > 0 ? 'out' : 'in',
+      referenceKey: `${reference}|${date}|${amount}`,
+    });
+  }
+
+  // Déduplication par rapport à l'index global
+  const existing = loadImportedTx();
+  const newTransactions = [];
+  const duplicates = [];
+  for (const t of transactions) {
+    if (existing[t.referenceKey]) duplicates.push(t);
+    else newTransactions.push(t);
+  }
+
+  const sortedDates = transactions.map(t => t.date).sort();
+  const dateRange = sortedDates.length
+    ? { from: sortedDates[0], to: sortedDates[sortedDates.length - 1] }
+    : { from: null, to: null };
+
   return {
     kind: 'bank',
-    fileName: file?.name || '',
-    summary: "Parser bancaire non implémenté",
-    rows: [],
+    fileName: file.name,
+    summary: `${newTransactions.length} nouvelles transaction${newTransactions.length > 1 ? 's' : ''} · ${duplicates.length} doublon${duplicates.length > 1 ? 's' : ''}`,
+    rows: transactions,
+    newTransactions,
+    duplicates,
+    dateRange,
+    total: transactions.length,
   };
 };
+
 const parseCardStatement = async (file) => {
   console.log("Parser cartes non implémenté", file?.name);
   await new Promise(r => setTimeout(r, 600));
@@ -1071,6 +1141,94 @@ const MenuItem = ({ icon, label, sub, onClick }) => (
 );
 
 /* =========================================================
+   Recap views per import kind
+   ========================================================= */
+const fmtDateFR  = (iso) => { if (!iso) return '—'; const [y,m,d] = iso.split('-'); return `${d}/${m}/${y}`; };
+const fmtDayFR   = (iso) => { if (!iso) return '—'; const [, m, d] = iso.split('-'); return `${d}/${m}`; };
+const formatNum  = (n) => Math.abs(Math.round(Number(n) || 0)).toLocaleString('fr-FR');
+
+const Stat = ({ label, value, tone }) => {
+  const tones = {
+    emerald: 'bg-emerald-50 ring-emerald-200 text-emerald-700',
+    gray:    'bg-stone-50  ring-stone-200  text-stone-600',
+    sky:     'bg-sky-50    ring-sky-200    text-sky-700',
+  };
+  return (
+    <div className={"rounded-lg ring-1 px-3 py-2 " + (tones[tone] || 'bg-white ring-stone-200 text-stone-700')}>
+      <div className="text-[10px] uppercase tracking-wide opacity-70">{label}</div>
+      <div className="text-lg font-semibold tabular-nums">{value}</div>
+    </div>
+  );
+};
+
+const BankRecap = ({ result }) => {
+  const { newTransactions, duplicates, dateRange, total } = result;
+  const days = (dateRange.from && dateRange.to)
+    ? Math.round((new Date(dateRange.to) - new Date(dateRange.from)) / 86400000) + 1
+    : 0;
+  return (
+    <div className="space-y-4">
+      <div className="rounded-lg bg-sky-50 ring-1 ring-sky-200 px-3 py-2 text-sm text-sky-800">
+        <span className="font-medium">Période détectée :</span>{' '}
+        <span className="tabular-nums">{fmtDateFR(dateRange.from)} → {fmtDateFR(dateRange.to)}</span>
+      </div>
+
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+        <Stat label="Total fichier"  value={total}/>
+        <Stat label="Nouvelles"      value={newTransactions.length} tone="emerald"/>
+        <Stat label="Doublons"       value={duplicates.length}      tone="gray"/>
+        <Stat label="Période"        value={`${days} j.`}/>
+      </div>
+
+      <div>
+        <div className="text-xs uppercase tracking-wide text-stone-500 font-medium mb-2">
+          Nouvelles transactions
+          {newTransactions.length > 0 && <span className="ml-1 text-stone-400 font-normal">({newTransactions.length})</span>}
+        </div>
+        <div className="border border-stone-200 rounded-lg overflow-auto max-h-80">
+          <table className="w-full text-xs">
+            <thead className="bg-stone-50 text-stone-500 sticky top-0">
+              <tr>
+                <th className="text-left px-3 py-2 w-14">Date</th>
+                <th className="text-left px-3 py-2">Libellé</th>
+                <th className="text-right px-3 py-2 w-28">Montant</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-stone-100">
+              {newTransactions.length === 0 ? (
+                <tr><td colSpan="3" className="px-3 py-6 text-center text-stone-400">
+                  Aucune nouvelle transaction — toutes déjà importées.
+                </td></tr>
+              ) : newTransactions.map(t => (
+                <tr key={t.referenceKey} className="hover:bg-stone-50/70">
+                  <td className="px-3 py-1.5 tabular-nums text-stone-600 align-top">{fmtDayFR(t.date)}</td>
+                  <td className="px-3 py-1.5 align-top">
+                    <div className="truncate max-w-[14rem] text-stone-800" dir="auto" title={t.description}>
+                      {t.description || '—'}
+                    </div>
+                    {t.details && (
+                      <div className="truncate max-w-[14rem] text-[10px] text-stone-400" dir="auto" title={t.details}>
+                        {t.details}
+                      </div>
+                    )}
+                  </td>
+                  <td className={
+                    "px-3 py-1.5 text-right tabular-nums font-medium align-top " +
+                    (t.direction === 'out' ? "text-rose-600" : "text-emerald-600")
+                  }>
+                    {t.direction === 'out' ? '−' : '+'} {formatNum(t.amount)}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+/* =========================================================
    Import wizard (bank statements + credit cards)
    ========================================================= */
 const ImportWizard = ({ open, onClose, onConfirmImport }) => {
@@ -1246,7 +1404,10 @@ const ImportWizard = ({ open, onClose, onConfirmImport }) => {
             </div>
           )}
 
-          {step === 4 && parseResult && (
+          {step === 4 && parseResult && parseResult.kind === 'bank' && (
+            <BankRecap result={parseResult}/>
+          )}
+          {step === 4 && parseResult && parseResult.kind !== 'bank' && (
             <div>
               <div className="rounded-lg ring-1 ring-stone-200 bg-stone-50 p-4">
                 <div className="text-xs uppercase tracking-wide text-stone-500 font-medium">Récap de l'import</div>
@@ -1264,18 +1425,29 @@ const ImportWizard = ({ open, onClose, onConfirmImport }) => {
           )}
         </div>
 
-        {step === 4 && (
-          <footer className="px-5 py-3 border-t border-stone-200 flex items-center justify-end gap-2">
-            <button onClick={cancelAll}
-              className="px-3 py-1.5 text-sm rounded-lg ring-1 ring-stone-200 hover:bg-stone-50">
-              Annuler
-            </button>
-            <button onClick={confirmImport}
-              className="px-3 py-1.5 text-sm rounded-lg bg-stone-900 text-white hover:bg-stone-800">
-              Confirmer l'import
-            </button>
-          </footer>
-        )}
+        {step === 4 && (() => {
+          const newCount = parseResult?.kind === 'bank' ? parseResult.newTransactions.length : null;
+          const disabled = newCount === 0;
+          return (
+            <footer className="px-5 py-3 border-t border-stone-200 flex items-center justify-end gap-2">
+              <button onClick={cancelAll}
+                className="px-3 py-1.5 text-sm rounded-lg ring-1 ring-stone-200 hover:bg-stone-50">
+                Annuler
+              </button>
+              <button onClick={confirmImport} disabled={disabled}
+                className={
+                  "px-3 py-1.5 text-sm rounded-lg " +
+                  (disabled
+                    ? "bg-stone-200 text-stone-400 cursor-not-allowed"
+                    : "bg-stone-900 text-white hover:bg-stone-800")
+                }>
+                {newCount != null
+                  ? (newCount === 0 ? 'Rien à importer' : `Confirmer l'import (${newCount})`)
+                  : "Confirmer l'import"}
+              </button>
+            </footer>
+          );
+        })()}
       </div>
     </div>
   );
@@ -1820,11 +1992,26 @@ function App() {
         open={wizardOpen}
         onClose={() => setWizardOpen(false)}
         onConfirmImport={(result) => {
-          // Stub : aucun changement de données pour l'instant.
-          // L'intégration réelle sera branchée dans les prochains prompts
-          // via loadImportedTx / saveImportedTx et loadCardsSnapshot / saveCardsSnapshot.
-          console.log('Import confirmé (stub) :', result);
-          setImportToast(`Import confirmé (stub) — ${result?.kind === 'bank' ? 'bancaire' : 'cartes'}`);
+          if (result?.kind === 'bank') {
+            const idx = loadImportedTx();
+            const importedAt = new Date().toISOString();
+            for (const t of result.newTransactions) {
+              idx[t.referenceKey] = {
+                date: t.date,
+                amount: t.amount,
+                description: t.description,
+                importedAt,
+                monthKey: t.date.slice(0, 7),
+              };
+            }
+            saveImportedTx(idx);
+            const n = result.newTransactions.length;
+            setImportToast(`${n} transaction${n > 1 ? 's' : ''} importée${n > 1 ? 's' : ''}`);
+          } else {
+            // Cartes : intégration au prompt suivant.
+            console.log('Import confirmé (stub) :', result);
+            setImportToast(`Import (stub) — cartes`);
+          }
           setTimeout(() => setImportToast(null), 3000);
         }}
       />
