@@ -2193,9 +2193,12 @@ async function renderTimeEntries() {
       <form id="timeForm" class="grid grid-cols-1 md:grid-cols-2 gap-4">
         <div>
           <label class="block text-sm text-slate-600 mb-1">${escapeHtml(t('timeEmployee'))}</label>
-          <select id="te_emp" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm">
-            <option value="">${escapeHtml(t('selectEmployee'))}</option>
-            ${employees.map(e => `<option value="${e.id}">${escapeHtml((e.numeroEmploye ? e.numeroEmploye + ' — ' : '') + e.nom)}</option>`).join('')}
+          <select id="te_emp" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm" ${session?.role === 'employe' ? 'disabled' : ''}>
+            ${session?.role === 'employe' ? '' : `<option value="">${escapeHtml(t('selectEmployee'))}</option>`}
+            ${employees.map(e => {
+              const isMe = Number(e.id) === Number(session?.employeId);
+              return `<option value="${e.id}" ${isMe ? 'selected' : ''}>${escapeHtml((e.numeroEmploye ? e.numeroEmploye + ' — ' : '') + e.nom)}</option>`;
+            }).join('')}
           </select>
         </div>
         <div>
@@ -2283,7 +2286,9 @@ async function renderTimeEntries() {
       date: $('#te_date').value,
       heures: Number($('#te_hours').value) || 0,
       description: $('#te_desc').value.trim(),
-      statutValidation: 'draft'
+      statutValidation: 'brouillon',
+      submissionId: null,
+      verrouille: false
     };
     if (!data.employeId || !data.clientId || !data.date || !data.heures) {
       toast('!');
@@ -2320,6 +2325,11 @@ async function renderTimeEntries() {
     e.target.reset();
     selProject.disabled = true; selTask.disabled = true;
     $('#te_date').value = new Date().toISOString().slice(0,10);
+    // Re-apply current user as default employee after form reset.
+    if (session?.employeId) {
+      const empSel = $('#te_emp');
+      if (empSel) empSel.value = String(session.employeId);
+    }
     drawList();
   };
 
@@ -3203,7 +3213,11 @@ async function renderMySubmissions() {
     const drafts = mine.filter(e => (e.statutValidation || 'brouillon') === 'brouillon' && e.date >= from && e.date <= to);
     const total = drafts.reduce((s, e) => s + (Number(e.heures) || 0), 0);
     if (drafts.length === 0) {
-      $('#ms_preview').innerHTML = `<p class="text-sm text-slate-500">${escapeHtml(t('nothingToSubmit'))}</p>`;
+      $('#ms_preview').innerHTML = `
+        <p class="text-sm text-slate-500">${escapeHtml(t('nothingToSubmit'))}</p>
+        <button id="ms_goToTime" class="mt-2 px-3 py-1.5 rounded-lg bg-blue-700 text-white hover:bg-blue-800 text-sm">${escapeHtml(t('navTime'))} →</button>
+      `;
+      $('#ms_goToTime').onclick = () => navigate('time');
       $('#ms_submit').disabled = true;
       $('#ms_submit').classList.add('opacity-50','cursor-not-allowed');
       return;
