@@ -137,10 +137,10 @@
   aside.sidebar-border .nav-item.active {
     background: linear-gradient(90deg, rgba(99,102,241,.30), rgba(99,102,241,.10)) !important;
     color: #fff !important;
-    box-shadow: inset 3px 0 0 var(--tt-primary-2);
+    box-shadow: inset 1px 0 0 var(--tt-primary-2);
   }
   [dir="rtl"] aside.sidebar-border .nav-item.active {
-    box-shadow: inset -3px 0 0 var(--tt-primary-2);
+    box-shadow: inset -1px 0 0 var(--tt-primary-2);
   }
   aside.sidebar-border .nav-item.active .text-slate-500,
   aside.sidebar-border .nav-item.active .nav-ico { color: #fff !important; }
@@ -198,7 +198,7 @@
   }
   #dashBody [data-detail]::before,
   #dashBody .bg-white.rounded-xl.border.border-slate-200.p-5::before {
-    content: ""; position: absolute; left: 0; top: 0; height: 100%; width: 4px;
+    content: ""; position: absolute; left: 0; top: 0; height: 100%; width: 1px;
     background: linear-gradient(180deg, var(--tt-primary), #8b5cf6);
   }
   [dir="rtl"] #dashBody [data-detail]::before,
@@ -3563,15 +3563,11 @@ async function renderDashboard() {
       <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
         <div class="bg-white rounded-xl border border-slate-200 p-4">
           <div class="text-xs uppercase tracking-wide text-slate-500 mb-2">${escapeHtml(t('chartHoursByClient'))}</div>
-          <canvas id="ch_client" height="80"></canvas>
+          <canvas id="ch_client" height="80" style="max-width:320px"></canvas>
         </div>
         <div class="bg-white rounded-xl border border-slate-200 p-4">
           <div class="text-xs uppercase tracking-wide text-slate-500 mb-2">${escapeHtml(t('chartHoursByEmployee'))}</div>
-          <canvas id="ch_emp" height="80"></canvas>
-        </div>
-        <div class="bg-white rounded-xl border border-slate-200 p-4">
-          <div class="text-xs uppercase tracking-wide text-slate-500 mb-2">${escapeHtml(t('chartHoursOverTime'))}</div>
-          <canvas id="ch_time" height="80"></canvas>
+          <canvas id="ch_emp" height="80" style="max-width:320px"></canvas>
         </div>
         <div class="bg-white rounded-xl border border-slate-200 p-4">
           <div class="text-xs uppercase tracking-wide text-slate-500 mb-2">${escapeHtml(t('chartMissionStatus'))}</div>
@@ -3880,7 +3876,7 @@ function statCard(icon, label, value, cls = 'bg-slate-100 text-slate-700', detai
 async function drawAdminCharts(employees, missions, timeEntries) {
   if (typeof Chart === 'undefined') return;
   // Destroy any previous chart instances on these canvases (Chart.js holds a registry)
-  ['ch_client','ch_emp','ch_time','ch_miss','ch_typeH','ch_typeC'].forEach(id => {
+  ['ch_client','ch_emp','ch_miss','ch_typeH','ch_typeC'].forEach(id => {
     const inst = Chart.getChart(id);
     if (inst) inst.destroy();
   });
@@ -3950,32 +3946,7 @@ async function drawAdminCharts(employees, missions, timeEntries) {
     options: compactBarOpts
   });
 
-  // 3) Hours over time (30 days)
-  const days = [];
-  for (let i = 29; i >= 0; i--) {
-    const d = new Date(today.getTime() - i * 86400000);
-    days.push(d.toISOString().slice(0,10));
-  }
-  const byDay = Object.fromEntries(days.map(d => [d, 0]));
-  for (const en of recent) {
-    if (byDay[en.date] != null) byDay[en.date] += Number(en.heures) || 0;
-  }
-  if ($('#ch_time')) new Chart($('#ch_time'), {
-    type: 'line',
-    data: { labels: days.map(d => d.slice(5)),
-      datasets: [{ data: days.map(d => +byDay[d].toFixed(2)), borderColor: '#6366f1', backgroundColor: 'rgba(99,102,241,.15)', fill: true, tension: 0.3, pointRadius: 0, borderWidth: 2 }] },
-    options: {
-      plugins: { legend: { display: false }, tooltip: { enabled: true } },
-      responsive: true, maintainAspectRatio: false,
-      layout: { padding: 4 },
-      scales: {
-        x: { grid: { display: false }, ticks: { font: { size: 9 }, maxRotation: 0, autoSkip: true, maxTicksLimit: 6 }, border: { display: false } },
-        y: { display: false, beginAtZero: true }
-      }
-    }
-  });
-
-  // 4) Mission status distribution
+  // 3) Mission status distribution
   const statusKeys = [
     ['a_faire',   'missionStatusAFaire'],
     ['en_cours',  'missionStatusEnCours'],
@@ -3994,7 +3965,7 @@ async function drawAdminCharts(employees, missions, timeEntries) {
     }
   });
 
-  // 5+6) Last 3 months × project type → hours and cost
+  // 4+5) Last 3 months × project type → hours and cost
   const now = new Date();
   const months = []; // [{label:'2025-04', y:2025, m:3}, ...] last-3-months including current
   for (let i = 2; i >= 0; i--) {
