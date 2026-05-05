@@ -57,6 +57,29 @@
   ----------------
   Sélectionnez parmi : Actif, En pause, Terminé, Annulé, Brouillon.
 
+  PRÉSENCES & CONCILIATION
+  ------------------------
+  Le menu "Présences" permet d'importer les heures de présence depuis
+  un fichier Excel/CSV. Colonnes acceptées (souples, plusieurs noms
+  reconnus pour chaque champ) :
+    - identifiant employé : email | matricule | numeroEmploye | nom
+    - date : JJ/MM/AAAA | AAAA-MM-JJ | date Excel native
+    - heureEntree | entree | clockIn  (optionnel)
+    - heureSortie | sortie | clockOut (optionnel)
+    - pause (en minutes si >= 5, sinon en heures décimales)
+    - totalHeures | heures | total    (prioritaire si présent)
+
+  Si un employé n'est pas reconnu, la ligne n'est pas perdue : un
+  rapport propose un mapping manuel à la fin de l'import.
+
+  Le menu "Conciliation" affiche, par jour et par employé, le total
+  des heures de présence vs. les heures saisies sur projets, avec un
+  badge couleur (vert / orange / rouge) selon le seuil configuré.
+
+  Paramètres → Conciliation : seuil d'écart toléré, type (absolu en
+  heures ou pourcentage de la présence), blocage de la sauvegarde
+  d'une saisie qui dépasserait le seuil.
+
   EXPORT / IMPORT JSON
   --------------------
   Sauvegarde complète : Paramètres → Exporter JSON (télécharge un .json).
@@ -125,6 +148,12 @@
       <button data-page="time"      class="nav-item flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-slate-100 text-slate-700 text-start">
         <span class="nav-ico text-slate-500">⏱</span><span data-i18n="navTime">Saisie heures</span>
       </button>
+      <button data-page="attendance" class="nav-item flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-slate-100 text-slate-700 text-start">
+        <span class="nav-ico text-slate-500">🕘</span><span data-i18n="navAttendance">Présences</span>
+      </button>
+      <button data-page="reconciliation" class="nav-item flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-slate-100 text-slate-700 text-start">
+        <span class="nav-ico text-slate-500">⚖</span><span data-i18n="navReconciliation">Conciliation</span>
+      </button>
       <button data-page="settings"  class="nav-item flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-slate-100 text-slate-700 text-start">
         <span class="nav-ico text-slate-500">⚙</span><span data-i18n="navSettings">Paramètres</span>
       </button>
@@ -136,7 +165,10 @@
 
   <!-- MAIN -->
   <main class="flex-1 min-w-0 p-8">
-    <div id="page" class="max-w-6xl mx-auto"></div>
+    <div class="max-w-6xl mx-auto">
+      <div id="globalBanner" class="hidden mb-4 p-3 rounded-lg border text-sm flex items-start gap-3"></div>
+      <div id="page"></div>
+    </div>
   </main>
 </div>
 
@@ -167,7 +199,39 @@ const I18N = {
     appSubtitle: "Suivi du temps",
     navClients: "Clients", navProjectMgmt: "Gestion des projets",
     navProjects: "Projets", navTasks: "Tâches",
-    navEmployees: "Employés", navTime: "Saisie heures", navSettings: "Paramètres",
+    navEmployees: "Employés", navTime: "Saisie heures",
+    navAttendance: "Présences", navReconciliation: "Conciliation",
+    navSettings: "Paramètres",
+    // Attendance
+    attTitle: "Présences", attDate: "Date", attClockIn: "Entrée",
+    attClockOut: "Sortie", attBreak: "Pause", attTotal: "Total (h)",
+    attSource: "Source", attImportedOn: "Importée le",
+    attAddManual: "Ajouter manuellement", attFilterEmp: "Employé",
+    attFromDate: "Du", attToDate: "Au", attManual: "manuel",
+    attImported: "import",
+    // Reconciliation
+    recTitle: "Conciliation", recPresence: "Présence",
+    recProjects: "Projets", recDiff: "Écart", recStatus: "Statut",
+    recOnlyDiff: "Afficher uniquement les écarts",
+    recStatusOk: "OK", recStatusWarn: "Proche", recStatusBad: "Dépassement",
+    recNoAttendance: "Pas de présence",
+    recoSettings: "Conciliation",
+    threshold: "Seuil d'écart toléré",
+    thresholdType: "Type de seuil",
+    thresholdAbs: "Absolu (heures)", thresholdPct: "Pourcentage (%)",
+    blockOnExceed: "Bloquer la sauvegarde en cas de dépassement",
+    discrepancyAlert: "Écart de {ecart} h détecté sur le {date} (présence : {presence} h, projets : {projets} h)",
+    blockedSave: "Sauvegarde bloquée — écart de {ecart} h sur le {date}",
+    forceSave: "Forcer la sauvegarde",
+    // Import
+    importReport: "Rapport d'import",
+    linesImported: "lignes importées",
+    linesIgnored: "lignes ignorées",
+    linesUpdated: "mises à jour",
+    unknownEmployee: "Employé inconnu",
+    mapEmployee: "Associer un employé",
+    applyMapping: "Appliquer",
+    rowLabel: "Ligne",
     storedLocally: "Stocké localement (IndexedDB)",
     add: "Ajouter", edit: "Modifier", delete: "Supprimer",
     save: "Enregistrer", cancel: "Annuler", search: "Rechercher…",
@@ -221,7 +285,36 @@ const I18N = {
     appSubtitle: "Time Tracking",
     navClients: "Clients", navProjectMgmt: "Project management",
     navProjects: "Projects", navTasks: "Tasks",
-    navEmployees: "Employees", navTime: "Time Entry", navSettings: "Settings",
+    navEmployees: "Employees", navTime: "Time Entry",
+    navAttendance: "Attendance", navReconciliation: "Reconciliation",
+    navSettings: "Settings",
+    attTitle: "Attendance", attDate: "Date", attClockIn: "Clock in",
+    attClockOut: "Clock out", attBreak: "Break", attTotal: "Total (h)",
+    attSource: "Source", attImportedOn: "Imported on",
+    attAddManual: "Add manually", attFilterEmp: "Employee",
+    attFromDate: "From", attToDate: "To", attManual: "manual",
+    attImported: "import",
+    recTitle: "Reconciliation", recPresence: "Attendance",
+    recProjects: "Projects", recDiff: "Diff", recStatus: "Status",
+    recOnlyDiff: "Show only discrepancies",
+    recStatusOk: "OK", recStatusWarn: "Close", recStatusBad: "Exceeded",
+    recNoAttendance: "No attendance",
+    recoSettings: "Reconciliation",
+    threshold: "Tolerated discrepancy threshold",
+    thresholdType: "Threshold type",
+    thresholdAbs: "Absolute (hours)", thresholdPct: "Percentage (%)",
+    blockOnExceed: "Block save when exceeded",
+    discrepancyAlert: "Discrepancy of {ecart} h on {date} (attendance: {presence} h, projects: {projets} h)",
+    blockedSave: "Save blocked — discrepancy of {ecart} h on {date}",
+    forceSave: "Force save",
+    importReport: "Import report",
+    linesImported: "rows imported",
+    linesIgnored: "rows ignored",
+    linesUpdated: "updated",
+    unknownEmployee: "Unknown employee",
+    mapEmployee: "Map an employee",
+    applyMapping: "Apply",
+    rowLabel: "Row",
     storedLocally: "Stored locally (IndexedDB)",
     add: "Add", edit: "Edit", delete: "Delete",
     save: "Save", cancel: "Cancel", search: "Search…",
@@ -269,7 +362,36 @@ const I18N = {
     appSubtitle: "מעקב זמן",
     navClients: "לקוחות", navProjectMgmt: "ניהול פרויקטים",
     navProjects: "פרויקטים", navTasks: "משימות",
-    navEmployees: "עובדים", navTime: "רישום שעות", navSettings: "הגדרות",
+    navEmployees: "עובדים", navTime: "רישום שעות",
+    navAttendance: "נוכחות", navReconciliation: "התאמה",
+    navSettings: "הגדרות",
+    attTitle: "נוכחות", attDate: "תאריך", attClockIn: "כניסה",
+    attClockOut: "יציאה", attBreak: "הפסקה", attTotal: "סה״כ (שעות)",
+    attSource: "מקור", attImportedOn: "יובא בתאריך",
+    attAddManual: "הוסף ידנית", attFilterEmp: "עובד",
+    attFromDate: "מתאריך", attToDate: "עד תאריך", attManual: "ידני",
+    attImported: "ייבוא",
+    recTitle: "התאמה", recPresence: "נוכחות",
+    recProjects: "פרויקטים", recDiff: "פער", recStatus: "סטטוס",
+    recOnlyDiff: "הצג רק פערים",
+    recStatusOk: "תקין", recStatusWarn: "קרוב", recStatusBad: "חריגה",
+    recNoAttendance: "אין נוכחות",
+    recoSettings: "התאמה",
+    threshold: "סף פער מותר",
+    thresholdType: "סוג סף",
+    thresholdAbs: "מוחלט (שעות)", thresholdPct: "אחוזים (%)",
+    blockOnExceed: "חסום שמירה במקרה של חריגה",
+    discrepancyAlert: "פער של {ecart} שעות בתאריך {date} (נוכחות: {presence} שעות, פרויקטים: {projets} שעות)",
+    blockedSave: "השמירה נחסמה — פער של {ecart} שעות בתאריך {date}",
+    forceSave: "אלץ שמירה",
+    importReport: "דוח ייבוא",
+    linesImported: "שורות יובאו",
+    linesIgnored: "שורות התעלמו",
+    linesUpdated: "עודכנו",
+    unknownEmployee: "עובד לא ידוע",
+    mapEmployee: "שייך עובד",
+    applyMapping: "החל",
+    rowLabel: "שורה",
     storedLocally: "נשמר מקומית (IndexedDB)",
     add: "הוסף", edit: "ערוך", delete: "מחק",
     save: "שמור", cancel: "בטל", search: "חיפוש…",
@@ -350,7 +472,7 @@ async function setProjectTypes(list) {
    ===================================================================== */
 const DB = (() => {
   const DB_NAME = 'TimeTrackDB';
-  const DB_VERSION = 1;
+  const DB_VERSION = 2;
   let _dbPromise = null;
 
   function open() {
@@ -361,6 +483,13 @@ const DB = (() => {
       req.onsuccess = () => resolve(req.result);
       req.onupgradeneeded = (e) => {
         const db = e.target.result;
+        // v2: attendance store added without touching existing data
+        if (!db.objectStoreNames.contains('attendance')) {
+          const s = db.createObjectStore('attendance', { keyPath: 'id', autoIncrement: true });
+          s.createIndex('employeId', 'employeId', { unique: false });
+          s.createIndex('date', 'date', { unique: false });
+          s.createIndex('employeId_date', ['employeId', 'date'], { unique: false });
+        }
         if (!db.objectStoreNames.contains('clients')) {
           const s = db.createObjectStore('clients', { keyPath: 'id', autoIncrement: true });
           s.createIndex('nom', 'nom', { unique: false });
@@ -441,7 +570,7 @@ const DB = (() => {
     return reqToPromise(store.clear());
   }
   async function clearAll() {
-    const stores = ['clients','projects','tasks','employees','timeEntries','settings'];
+    const stores = ['clients','projects','tasks','employees','timeEntries','attendance','settings'];
     await Promise.all(stores.map(s => clearStore(s)));
   }
   async function getSetting(cle, def = null) {
@@ -452,7 +581,50 @@ const DB = (() => {
     return put('settings', { cle, valeur });
   }
 
-  return { add, getAll, getById, update, put, remove, clearStore, clearAll, getSetting, setSetting };
+  async function getAttendanceForEmployeeDate(employeId, date) {
+    const db = await open();
+    return new Promise((resolve, reject) => {
+      const store = db.transaction('attendance', 'readonly').objectStore('attendance');
+      const idx = store.index('employeId_date');
+      const req = idx.get([Number(employeId), String(date)]);
+      req.onsuccess = () => resolve(req.result || null);
+      req.onerror = () => reject(req.error);
+    });
+  }
+
+  async function getProjectHoursForEmployeeDate(employeId, date) {
+    const all = await getAll('timeEntries');
+    return all
+      .filter(e => Number(e.employeId) === Number(employeId) && e.date === date)
+      .reduce((s, e) => s + (Number(e.heures) || 0), 0);
+  }
+
+  async function computeDiscrepancy(employeId, date, opts = {}) {
+    const att = await getAttendanceForEmployeeDate(employeId, date);
+    const heuresPresence = att ? Number(att.totalHeures || 0) : null;
+    let heuresProjets = await getProjectHoursForEmployeeDate(employeId, date);
+    if (opts.addedHours) heuresProjets += Number(opts.addedHours);
+    const seuil = Number(await getSetting('seuilEcartHeures', 0.5));
+    const type = await getSetting('seuilEcartType', 'absolu');
+    let seuilApplique = seuil;
+    let ecart = null;
+    let depasse = false;
+    if (heuresPresence != null) {
+      ecart = Math.abs(heuresProjets - heuresPresence);
+      if (type === 'pourcentage') {
+        const ref = heuresPresence || 1;
+        seuilApplique = (seuil / 100) * ref;
+      }
+      depasse = ecart > seuilApplique;
+    }
+    return { heuresPresence, heuresProjets, ecart, depasseSeuilOuiNon: depasse, seuilApplique };
+  }
+
+  return {
+    add, getAll, getById, update, put, remove, clearStore, clearAll,
+    getSetting, setSetting,
+    getAttendanceForEmployeeDate, getProjectHoursForEmployeeDate, computeDiscrepancy
+  };
 })();
 
 /* =====================================================================
@@ -541,6 +713,7 @@ let currentPage = 'clients';
 
 async function navigate(page) {
   currentPage = page;
+  hideBanner();
   $$('#nav .nav-item').forEach(b => b.classList.toggle('active', b.dataset.page === page));
   // Auto-expand any nav group that contains the active page
   $$('#nav .nav-group').forEach(g => {
@@ -552,7 +725,30 @@ async function navigate(page) {
   else if (page === 'tasks')    await renderTasks();
   else if (page === 'employees') await renderEmployees();
   else if (page === 'time')      await renderTimeEntries();
+  else if (page === 'attendance') await renderAttendance();
+  else if (page === 'reconciliation') await renderReconciliation();
   else if (page === 'settings')  await renderSettings();
+}
+
+function showBanner(html, level = 'warn') {
+  const el = $('#globalBanner');
+  const styles = {
+    warn:  'bg-orange-50 border-orange-300 text-orange-900',
+    error: 'bg-red-50 border-red-300 text-red-900',
+    ok:    'bg-green-50 border-green-300 text-green-900'
+  };
+  el.className = `mb-4 p-3 rounded-lg border text-sm flex items-start gap-3 ${styles[level] || styles.warn}`;
+  el.innerHTML = `
+    <span class="font-medium">${level === 'error' ? '⛔' : level === 'ok' ? '✅' : '⚠️'}</span>
+    <div class="flex-1">${html}</div>
+    <button class="text-xs hover:underline" onclick="document.getElementById('globalBanner').classList.add('hidden')">×</button>
+  `;
+  el.classList.remove('hidden');
+}
+function hideBanner() { $('#globalBanner').classList.add('hidden'); }
+function fmt(n) { return (Math.round(Number(n) * 100) / 100).toString(); }
+function fillTpl(s, vars) {
+  return Object.entries(vars).reduce((acc, [k, v]) => acc.replaceAll(`{${k}}`, v), s);
 }
 
 /* ----- Generic list renderer ----- */
@@ -994,6 +1190,32 @@ async function renderTimeEntries() {
       toast('!');
       return;
     }
+
+    // Reconciliation pre-check — only if attendance exists for that day.
+    const disc = await DB.computeDiscrepancy(data.employeId, data.date, { addedHours: data.heures });
+    const block = !!(await DB.getSetting('bloquerSiDepassement', false));
+    if (disc.heuresPresence != null && disc.depasseSeuilOuiNon) {
+      const vars = {
+        ecart: fmt(disc.ecart),
+        date: data.date,
+        presence: fmt(disc.heuresPresence),
+        projets: fmt(disc.heuresProjets)
+      };
+      if (block) {
+        const ok = await confirmModal(
+          fillTpl(t('blockedSave'), vars) + '\n' + t('forceSave') + ' ?'
+        );
+        if (!ok) {
+          showBanner(fillTpl(t('blockedSave'), vars), 'error');
+          return;
+        }
+      } else {
+        showBanner(fillTpl(t('discrepancyAlert'), vars), 'warn');
+      }
+    } else {
+      hideBanner();
+    }
+
     await DB.add('timeEntries', data);
     toast(t('saved'));
     e.target.reset();
@@ -1042,9 +1264,459 @@ async function renderTimeEntries() {
   await drawList();
 }
 
+/* ----- ATTENDANCE helpers ----- */
+function normName(s) {
+  return String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().trim();
+}
+function pickCol(row, ...names) {
+  const keys = Object.keys(row);
+  for (const n of names) {
+    const k = keys.find(x => x.toLowerCase().trim() === n.toLowerCase());
+    if (k != null && row[k] !== '') return row[k];
+  }
+  return undefined;
+}
+function parseAttDate(v) {
+  if (v == null || v === '') return null;
+  if (typeof v === 'number') {
+    const d = new Date(Math.round((v - 25569) * 86400 * 1000));
+    if (!isNaN(d)) return d.toISOString().slice(0, 10);
+  }
+  if (v instanceof Date && !isNaN(v)) return v.toISOString().slice(0, 10);
+  const s = String(v).trim();
+  let m = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+  if (m) return `${m[1]}-${m[2].padStart(2,'0')}-${m[3].padStart(2,'0')}`;
+  m = s.match(/^(\d{1,2})[\/\-\.](\d{1,2})[\/\-\.](\d{4})/);
+  if (m) return `${m[3]}-${m[2].padStart(2,'0')}-${m[1].padStart(2,'0')}`;
+  const d = new Date(s);
+  return isNaN(d) ? null : d.toISOString().slice(0, 10);
+}
+function parseAttTime(v) {
+  if (v == null || v === '') return null;
+  if (typeof v === 'number') {
+    const total = (v - Math.floor(v)) * 24;
+    const h = Math.floor(total);
+    const min = Math.round((total - h) * 60);
+    return `${String(h).padStart(2,'0')}:${String(min).padStart(2,'0')}`;
+  }
+  const s = String(v).trim();
+  const m = s.match(/^(\d{1,2}):(\d{2})/);
+  return m ? `${m[1].padStart(2,'0')}:${m[2]}` : null;
+}
+function diffHours(entree, sortie, pauseHours = 0) {
+  if (!entree || !sortie) return null;
+  const [eh, em] = entree.split(':').map(Number);
+  const [sh, sm] = sortie.split(':').map(Number);
+  let h = (sh + sm/60) - (eh + em/60);
+  if (h < 0) h += 24;
+  return Math.max(0, h - (pauseHours || 0));
+}
+function parsePauseHours(v) {
+  if (v == null || v === '') return 0;
+  const n = Number(v);
+  if (isNaN(n)) return 0;
+  // heuristic: values >= 5 treated as minutes, else hours
+  return n >= 5 ? n / 60 : n;
+}
+function matchEmployee(employees, idValue) {
+  if (idValue == null || idValue === '') return null;
+  const v = String(idValue).trim();
+  let e = employees.find(x => x.email && String(x.email).toLowerCase() === v.toLowerCase());
+  if (e) return e;
+  e = employees.find(x => x.numeroEmploye && String(x.numeroEmploye).toLowerCase() === v.toLowerCase());
+  if (e) return e;
+  e = employees.find(x => x.nom === v);
+  if (e) return e;
+  const nv = normName(v);
+  return employees.find(x => normName(x.nom) === nv) || null;
+}
+
+/* ----- ATTENDANCE PAGE ----- */
+async function renderAttendance() {
+  const [employees, attendance] = await Promise.all([DB.getAll('employees'), DB.getAll('attendance')]);
+  const empById = Object.fromEntries(employees.map(e => [e.id, e]));
+
+  PAGE.innerHTML = `
+    <div class="flex items-center justify-between mb-6">
+      <h1 class="text-2xl font-bold text-slate-900">${escapeHtml(t('attTitle'))}</h1>
+      <div class="flex gap-2">
+        <button id="attAddBtn" class="px-4 py-2 rounded-lg bg-blue-700 text-white hover:bg-blue-800 text-sm font-medium">+ ${escapeHtml(t('attAddManual'))}</button>
+        <label class="px-4 py-2 rounded-lg border border-slate-300 hover:bg-slate-50 text-sm cursor-pointer">
+          ${escapeHtml(t('importExcel'))}
+          <input id="attImportFile" type="file" accept=".xlsx,.xls,.csv" class="hidden">
+        </label>
+      </div>
+    </div>
+
+    <div class="bg-white rounded-xl border border-slate-200 shadow-sm">
+      <div class="p-4 border-b border-slate-200 grid grid-cols-1 md:grid-cols-4 gap-3">
+        <div>
+          <label class="block text-xs text-slate-500 mb-1">${escapeHtml(t('attFilterEmp'))}</label>
+          <select id="att_emp_filter" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm">
+            <option value="">—</option>
+            ${employees.map(e => `<option value="${e.id}">${escapeHtml(e.nom)}</option>`).join('')}
+          </select>
+        </div>
+        <div>
+          <label class="block text-xs text-slate-500 mb-1">${escapeHtml(t('attFromDate'))}</label>
+          <input id="att_from" type="date" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm">
+        </div>
+        <div>
+          <label class="block text-xs text-slate-500 mb-1">${escapeHtml(t('attToDate'))}</label>
+          <input id="att_to" type="date" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm">
+        </div>
+        <div class="flex items-end">
+          <input id="att_search" type="search" placeholder="${escapeHtml(t('search'))}" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm">
+        </div>
+      </div>
+      <div id="listBody"></div>
+    </div>
+  `;
+
+  const draw = async () => {
+    const all = (await DB.getAll('attendance')).slice().sort((a,b) => (b.date||'').localeCompare(a.date||''));
+    const fEmp = $('#att_emp_filter').value;
+    const fFrom = $('#att_from').value;
+    const fTo = $('#att_to').value;
+    const q = $('#att_search').value.trim().toLowerCase();
+    const filtered = all.filter(a => {
+      if (fEmp && Number(a.employeId) !== Number(fEmp)) return false;
+      if (fFrom && (a.date || '') < fFrom) return false;
+      if (fTo && (a.date || '') > fTo) return false;
+      if (q && !((empById[a.employeId]?.nom || '').toLowerCase().includes(q) || (a.date || '').includes(q))) return false;
+      return true;
+    });
+    const rows = filtered.map(a => `
+      <tr class="hover:bg-slate-50">
+        <td class="px-4 py-3">${escapeHtml(empById[a.employeId]?.nom || '?')}</td>
+        <td class="px-4 py-3">${escapeHtml(a.date || '')}</td>
+        <td class="px-4 py-3 text-slate-600">${escapeHtml(a.heureEntree || '')}</td>
+        <td class="px-4 py-3 text-slate-600">${escapeHtml(a.heureSortie || '')}</td>
+        <td class="px-4 py-3 text-slate-600">${a.pause != null ? fmt(a.pause) : ''}</td>
+        <td class="px-4 py-3 font-medium">${a.totalHeures != null ? fmt(a.totalHeures) : ''}</td>
+        <td class="px-4 py-3 text-slate-500"><span class="text-xs px-2 py-0.5 rounded-full bg-slate-100">${escapeHtml(a.source === 'manuel' ? t('attManual') : t('attImported'))}</span></td>
+        <td class="px-4 py-3">${rowActions(a.id)}</td>
+      </tr>`).join('');
+    $('#listBody').innerHTML = tableEl(
+      [t('timeEmployee'), t('attDate'), t('attClockIn'), t('attClockOut'), t('attBreak'), t('attTotal'), t('attSource'), t('actions')],
+      rows
+    );
+    $$('#listBody [data-act]').forEach(b => b.onclick = async () => {
+      const id = Number(b.dataset.id);
+      if (b.dataset.act === 'edit') attendanceForm(await DB.getById('attendance', id));
+      else if (b.dataset.act === 'delete') {
+        if (await confirmModal(t('confirmDelete'))) {
+          await DB.remove('attendance', id);
+          toast(t('deleted'));
+          draw();
+        }
+      }
+    });
+  };
+
+  $('#attAddBtn').onclick = () => attendanceForm();
+  $('#attImportFile').onchange = importAttendanceHandler;
+  ['att_emp_filter','att_from','att_to','att_search'].forEach(id => {
+    $('#' + id).oninput = draw;
+    $('#' + id).onchange = draw;
+  });
+  await draw();
+}
+
+async function attendanceForm(rec) {
+  const r = rec || {
+    employeId: '', date: new Date().toISOString().slice(0,10),
+    heureEntree: '', heureSortie: '', pause: 0, totalHeures: '',
+    source: 'manuel'
+  };
+  const employees = await DB.getAll('employees');
+  openModal({
+    title: rec ? t('edit') : t('attAddManual'),
+    bodyHtml: `
+      <div class="space-y-3">
+        ${selectField('employeId', t('timeEmployee'), employees.map(e => ({ value: e.id, label: (e.numeroEmploye ? e.numeroEmploye + ' — ' : '') + e.nom })), r.employeId, true)}
+        ${field('date', t('attDate'), r.date, 'date', true)}
+        <div class="grid grid-cols-2 gap-3">
+          ${field('heureEntree', t('attClockIn'), r.heureEntree, 'time')}
+          ${field('heureSortie', t('attClockOut'), r.heureSortie, 'time')}
+        </div>
+        <div class="grid grid-cols-2 gap-3">
+          ${field('pause', t('attBreak') + ' (h)', r.pause ?? 0, 'number')}
+          ${field('totalHeures', t('attTotal'), r.totalHeures, 'number')}
+        </div>
+        <p class="text-xs text-slate-500">${escapeHtml(t('attTotal'))} = optional, computed from clock in/out if empty.</p>
+      </div>`,
+    onSave: async () => {
+      const employeId = Number($('#f_employeId').value) || null;
+      const date = $('#f_date').value;
+      if (!employeId || !date) return false;
+      const heureEntree = $('#f_heureEntree').value || null;
+      const heureSortie = $('#f_heureSortie').value || null;
+      const pause = Number($('#f_pause').value) || 0;
+      let totalHeures = $('#f_totalHeures').value === '' ? null : Number($('#f_totalHeures').value);
+      if (totalHeures == null) totalHeures = diffHours(heureEntree, heureSortie, pause);
+      const data = {
+        employeId, date, heureEntree, heureSortie, pause,
+        totalHeures: totalHeures == null ? 0 : Number(totalHeures),
+        source: rec ? rec.source : 'manuel',
+        importeLe: rec ? rec.importeLe : new Date().toISOString()
+      };
+      if (rec) await DB.update('attendance', rec.id, data);
+      else await DB.add('attendance', data);
+      toast(t('saved'));
+      renderAttendance();
+    }
+  });
+}
+
+/* ----- ATTENDANCE EXCEL IMPORT ----- */
+async function importAttendanceHandler(e) {
+  const file = e.target.files[0];
+  if (!file) return;
+  try {
+    const buf = await file.arrayBuffer();
+    const wb = XLSX.read(buf, { type: 'array', cellDates: true });
+    const sheetName = wb.SheetNames[0];
+    const rows = XLSX.utils.sheet_to_json(wb.Sheets[sheetName], { defval: '' });
+    const employees = await DB.getAll('employees');
+
+    let imported = 0, updated = 0, ignored = 0;
+    const errors = []; // { row, raw, parsed }
+    const importedAt = new Date().toISOString();
+
+    for (let i = 0; i < rows.length; i++) {
+      const r = rows[i];
+      const idVal = pickCol(r, 'email', 'matricule', 'numeroEmploye', 'nom', 'employe', 'employee', 'name');
+      const dateVal = pickCol(r, 'date');
+      const inVal = pickCol(r, 'heureEntree', 'entree', 'entrée', 'clockIn', 'in', 'start');
+      const outVal = pickCol(r, 'heureSortie', 'sortie', 'clockOut', 'out', 'end');
+      const pauseVal = pickCol(r, 'pause', 'break');
+      const totalVal = pickCol(r, 'totalHeures', 'heures', 'total', 'hours');
+
+      const date = parseAttDate(dateVal);
+      if (!date) { ignored++; continue; }
+
+      const emp = matchEmployee(employees, idVal);
+      const heureEntree = parseAttTime(inVal);
+      const heureSortie = parseAttTime(outVal);
+      const pauseH = parsePauseHours(pauseVal);
+      let totalHeures = totalVal === '' || totalVal == null ? null : Number(totalVal);
+      if (totalHeures == null) totalHeures = diffHours(heureEntree, heureSortie, pauseH);
+      totalHeures = totalHeures == null ? 0 : Number(totalHeures);
+
+      const record = {
+        date, heureEntree, heureSortie, pause: pauseH,
+        totalHeures, source: 'import', importeLe: importedAt
+      };
+
+      if (!emp) {
+        errors.push({ rowIndex: i + 2, raw: idVal, record });
+        continue;
+      }
+
+      record.employeId = emp.id;
+      const existing = await DB.getAttendanceForEmployeeDate(emp.id, date);
+      if (existing) {
+        await DB.update('attendance', existing.id, record);
+        updated++;
+      } else {
+        await DB.add('attendance', record);
+        imported++;
+      }
+    }
+
+    showImportReport({ imported, updated, ignored, errors, employees });
+  } catch (err) {
+    console.error(err);
+    toast(t('importErr') + ': ' + err.message);
+  } finally {
+    e.target.value = '';
+  }
+}
+
+function showImportReport({ imported, updated, ignored, errors, employees }) {
+  const empOptions = employees.map(e => `<option value="${e.id}">${escapeHtml((e.numeroEmploye ? e.numeroEmploye + ' — ' : '') + e.nom)}</option>`).join('');
+  const errorRows = errors.map((e, i) => `
+    <tr class="text-sm">
+      <td class="px-2 py-1 text-slate-500">${escapeHtml(t('rowLabel'))} ${e.rowIndex}</td>
+      <td class="px-2 py-1">${escapeHtml(e.raw == null ? '' : String(e.raw))}</td>
+      <td class="px-2 py-1">${escapeHtml(e.record.date)}</td>
+      <td class="px-2 py-1">
+        <select data-err-idx="${i}" class="px-2 py-1 border border-slate-300 rounded text-xs">
+          <option value="">—</option>${empOptions}
+        </select>
+      </td>
+    </tr>
+  `).join('');
+
+  const body = `
+    <div class="space-y-3 text-sm">
+      <p><span class="font-medium text-green-700">${imported}</span> ${escapeHtml(t('linesImported'))},
+         <span class="font-medium text-blue-700">${updated}</span> ${escapeHtml(t('linesUpdated'))},
+         <span class="font-medium text-orange-700">${errors.length + ignored}</span> ${escapeHtml(t('linesIgnored'))}</p>
+      ${errors.length ? `
+        <div>
+          <p class="font-medium text-slate-700 mb-2">${escapeHtml(t('unknownEmployee'))} (${errors.length})</p>
+          <div class="border border-slate-200 rounded overflow-hidden max-h-72 overflow-y-auto">
+            <table class="w-full">
+              <thead class="bg-slate-50 text-xs text-slate-500"><tr>
+                <th class="px-2 py-1 text-start">${escapeHtml(t('rowLabel'))}</th>
+                <th class="px-2 py-1 text-start">${escapeHtml(t('attFilterEmp'))}</th>
+                <th class="px-2 py-1 text-start">${escapeHtml(t('attDate'))}</th>
+                <th class="px-2 py-1 text-start">${escapeHtml(t('mapEmployee'))}</th>
+              </tr></thead>
+              <tbody>${errorRows}</tbody>
+            </table>
+          </div>
+        </div>` : ''}
+    </div>
+  `;
+
+  openModal({
+    title: t('importReport'),
+    bodyHtml: body,
+    hideSave: errors.length === 0,
+    onSave: async () => {
+      let added = 0;
+      for (let i = 0; i < errors.length; i++) {
+        const sel = document.querySelector(`[data-err-idx="${i}"]`);
+        if (!sel || !sel.value) continue;
+        const empId = Number(sel.value);
+        const rec = { ...errors[i].record, employeId: empId };
+        const existing = await DB.getAttendanceForEmployeeDate(empId, rec.date);
+        if (existing) await DB.update('attendance', existing.id, rec);
+        else await DB.add('attendance', rec);
+        added++;
+      }
+      if (added) toast(`${added} ${t('applyMapping')}`);
+      renderAttendance();
+    }
+  });
+}
+
+/* ----- RECONCILIATION PAGE ----- */
+async function renderReconciliation() {
+  const [employees, attendance, timeEntries] = await Promise.all([
+    DB.getAll('employees'), DB.getAll('attendance'), DB.getAll('timeEntries')
+  ]);
+  const empById = Object.fromEntries(employees.map(e => [e.id, e]));
+  const seuil = Number(await DB.getSetting('seuilEcartHeures', 0.5));
+  const seuilType = await DB.getSetting('seuilEcartType', 'absolu');
+
+  const today = new Date();
+  const monthAgo = new Date(today.getTime() - 30 * 86400000);
+  const defaultFrom = monthAgo.toISOString().slice(0,10);
+  const defaultTo = today.toISOString().slice(0,10);
+
+  PAGE.innerHTML = `
+    <h1 class="text-2xl font-bold text-slate-900 mb-6">${escapeHtml(t('recTitle'))}</h1>
+    <div class="bg-white rounded-xl border border-slate-200 shadow-sm">
+      <div class="p-4 border-b border-slate-200 grid grid-cols-1 md:grid-cols-4 gap-3">
+        <div>
+          <label class="block text-xs text-slate-500 mb-1">${escapeHtml(t('attFilterEmp'))}</label>
+          <select id="rec_emp" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm">
+            <option value="">—</option>
+            ${employees.map(e => `<option value="${e.id}">${escapeHtml(e.nom)}</option>`).join('')}
+          </select>
+        </div>
+        <div>
+          <label class="block text-xs text-slate-500 mb-1">${escapeHtml(t('attFromDate'))}</label>
+          <input id="rec_from" type="date" value="${defaultFrom}" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm">
+        </div>
+        <div>
+          <label class="block text-xs text-slate-500 mb-1">${escapeHtml(t('attToDate'))}</label>
+          <input id="rec_to" type="date" value="${defaultTo}" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm">
+        </div>
+        <div class="flex items-end">
+          <label class="inline-flex items-center gap-2 text-sm">
+            <input id="rec_only" type="checkbox" class="w-4 h-4">
+            ${escapeHtml(t('recOnlyDiff'))}
+          </label>
+        </div>
+      </div>
+      <div id="listBody"></div>
+    </div>
+  `;
+
+  const draw = () => {
+    const fEmp = $('#rec_emp').value;
+    const fFrom = $('#rec_from').value;
+    const fTo = $('#rec_to').value;
+    const onlyDiff = $('#rec_only').checked;
+
+    // Build (employeId,date) pairs from both stores
+    const pairs = new Map();
+    const key = (e, d) => `${e}__${d}`;
+    const addPair = (e, d) => { if (e && d) pairs.set(key(e, d), { employeId: Number(e), date: d }); };
+    attendance.forEach(a => addPair(a.employeId, a.date));
+    timeEntries.forEach(te => addPair(te.employeId, te.date));
+
+    // Aggregate
+    const attMap = new Map();
+    attendance.forEach(a => attMap.set(key(a.employeId, a.date), Number(a.totalHeures || 0)));
+    const projMap = new Map();
+    timeEntries.forEach(te => {
+      const k = key(te.employeId, te.date);
+      projMap.set(k, (projMap.get(k) || 0) + (Number(te.heures) || 0));
+    });
+
+    const rows = [];
+    for (const { employeId, date } of pairs.values()) {
+      if (fEmp && Number(fEmp) !== employeId) continue;
+      if (fFrom && date < fFrom) continue;
+      if (fTo && date > fTo) continue;
+      const pres = attMap.has(key(employeId, date)) ? attMap.get(key(employeId, date)) : null;
+      const proj = projMap.get(key(employeId, date)) || 0;
+      let ecart = null, applied = seuil, status = 'na';
+      if (pres != null) {
+        ecart = Math.abs(proj - pres);
+        applied = seuilType === 'pourcentage' ? (seuil / 100) * (pres || 1) : seuil;
+        if (ecart > applied) status = 'bad';
+        else if (ecart > applied * 0.5) status = 'warn';
+        else status = 'ok';
+      }
+      if (onlyDiff && (status === 'ok' || status === 'na')) continue;
+      rows.push({ employeId, date, pres, proj, ecart, status });
+    }
+    rows.sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+
+    const badge = (status) => {
+      if (status === 'ok')   return `<span class="px-2 py-0.5 rounded-full bg-green-100 text-green-800 text-xs">${escapeHtml(t('recStatusOk'))}</span>`;
+      if (status === 'warn') return `<span class="px-2 py-0.5 rounded-full bg-orange-100 text-orange-800 text-xs">${escapeHtml(t('recStatusWarn'))}</span>`;
+      if (status === 'bad')  return `<span class="px-2 py-0.5 rounded-full bg-red-100 text-red-800 text-xs">${escapeHtml(t('recStatusBad'))}</span>`;
+      return `<span class="px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 text-xs">${escapeHtml(t('recNoAttendance'))}</span>`;
+    };
+
+    const html = rows.map(r => `
+      <tr class="hover:bg-slate-50">
+        <td class="px-4 py-3">${escapeHtml(r.date)}</td>
+        <td class="px-4 py-3">${escapeHtml(empById[r.employeId]?.nom || '?')}</td>
+        <td class="px-4 py-3 text-slate-600">${r.pres == null ? '—' : fmt(r.pres)}</td>
+        <td class="px-4 py-3 text-slate-600">${fmt(r.proj)}</td>
+        <td class="px-4 py-3 ${r.status === 'bad' ? 'text-red-700 font-medium' : r.status === 'warn' ? 'text-orange-700' : 'text-slate-600'}">${r.ecart == null ? '—' : fmt(r.ecart)}</td>
+        <td class="px-4 py-3">${badge(r.status)}</td>
+      </tr>
+    `).join('');
+
+    $('#listBody').innerHTML = tableEl(
+      [t('attDate'), t('timeEmployee'), t('recPresence'), t('recProjects'), t('recDiff'), t('recStatus')],
+      html
+    );
+  };
+
+  ['rec_emp','rec_from','rec_to','rec_only'].forEach(id => {
+    $('#' + id).onchange = draw;
+    if ($('#' + id).type !== 'checkbox') $('#' + id).oninput = draw;
+  });
+  draw();
+}
+
 /* ----- SETTINGS ----- */
 async function renderSettings() {
   const types = await getProjectTypes();
+  const seuil = Number(await DB.getSetting('seuilEcartHeures', 0.5));
+  const seuilType = await DB.getSetting('seuilEcartType', 'absolu');
+  const blocking = !!(await DB.getSetting('bloquerSiDepassement', false));
   PAGE.innerHTML = `
     <h1 class="text-2xl font-bold text-slate-900 mb-6">${escapeHtml(t('settingsTitle'))}</h1>
 
@@ -1055,6 +1727,29 @@ async function renderSettings() {
         <option value="en" ${LANG==='en'?'selected':''}>English</option>
         <option value="he" ${LANG==='he'?'selected':''}>עברית</option>
       </select>
+    </div>
+
+    <div class="bg-white rounded-xl border border-slate-200 shadow-sm p-6 mb-6">
+      <h2 class="font-semibold text-slate-900 mb-4">${escapeHtml(t('recoSettings'))}</h2>
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-4 max-w-3xl">
+        <div>
+          <label class="block text-sm text-slate-600 mb-1">${escapeHtml(t('threshold'))}</label>
+          <input id="reco_seuil" type="number" min="0" step="0.1" value="${seuil}" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm">
+        </div>
+        <div>
+          <label class="block text-sm text-slate-600 mb-1">${escapeHtml(t('thresholdType'))}</label>
+          <select id="reco_type" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm">
+            <option value="absolu" ${seuilType==='absolu'?'selected':''}>${escapeHtml(t('thresholdAbs'))}</option>
+            <option value="pourcentage" ${seuilType==='pourcentage'?'selected':''}>${escapeHtml(t('thresholdPct'))}</option>
+          </select>
+        </div>
+        <div class="flex items-end">
+          <label class="inline-flex items-center gap-2 text-sm">
+            <input id="reco_block" type="checkbox" ${blocking?'checked':''} class="w-4 h-4">
+            ${escapeHtml(t('blockOnExceed'))}
+          </label>
+        </div>
+      </div>
     </div>
 
     <div class="bg-white rounded-xl border border-slate-200 shadow-sm p-6 mb-6">
@@ -1103,6 +1798,19 @@ async function renderSettings() {
     await DB.setSetting('lang', LANG);
     applyI18n();
     navigate(currentPage);
+  };
+
+  $('#reco_seuil').onchange = async (e) => {
+    await DB.setSetting('seuilEcartHeures', Number(e.target.value) || 0);
+    toast(t('saved'));
+  };
+  $('#reco_type').onchange = async (e) => {
+    await DB.setSetting('seuilEcartType', e.target.value);
+    toast(t('saved'));
+  };
+  $('#reco_block').onchange = async (e) => {
+    await DB.setSetting('bloquerSiDepassement', !!e.target.checked);
+    toast(t('saved'));
   };
 
   $('#addTypeBtn').onclick = async () => {
@@ -1189,6 +1897,7 @@ async function exportJson() {
     tasks: await DB.getAll('tasks'),
     employees: await DB.getAll('employees'),
     timeEntries: await DB.getAll('timeEntries'),
+    attendance: await DB.getAll('attendance'),
     settings: await DB.getAll('settings'),
     exportedAt: new Date().toISOString()
   };
@@ -1212,7 +1921,7 @@ async function importJsonHandler(e) {
     const text = await file.text();
     const data = JSON.parse(text);
     await DB.clearAll();
-    const stores = ['clients','projects','tasks','employees','timeEntries','settings'];
+    const stores = ['clients','projects','tasks','employees','timeEntries','attendance','settings'];
     for (const s of stores) {
       if (Array.isArray(data[s])) {
         for (const r of data[s]) await DB.put(s, r);
@@ -1327,10 +2036,22 @@ function parseBool(v, def = false) {
 /* =====================================================================
    7. BOOT
    ===================================================================== */
+async function seedDefaultSettings() {
+  if (await DB.getSetting('seuilEcartHeures', null) == null) {
+    await DB.setSetting('seuilEcartHeures', 0.5);
+  }
+  if (await DB.getSetting('seuilEcartType', null) == null) {
+    await DB.setSetting('seuilEcartType', 'absolu');
+  }
+  if (await DB.getSetting('bloquerSiDepassement', null) == null) {
+    await DB.setSetting('bloquerSiDepassement', false);
+  }
+}
+
 async function boot() {
-  // Load language preference
   try {
     LANG = await DB.getSetting('lang', 'fr');
+    await seedDefaultSettings();
   } catch (e) {
     console.warn('DB init issue', e);
   }
