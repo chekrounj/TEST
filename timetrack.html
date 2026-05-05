@@ -3563,29 +3563,29 @@ async function renderDashboard() {
       <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
         <div class="bg-white rounded-xl border border-slate-200 p-4">
           <div class="text-xs uppercase tracking-wide text-slate-500 mb-2">${escapeHtml(t('chartHoursByClient'))}</div>
-          <canvas id="ch_client" height="160"></canvas>
+          <canvas id="ch_client" height="110"></canvas>
         </div>
         <div class="bg-white rounded-xl border border-slate-200 p-4">
           <div class="text-xs uppercase tracking-wide text-slate-500 mb-2">${escapeHtml(t('chartHoursByEmployee'))}</div>
-          <canvas id="ch_emp" height="160"></canvas>
+          <canvas id="ch_emp" height="110"></canvas>
         </div>
         <div class="bg-white rounded-xl border border-slate-200 p-4">
           <div class="text-xs uppercase tracking-wide text-slate-500 mb-2">${escapeHtml(t('chartHoursOverTime'))}</div>
-          <canvas id="ch_time" height="160"></canvas>
+          <canvas id="ch_time" height="110"></canvas>
         </div>
         <div class="bg-white rounded-xl border border-slate-200 p-4">
           <div class="text-xs uppercase tracking-wide text-slate-500 mb-2">${escapeHtml(t('chartMissionStatus'))}</div>
-          <canvas id="ch_miss" height="160"></canvas>
+          <canvas id="ch_miss" height="110"></canvas>
         </div>
       </div>
       <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
         <div class="bg-white rounded-xl border border-slate-200 p-4">
           <div class="text-xs uppercase tracking-wide text-slate-500 mb-2">${escapeHtml(t('chartHoursByType'))}</div>
-          <canvas id="ch_typeH" height="180"></canvas>
+          <canvas id="ch_typeH" height="130"></canvas>
         </div>
         <div class="bg-white rounded-xl border border-slate-200 p-4">
           <div class="text-xs uppercase tracking-wide text-slate-500 mb-2">${escapeHtml(t('chartCostByType'))}</div>
-          <canvas id="ch_typeC" height="180"></canvas>
+          <canvas id="ch_typeC" height="130"></canvas>
         </div>
       </div>`;
     wireAdminDashboardClicks(employees, submissions, missions, recurrences);
@@ -3908,25 +3908,45 @@ async function drawAdminCharts(employees, missions, timeEntries) {
     byClient[k] = (byClient[k] || 0) + (Number(en.heures) || 0);
   }
   const cliEntries = Object.entries(byClient).sort((a,b) => b[1] - a[1]).slice(0, 5);
+  // Compact "comparative" horizontal bar style:
+  // - axes hidden (no absolute scale shown — bars are sized relative to each other)
+  // - values shown inline in the label so we don't lose information
+  // - thin bars, tight padding
+  const compactBarOpts = {
+    plugins: { legend: { display: false }, tooltip: { enabled: true } },
+    indexAxis: 'y',
+    responsive: true,
+    maintainAspectRatio: false,
+    layout: { padding: { top: 2, bottom: 2 } },
+    scales: {
+      x: { display: false, beginAtZero: true },
+      y: { grid: { display: false }, ticks: { font: { size: 11 } }, border: { display: false } }
+    }
+  };
+
   if ($('#ch_client')) new Chart($('#ch_client'), {
     type: 'bar',
-    data: { labels: cliEntries.map(x => x[0]),
-      datasets: [{ label: 'h', data: cliEntries.map(x => +x[1].toFixed(2)), backgroundColor: '#3b82f6' }] },
-    options: { plugins: { legend: { display: false } }, indexAxis: 'y', responsive: true, maintainAspectRatio: false }
+    data: {
+      labels: cliEntries.map(x => `${x[0]} · ${(+x[1]).toFixed(1)} h`),
+      datasets: [{ label: 'h', data: cliEntries.map(x => +x[1].toFixed(2)), backgroundColor: '#3b82f6', barThickness: 14, borderRadius: 4 }]
+    },
+    options: compactBarOpts
   });
 
-  // 2) Hours by employee
+  // 2) Hours by employee — same compact comparative look, top 5
   const byEmp = {};
   for (const en of recent) {
     const k = eById[en.employeId] || '—';
     byEmp[k] = (byEmp[k] || 0) + (Number(en.heures) || 0);
   }
-  const empEntries = Object.entries(byEmp).sort((a,b) => b[1] - a[1]).slice(0, 10);
+  const empEntries = Object.entries(byEmp).sort((a,b) => b[1] - a[1]).slice(0, 5);
   if ($('#ch_emp')) new Chart($('#ch_emp'), {
     type: 'bar',
-    data: { labels: empEntries.map(x => x[0]),
-      datasets: [{ label: 'h', data: empEntries.map(x => +x[1].toFixed(2)), backgroundColor: '#10b981' }] },
-    options: { plugins: { legend: { display: false } }, indexAxis: 'y', responsive: true, maintainAspectRatio: false }
+    data: {
+      labels: empEntries.map(x => `${x[0]} · ${(+x[1]).toFixed(1)} h`),
+      datasets: [{ label: 'h', data: empEntries.map(x => +x[1].toFixed(2)), backgroundColor: '#10b981', barThickness: 14, borderRadius: 4 }]
+    },
+    options: compactBarOpts
   });
 
   // 3) Hours over time (30 days)
@@ -3942,8 +3962,16 @@ async function drawAdminCharts(employees, missions, timeEntries) {
   if ($('#ch_time')) new Chart($('#ch_time'), {
     type: 'line',
     data: { labels: days.map(d => d.slice(5)),
-      datasets: [{ data: days.map(d => +byDay[d].toFixed(2)), borderColor: '#6366f1', backgroundColor: 'rgba(99,102,241,.15)', fill: true, tension: 0.25, pointRadius: 2 }] },
-    options: { plugins: { legend: { display: false } }, responsive: true, maintainAspectRatio: false }
+      datasets: [{ data: days.map(d => +byDay[d].toFixed(2)), borderColor: '#6366f1', backgroundColor: 'rgba(99,102,241,.15)', fill: true, tension: 0.3, pointRadius: 0, borderWidth: 2 }] },
+    options: {
+      plugins: { legend: { display: false }, tooltip: { enabled: true } },
+      responsive: true, maintainAspectRatio: false,
+      layout: { padding: 4 },
+      scales: {
+        x: { grid: { display: false }, ticks: { font: { size: 9 }, maxRotation: 0, autoSkip: true, maxTicksLimit: 6 }, border: { display: false } },
+        y: { display: false, beginAtZero: true }
+      }
+    }
   });
 
   // 4) Mission status distribution
@@ -3957,8 +3985,12 @@ async function drawAdminCharts(employees, missions, timeEntries) {
   if ($('#ch_miss')) new Chart($('#ch_miss'), {
     type: 'doughnut',
     data: { labels: statusKeys.map(([, k]) => t(k)),
-      datasets: [{ data: counts, backgroundColor: ['#94a3b8','#f59e0b','#10b981','#cbd5e1'] }] },
-    options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'bottom' } } }
+      datasets: [{ data: counts, backgroundColor: ['#94a3b8','#f59e0b','#10b981','#cbd5e1'], borderWidth: 0 }] },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      cutout: '60%',
+      plugins: { legend: { position: 'right', labels: { boxWidth: 10, font: { size: 11 } } } }
+    }
   });
 
   // 5+6) Last 3 months × project type → hours and cost
@@ -4002,8 +4034,12 @@ async function drawAdminCharts(employees, missions, timeEntries) {
   }));
   const stackedOpts = {
     responsive: true, maintainAspectRatio: false,
-    plugins: { legend: { position: 'bottom' } },
-    scales: { x: { stacked: true }, y: { stacked: true } }
+    layout: { padding: 4 },
+    plugins: { legend: { position: 'bottom', labels: { boxWidth: 10, font: { size: 10 } } } },
+    scales: {
+      x: { stacked: true, grid: { display: false }, ticks: { font: { size: 11 } }, border: { display: false } },
+      y: { stacked: true, ticks: { font: { size: 10 } }, grid: { color: 'rgba(0,0,0,.04)' }, border: { display: false } }
+    }
   };
   if ($('#ch_typeH')) new Chart($('#ch_typeH'), {
     type: 'bar', data: { labels: months.map(m => m.label), datasets: datasetsHours }, options: stackedOpts
