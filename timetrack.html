@@ -3562,33 +3562,8 @@ async function renderDashboard() {
         ${statCard('🔥', t('statTeamMissionsLate'), lateMissions, 'bg-red-50 text-red-800', 'lateMissions')}
         ${statCard('🔁', t('statActiveRecurrences'), activeRecs, 'bg-blue-50 text-blue-800', 'activeRecs')}
         ${statCard('✅', t('statRespectRate'), respect == null ? '—' : respect + '%', 'bg-green-50 text-green-800', 'respectRate')}
-      </div>
-      <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
-        <div class="bg-white rounded-xl border border-slate-200 p-4">
-          <div class="text-xs uppercase tracking-wide text-slate-500 mb-2">${escapeHtml(t('chartHoursByClient'))}</div>
-          <canvas id="ch_client" height="80" style="max-width:320px"></canvas>
-        </div>
-        <div class="bg-white rounded-xl border border-slate-200 p-4">
-          <div class="text-xs uppercase tracking-wide text-slate-500 mb-2">${escapeHtml(t('chartHoursByEmployee'))}</div>
-          <canvas id="ch_emp" height="80" style="max-width:320px"></canvas>
-        </div>
-        <div class="bg-white rounded-xl border border-slate-200 p-4">
-          <div class="text-xs uppercase tracking-wide text-slate-500 mb-2">${escapeHtml(t('chartMissionStatus'))}</div>
-          <canvas id="ch_miss" height="90"></canvas>
-        </div>
-      </div>
-      <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
-        <div class="bg-white rounded-xl border border-slate-200 p-4">
-          <div class="text-xs uppercase tracking-wide text-slate-500 mb-2">${escapeHtml(t('chartHoursByType'))}</div>
-          <canvas id="ch_typeH" height="100"></canvas>
-        </div>
-        <div class="bg-white rounded-xl border border-slate-200 p-4">
-          <div class="text-xs uppercase tracking-wide text-slate-500 mb-2">${escapeHtml(t('chartCostByType'))}</div>
-          <canvas id="ch_typeC" height="100"></canvas>
-        </div>
       </div>`;
     wireAdminDashboardClicks(employees, submissions, missions, recurrences);
-    drawAdminCharts(employees, missions, timeEntries);
   } else if (role === 'manager') {
     const teamIds = new Set([session.employeId, ...employees.filter(e => Number(e.managerId) === Number(session.employeId)).map(e => e.id)]);
     const pending = submissions.filter(s => s.statut === 'soumis' && teamIds.has(Number(s.employeId))).length;
