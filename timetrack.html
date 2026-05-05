@@ -1681,15 +1681,30 @@ const ENTITY_IMPORTS = {
       headers: ['nom', 'adresse', 'contact', 'actif'],
       sample: [['Acme Corp', '1 rue de Paris, 75001', 'contact@acme.fr', true]]
     },
-    importRow: async (row) => {
+    buildContext: async () => ({ all: await DB.getAll('clients') }),
+    importRow: async (row, ctx) => {
       const nom = String(row.nom || '').trim();
       if (!nom) return false;
-      await DB.add('clients', {
+      const incoming = {
         nom,
         adresse: String(row.adresse || '').trim(),
         contact: String(row.contact || '').trim(),
-        actif: parseBool(row.actif, true)
+        actif: row.actif === '' || row.actif == null ? undefined : parseBool(row.actif, true)
+      };
+      const existing = ctx.all.find(c => (c.nom || '').toLowerCase() === nom.toLowerCase());
+      if (existing) {
+        const { merged, touched } = fillEmpty(existing, incoming);
+        if (!touched) return false;
+        await DB.update('clients', existing.id, merged);
+        return 'updated';
+      }
+      await DB.add('clients', {
+        nom,
+        adresse: incoming.adresse,
+        contact: incoming.contact,
+        actif: incoming.actif === undefined ? true : incoming.actif
       });
+      ctx.all = await DB.getAll('clients');
       return true;
     }
   },
@@ -1703,6 +1718,7 @@ const ENTITY_IMPORTS = {
       return {
         clients,
         byName: Object.fromEntries(clients.map(c => [c.nom.toLowerCase(), c.id])),
+        existingProjects: await DB.getAll('projects'),
         knownTypes: new Set((await getProjectTypes()).map(s => s.toLowerCase())),
         newTypes: []
       };
@@ -1717,18 +1733,43 @@ const ENTITY_IMPORTS = {
         ctx.knownTypes.add(type.toLowerCase());
         ctx.newTypes.push(type);
       }
+      const code = String(row.code || '').trim();
+      const incoming = {
+        clientId: cid || undefined,
+        nom,
+        code,
+        tauxHoraire: row.tauxHoraire === '' || row.tauxHoraire == null ? undefined : Number(row.tauxHoraire),
+        budgetHeures: row.budgetHeures === '' || row.budgetHeures == null ? undefined : Number(row.budgetHeures),
+        actif: row.actif === '' || row.actif == null ? undefined : parseBool(row.actif, true),
+        typeProjet: type,
+        statutProjet: String(row.statutProjet || '').trim(),
+        prix: row.prix === '' || row.prix == null ? undefined : Number(row.prix),
+        typeFacturation: String(row.typeFacturation || '').trim()
+      };
+      // Match existing by code (case-insensitive) or (clientId + nom) lowercase
+      const existing = ctx.existingProjects.find(p =>
+        (code && p.code && p.code.toLowerCase() === code.toLowerCase())
+        || (cid && (p.nom || '').toLowerCase() === nom.toLowerCase() && Number(p.clientId) === cid)
+      );
+      if (existing) {
+        const { merged, touched } = fillEmpty(existing, incoming);
+        if (!touched) return false;
+        await DB.update('projects', existing.id, merged);
+        return 'updated';
+      }
       await DB.add('projects', {
         clientId: cid || null,
         nom,
-        code: String(row.code || '').trim(),
-        tauxHoraire: row.tauxHoraire === '' ? null : Number(row.tauxHoraire),
-        budgetHeures: row.budgetHeures === '' ? null : Number(row.budgetHeures),
-        actif: parseBool(row.actif, true),
+        code,
+        tauxHoraire: incoming.tauxHoraire ?? null,
+        budgetHeures: incoming.budgetHeures ?? null,
+        actif: incoming.actif === undefined ? true : incoming.actif,
         typeProjet: type,
-        statutProjet: String(row.statutProjet || 'active').trim(),
-        prix: row.prix === '' || row.prix == null ? null : Number(row.prix),
-        typeFacturation: String(row.typeFacturation || '').trim()
+        statutProjet: incoming.statutProjet || 'active',
+        prix: incoming.prix ?? null,
+        typeFacturation: incoming.typeFacturation
       });
+      ctx.existingProjects = await DB.getAll('projects');
       return true;
     },
     finalize: async (ctx) => {
@@ -1743,15 +1784,25 @@ const ENTITY_IMPORTS = {
       headers: ['nom', 'description', 'statut', 'typeTask'],
       sample: [['Réunion hebdo', 'Stand-up équipe', 'open', 'Réunion']]
     },
-    importRow: async (row) => {
+    buildContext: async () => ({ all: await DB.getAll('tasks') }),
+    importRow: async (row, ctx) => {
       const nom = String(row.nom || '').trim();
       if (!nom) return false;
-      await DB.add('tasks', {
+      const incoming = {
         nom,
         description: String(row.description || '').trim(),
-        statut: String(row.statut || 'open').trim(),
+        statut: String(row.statut || '').trim(),
         typeTask: String(row.typeTask || '').trim()
-      });
+      };
+      const existing = ctx.all.find(x => (x.nom || '').toLowerCase() === nom.toLowerCase());
+      if (existing) {
+        const { merged, touched } = fillEmpty(existing, incoming);
+        if (!touched) return false;
+        await DB.update('tasks', existing.id, merged);
+        return 'updated';
+      }
+      await DB.add('tasks', { ...incoming, statut: incoming.statut || 'open' });
+      ctx.all = await DB.getAll('tasks');
       return true;
     }
   },
@@ -1760,16 +1811,38 @@ const ENTITY_IMPORTS = {
       headers: ['numeroEmploye', 'nom', 'email', 'role', 'tauxHoraire'],
       sample: [['EMP001', 'Jean Dupont', 'jean.dupont@example.com', 'Développeur', 50]]
     },
-    importRow: async (row) => {
+    buildContext: async () => ({ all: await DB.getAll('employees') }),
+    importRow: async (row, ctx) => {
       const nom = String(row.nom || '').trim();
       if (!nom) return false;
-      await DB.add('employees', {
-        numeroEmploye: String(row.numeroEmploye || '').trim(),
+      const num = String(row.numeroEmploye || '').trim();
+      const email = String(row.email || '').trim();
+      const incoming = {
+        numeroEmploye: num,
         nom,
-        email: String(row.email || '').trim(),
+        email,
         role: String(row.role || '').trim(),
-        tauxHoraire: row.tauxHoraire === '' ? null : Number(row.tauxHoraire)
+        tauxHoraire: row.tauxHoraire === '' || row.tauxHoraire == null ? undefined : Number(row.tauxHoraire)
+      };
+      const lc = (s) => String(s || '').toLowerCase();
+      const existing = ctx.all.find(e =>
+        (num && lc(e.numeroEmploye) === lc(num))
+        || (email && lc(e.email) === lc(email))
+        || lc(e.nom) === lc(nom)
+      );
+      if (existing) {
+        const { merged, touched } = fillEmpty(existing, incoming);
+        if (!touched) return false;
+        await DB.update('employees', existing.id, merged);
+        return 'updated';
+      }
+      await DB.add('employees', {
+        numeroEmploye: num, nom, email,
+        role: incoming.role || 'employe',
+        tauxHoraire: incoming.tauxHoraire ?? null,
+        actif: true
       });
+      ctx.all = await DB.getAll('employees');
       return true;
     }
   },
@@ -1785,12 +1858,13 @@ const ENTITY_IMPORTS = {
       ]
     },
     buildContext: async () => {
-      const [employees, clients, projects, tasks] = await Promise.all([
+      const [employees, clients, projects, tasks, existingEntries] = await Promise.all([
         DB.getAll('employees'), DB.getAll('clients'),
-        DB.getAll('projects'), DB.getAll('tasks')
+        DB.getAll('projects'), DB.getAll('tasks'),
+        DB.getAll('timeEntries')
       ]);
       return {
-        employees, clients, projects, tasks,
+        employees, clients, projects, tasks, existingEntries,
         clientByName: Object.fromEntries(clients.map(c => [c.nom.toLowerCase(), c.id])),
         projectByCode: Object.fromEntries(projects.filter(p => p.code).map(p => [p.code.toLowerCase(), p.id])),
         projectByName: Object.fromEntries(projects.map(p => [p.nom.toLowerCase(), p.id])),
@@ -1801,7 +1875,6 @@ const ENTITY_IMPORTS = {
       const date = parseAttDate(row.date);
       const heures = Number(row.heures);
       if (!date || !heures) return false;
-      // Try numeroEmploye, then email, then nom (or the legacy 'employe' column).
       const empIdent = pickCol(row, 'numeroEmploye', 'matricule', 'email', 'nom', 'employe', 'employee', 'name');
       const emp = matchEmployee(ctx.employees, empIdent);
       if (!emp) return false;
@@ -1814,17 +1887,38 @@ const ENTITY_IMPORTS = {
       }
       let tid = Number(row.tache);
       if (!tid && row.tache) tid = ctx.taskByName[String(row.tache).toLowerCase().trim()] || null;
+      const incoming = {
+        employeId: emp.id,
+        clientId: cid || undefined,
+        projectId: pid || undefined,
+        taskId: tid || undefined,
+        date, heures,
+        description: String(row.description || '').trim()
+      };
+      // Match: same employee + date + project + task (when both keys present)
+      const existing = ctx.existingEntries.find(e =>
+        Number(e.employeId) === emp.id && e.date === date
+        && Number(e.projectId || 0) === Number(pid || 0)
+        && Number(e.taskId || 0) === Number(tid || 0)
+      );
+      if (existing) {
+        const { merged, touched } = fillEmpty(existing, incoming);
+        if (!touched) return false;
+        await DB.update('timeEntries', existing.id, merged);
+        return 'updated';
+      }
       await DB.add('timeEntries', {
         employeId: emp.id,
         clientId: cid || null,
         projectId: pid || null,
         taskId: tid || null,
         date, heures,
-        description: String(row.description || '').trim(),
+        description: incoming.description,
         statutValidation: 'brouillon',
         submissionId: null,
         verrouille: false
       });
+      ctx.existingEntries = await DB.getAll('timeEntries');
       return true;
     }
   },
@@ -1854,6 +1948,20 @@ async function downloadTemplate(entity) {
   XLSX.writeFile(wb, `template-${entity}.xlsx`);
 }
 
+// Merge only empty fields of `existing` from `updates`. Never overwrite
+// a value that's already populated. Empty = null | undefined | '' | [].
+function fillEmpty(existing, updates) {
+  const out = { ...existing };
+  let touched = false;
+  for (const [k, v] of Object.entries(updates)) {
+    if (v == null || v === '') continue; // ignore empty incoming values
+    const cur = out[k];
+    const empty = cur == null || cur === '' || (Array.isArray(cur) && cur.length === 0);
+    if (empty) { out[k] = v; touched = true; }
+  }
+  return { merged: out, touched };
+}
+
 async function importEntityFile(entity, file) {
   const cfg = ENTITY_IMPORTS[entity];
   if (!cfg || !cfg.importRow) throw new Error('No importer for ' + entity);
@@ -1862,18 +1970,20 @@ async function importEntityFile(entity, file) {
   const sheet = wb.Sheets[wb.SheetNames[0]];
   const rows = XLSX.utils.sheet_to_json(sheet, { defval: '' });
   const ctx = cfg.buildContext ? await cfg.buildContext() : {};
-  let imported = 0, ignored = 0;
+  let imported = 0, ignored = 0, updated = 0;
   for (const row of rows) {
     try {
-      const ok = await cfg.importRow(row, ctx);
-      if (ok) imported++; else ignored++;
+      const r = await cfg.importRow(row, ctx);
+      if (r === 'updated') updated++;
+      else if (r) imported++;
+      else ignored++;
     } catch (e) {
       console.warn('import row failed', e, row);
       ignored++;
     }
   }
   if (cfg.finalize) await cfg.finalize(ctx);
-  return { imported, ignored };
+  return { imported, ignored, updated };
 }
 
 function importBarHtml(entity) {
@@ -2039,8 +2149,8 @@ function wireImportBar(refreshFn) {
       const file = e.target.files[0];
       if (!file) return;
       try {
-        const { imported, ignored } = await importEntityFile(inp.dataset.import, file);
-        toast(`${imported} ${t('linesImported')} · ${ignored} ${t('linesIgnored')}`);
+        const { imported, ignored, updated } = await importEntityFile(inp.dataset.import, file);
+        toast(`${imported} ${t('linesImported')} · ${updated} ${t('linesUpdated')} · ${ignored} ${t('linesIgnored')}`);
       } catch (err) {
         console.error(err);
         toast(t('importErr') + ': ' + err.message);
@@ -3084,8 +3194,12 @@ async function importAttendanceHandler(e) {
       record.employeId = emp.id;
       const existing = await DB.getAttendanceForEmployeeDate(emp.id, date);
       if (existing) {
-        await DB.update('attendance', existing.id, record);
-        updated++;
+        // Only fill empty fields; don't overwrite existing values.
+        const { merged, touched } = fillEmpty(existing, record);
+        if (touched) {
+          await DB.update('attendance', existing.id, merged);
+          updated++;
+        }
       } else {
         await DB.add('attendance', record);
         imported++;
@@ -3151,8 +3265,12 @@ function showImportReport({ imported, updated, ignored, errors, employees }) {
         const empId = Number(sel.value);
         const rec = { ...errors[i].record, employeId: empId };
         const existing = await DB.getAttendanceForEmployeeDate(empId, rec.date);
-        if (existing) await DB.update('attendance', existing.id, rec);
-        else await DB.add('attendance', rec);
+        if (existing) {
+          const { merged, touched } = fillEmpty(existing, rec);
+          if (touched) await DB.update('attendance', existing.id, merged);
+        } else {
+          await DB.add('attendance', rec);
+        }
         added++;
       }
       if (added) toast(`${added} ${t('applyMapping')}`);
