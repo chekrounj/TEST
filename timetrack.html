@@ -31,12 +31,31 @@
   Colonnes attendues (en-têtes en première ligne) :
     Feuille "clients"  : nom, adresse, contact, actif
     Feuille "projects" : clientId, nom, code, tauxHoraire, budgetHeures,
-                         actif, typeProjet
+                         actif, typeProjet, statutProjet
                          (clientId peut aussi être le NOM du client —
-                          il sera résolu automatiquement)
-    Feuille "tasks"    : projectId, nom, description, statut, typeTask
-                         (projectId peut aussi être le code ou le nom
-                          du projet)
+                          il sera résolu automatiquement.
+                          statutProjet : active | paused | completed |
+                          cancelled | draft.
+                          Tout typeProjet inconnu sera ajouté
+                          automatiquement à la liste gérable depuis
+                          Paramètres → Types de projet.)
+    Feuille "tasks"    : nom, description, statut, typeTask
+                         (les tâches sont GLOBALES et réutilisables
+                          sur n'importe quel projet — pas de projectId.)
+
+  EMPLOYÉS
+  --------
+  Chaque employé peut avoir un numéro d'employé (numeroEmploye) en plus
+  du nom, email, rôle et taux horaire.
+
+  TYPES DE PROJET
+  ---------------
+  Gérez la liste des types depuis Paramètres → Types de projet.
+  Le formulaire de projet propose ensuite cette liste en menu déroulant.
+
+  STATUT DU PROJET
+  ----------------
+  Sélectionnez parmi : Actif, En pause, Terminé, Annulé, Brouillon.
 
   EXPORT / IMPORT JSON
   --------------------
@@ -144,13 +163,19 @@ const I18N = {
     // Projects
     projectsTitle: "Projets", projectClient: "Client", projectName: "Nom",
     projectCode: "Code", projectRate: "Taux horaire", projectBudget: "Budget (heures)",
-    projectActive: "Actif", projectType: "Type de projet",
+    projectActive: "Actif", projectType: "Type de projet", projectStatus: "Statut du projet",
+    projectStatusActive: "Actif", projectStatusPaused: "En pause",
+    projectStatusCompleted: "Terminé", projectStatusCancelled: "Annulé",
+    projectStatusDraft: "Brouillon",
+    projectTypesMgmt: "Types de projet", addType: "Ajouter un type",
+    typeName: "Nom du type", noTypes: "Aucun type défini",
+    typeAlreadyExists: "Ce type existe déjà",
     // Tasks
     tasksTitle: "Tâches", taskProject: "Projet", taskName: "Nom",
     taskDesc: "Description", taskStatus: "Statut", taskType: "Type de tâche",
     // Employees
     employeesTitle: "Employés", empName: "Nom", empEmail: "Email",
-    empRole: "Rôle", empRate: "Taux horaire",
+    empRole: "Rôle", empRate: "Taux horaire", empNumber: "N° employé",
     // Time
     timeTitle: "Saisie d'heures", timeClient: "Client", timeProject: "Projet",
     timeTask: "Tâche", timeEmployee: "Employé", timeDate: "Date",
@@ -189,11 +214,17 @@ const I18N = {
     clientContact: "Contact", clientActive: "Active",
     projectsTitle: "Projects", projectClient: "Client", projectName: "Name",
     projectCode: "Code", projectRate: "Hourly rate", projectBudget: "Budget (hours)",
-    projectActive: "Active", projectType: "Project type",
+    projectActive: "Active", projectType: "Project type", projectStatus: "Project status",
+    projectStatusActive: "Active", projectStatusPaused: "Paused",
+    projectStatusCompleted: "Completed", projectStatusCancelled: "Cancelled",
+    projectStatusDraft: "Draft",
+    projectTypesMgmt: "Project types", addType: "Add a type",
+    typeName: "Type name", noTypes: "No types defined",
+    typeAlreadyExists: "This type already exists",
     tasksTitle: "Tasks", taskProject: "Project", taskName: "Name",
     taskDesc: "Description", taskStatus: "Status", taskType: "Task type",
     employeesTitle: "Employees", empName: "Name", empEmail: "Email",
-    empRole: "Role", empRate: "Hourly rate",
+    empRole: "Role", empRate: "Hourly rate", empNumber: "Employee #",
     timeTitle: "Time entry", timeClient: "Client", timeProject: "Project",
     timeTask: "Task", timeEmployee: "Employee", timeDate: "Date",
     timeHours: "Hours", timeDescription: "Description", timeStatus: "Status",
@@ -230,11 +261,17 @@ const I18N = {
     clientContact: "איש קשר", clientActive: "פעיל",
     projectsTitle: "פרויקטים", projectClient: "לקוח", projectName: "שם",
     projectCode: "קוד", projectRate: "תעריף שעתי", projectBudget: "תקציב (שעות)",
-    projectActive: "פעיל", projectType: "סוג פרויקט",
+    projectActive: "פעיל", projectType: "סוג פרויקט", projectStatus: "סטטוס פרויקט",
+    projectStatusActive: "פעיל", projectStatusPaused: "מושהה",
+    projectStatusCompleted: "הושלם", projectStatusCancelled: "בוטל",
+    projectStatusDraft: "טיוטה",
+    projectTypesMgmt: "סוגי פרויקטים", addType: "הוסף סוג",
+    typeName: "שם הסוג", noTypes: "לא הוגדרו סוגים",
+    typeAlreadyExists: "סוג זה כבר קיים",
     tasksTitle: "משימות", taskProject: "פרויקט", taskName: "שם",
     taskDesc: "תיאור", taskStatus: "סטטוס", taskType: "סוג משימה",
     employeesTitle: "עובדים", empName: "שם", empEmail: "דוא״ל",
-    empRole: "תפקיד", empRate: "תעריף שעתי",
+    empRole: "תפקיד", empRate: "תעריף שעתי", empNumber: "מספר עובד",
     timeTitle: "רישום שעות", timeClient: "לקוח", timeProject: "פרויקט",
     timeTask: "משימה", timeEmployee: "עובד", timeDate: "תאריך",
     timeHours: "שעות", timeDescription: "תיאור", timeStatus: "סטטוס",
@@ -267,6 +304,26 @@ function applyI18n() {
   document.querySelectorAll('[data-i18n]').forEach(el => {
     el.textContent = t(el.getAttribute('data-i18n'));
   });
+}
+
+const PROJECT_STATUSES = [
+  { value: 'active',    labelKey: 'projectStatusActive' },
+  { value: 'paused',    labelKey: 'projectStatusPaused' },
+  { value: 'completed', labelKey: 'projectStatusCompleted' },
+  { value: 'cancelled', labelKey: 'projectStatusCancelled' },
+  { value: 'draft',     labelKey: 'projectStatusDraft' }
+];
+const projectStatusLabel = (v) => {
+  const s = PROJECT_STATUSES.find(x => x.value === v);
+  return s ? t(s.labelKey) : (v || '');
+};
+
+async function getProjectTypes() {
+  const v = await DB.getSetting('projectTypes', null);
+  return Array.isArray(v) ? v : [];
+}
+async function setProjectTypes(list) {
+  return DB.setSetting('projectTypes', list);
 }
 
 /* =====================================================================
@@ -598,13 +655,14 @@ async function renderProjects() {
         <td class="px-4 py-3 text-slate-600">${escapeHtml(p.code || '')}</td>
         <td class="px-4 py-3 text-slate-600">${escapeHtml(clientById[p.clientId]?.nom || '')}</td>
         <td class="px-4 py-3 text-slate-600">${escapeHtml(p.typeProjet || '')}</td>
+        <td class="px-4 py-3 text-slate-600">${escapeHtml(projectStatusLabel(p.statutProjet))}</td>
         <td class="px-4 py-3 text-slate-600">${p.tauxHoraire ?? ''}</td>
         <td class="px-4 py-3 text-slate-600">${p.budgetHeures ?? ''}</td>
         <td class="px-4 py-3">${p.actif ? '<span class="px-2 py-0.5 rounded-full bg-green-100 text-green-700 text-xs">●</span>' : '<span class="px-2 py-0.5 rounded-full bg-slate-100 text-slate-500 text-xs">—</span>'}</td>
         <td class="px-4 py-3">${rowActions(p.id)}</td>
       </tr>`).join('');
     $('#listBody').innerHTML = tableEl(
-      [t('projectName'), t('projectCode'), t('projectClient'), t('projectType'), t('projectRate'), t('projectBudget'), t('projectActive'), t('actions')],
+      [t('projectName'), t('projectCode'), t('projectClient'), t('projectType'), t('projectStatus'), t('projectRate'), t('projectBudget'), t('projectActive'), t('actions')],
       rows
     );
     $$('#listBody [data-act]').forEach(b => b.onclick = async () => {
@@ -625,8 +683,11 @@ async function renderProjects() {
 }
 
 async function projectForm(rec) {
-  const r = rec || { clientId: '', nom: '', code: '', tauxHoraire: '', budgetHeures: '', actif: true, typeProjet: '' };
+  const r = rec || { clientId: '', nom: '', code: '', tauxHoraire: '', budgetHeures: '', actif: true, typeProjet: '', statutProjet: 'active' };
   const clients = await DB.getAll('clients');
+  const types = await getProjectTypes();
+  const typeOptions = types.map(name => ({ value: name, label: name }));
+  const statusOptions = PROJECT_STATUSES.map(s => ({ value: s.value, label: t(s.labelKey) }));
   openModal({
     title: rec ? t('edit') : t('add'),
     bodyHtml: `
@@ -634,7 +695,9 @@ async function projectForm(rec) {
         ${selectField('clientId', t('projectClient'), clients.map(c => ({ value: c.id, label: c.nom })), r.clientId, true)}
         ${field('nom', t('projectName'), r.nom, 'text', true)}
         ${field('code', t('projectCode'), r.code)}
-        ${field('typeProjet', t('projectType'), r.typeProjet)}
+        ${selectField('typeProjet', t('projectType'), typeOptions, r.typeProjet)}
+        ${types.length === 0 ? `<p class="text-xs text-slate-500 -mt-2">${escapeHtml(t('noTypes'))} — ${escapeHtml(t('settingsTitle'))} → ${escapeHtml(t('projectTypesMgmt'))}</p>` : ''}
+        ${selectField('statutProjet', t('projectStatus'), statusOptions, r.statutProjet || 'active', true)}
         ${field('tauxHoraire', t('projectRate'), r.tauxHoraire, 'number')}
         ${field('budgetHeures', t('projectBudget'), r.budgetHeures, 'number')}
         ${checkbox('actif', t('projectActive'), r.actif)}
@@ -645,6 +708,7 @@ async function projectForm(rec) {
         nom: $('#f_nom').value.trim(),
         code: $('#f_code').value.trim(),
         typeProjet: $('#f_typeProjet').value.trim(),
+        statutProjet: $('#f_statutProjet').value || 'active',
         tauxHoraire: $('#f_tauxHoraire').value === '' ? null : Number($('#f_tauxHoraire').value),
         budgetHeures: $('#f_budgetHeures').value === '' ? null : Number($('#f_budgetHeures').value),
         actif: $('#f_actif').checked
@@ -666,8 +730,6 @@ async function renderTasks() {
     searchPlaceholder: t('search'),
     onAdd: () => taskForm()
   });
-  const projects = await DB.getAll('projects');
-  const projectById = Object.fromEntries(projects.map(p => [p.id, p]));
   const draw = async () => {
     const all = await DB.getAll('tasks');
     const q = $('#searchInput').value.trim().toLowerCase();
@@ -675,14 +737,13 @@ async function renderTasks() {
     const rows = filtered.map(x => `
       <tr class="hover:bg-slate-50">
         <td class="px-4 py-3">${escapeHtml(x.nom)}</td>
-        <td class="px-4 py-3 text-slate-600">${escapeHtml(projectById[x.projectId]?.nom || '')}</td>
         <td class="px-4 py-3 text-slate-600">${escapeHtml(x.typeTask || '')}</td>
         <td class="px-4 py-3 text-slate-600">${escapeHtml(x.statut || '')}</td>
         <td class="px-4 py-3 text-slate-600">${escapeHtml(x.description || '')}</td>
         <td class="px-4 py-3">${rowActions(x.id)}</td>
       </tr>`).join('');
     $('#listBody').innerHTML = tableEl(
-      [t('taskName'), t('taskProject'), t('taskType'), t('taskStatus'), t('taskDesc'), t('actions')],
+      [t('taskName'), t('taskType'), t('taskStatus'), t('taskDesc'), t('actions')],
       rows
     );
     $$('#listBody [data-act]').forEach(b => b.onclick = async () => {
@@ -702,13 +763,11 @@ async function renderTasks() {
 }
 
 async function taskForm(rec) {
-  const r = rec || { projectId: '', nom: '', description: '', statut: 'open', typeTask: '' };
-  const projects = await DB.getAll('projects');
+  const r = rec || { nom: '', description: '', statut: 'open', typeTask: '' };
   openModal({
     title: rec ? t('edit') : t('add'),
     bodyHtml: `
       <div class="space-y-3">
-        ${selectField('projectId', t('taskProject'), projects.map(p => ({ value: p.id, label: p.nom })), r.projectId, true)}
         ${field('nom', t('taskName'), r.nom, 'text', true)}
         ${field('typeTask', t('taskType'), r.typeTask)}
         ${field('statut', t('taskStatus'), r.statut)}
@@ -716,13 +775,12 @@ async function taskForm(rec) {
       </div>`,
     onSave: async () => {
       const data = {
-        projectId: Number($('#f_projectId').value) || null,
         nom: $('#f_nom').value.trim(),
         typeTask: $('#f_typeTask').value.trim(),
         statut: $('#f_statut').value.trim(),
         description: $('#f_description').value.trim()
       };
-      if (!data.nom || !data.projectId) return false;
+      if (!data.nom) return false;
       if (rec) await DB.update('tasks', rec.id, data);
       else await DB.add('tasks', data);
       toast(t('saved'));
@@ -742,9 +800,13 @@ async function renderEmployees() {
   const draw = async () => {
     const all = await DB.getAll('employees');
     const q = $('#searchInput').value.trim().toLowerCase();
-    const filtered = all.filter(e => !q || (e.nom||'').toLowerCase().includes(q) || (e.email||'').toLowerCase().includes(q));
+    const filtered = all.filter(e => !q
+      || (e.nom||'').toLowerCase().includes(q)
+      || (e.email||'').toLowerCase().includes(q)
+      || (e.numeroEmploye||'').toLowerCase().includes(q));
     const rows = filtered.map(e => `
       <tr class="hover:bg-slate-50">
+        <td class="px-4 py-3 text-slate-600">${escapeHtml(e.numeroEmploye || '')}</td>
         <td class="px-4 py-3">${escapeHtml(e.nom)}</td>
         <td class="px-4 py-3 text-slate-600">${escapeHtml(e.email || '')}</td>
         <td class="px-4 py-3 text-slate-600">${escapeHtml(e.role || '')}</td>
@@ -752,7 +814,7 @@ async function renderEmployees() {
         <td class="px-4 py-3">${rowActions(e.id)}</td>
       </tr>`).join('');
     $('#listBody').innerHTML = tableEl(
-      [t('empName'), t('empEmail'), t('empRole'), t('empRate'), t('actions')],
+      [t('empNumber'), t('empName'), t('empEmail'), t('empRole'), t('empRate'), t('actions')],
       rows
     );
     $$('#listBody [data-act]').forEach(b => b.onclick = async () => {
@@ -772,11 +834,12 @@ async function renderEmployees() {
 }
 
 function employeeForm(rec) {
-  const r = rec || { nom: '', email: '', role: '', tauxHoraire: '' };
+  const r = rec || { numeroEmploye: '', nom: '', email: '', role: '', tauxHoraire: '' };
   openModal({
     title: rec ? t('edit') : t('add'),
     bodyHtml: `
       <div class="space-y-3">
+        ${field('numeroEmploye', t('empNumber'), r.numeroEmploye)}
         ${field('nom', t('empName'), r.nom, 'text', true)}
         ${field('email', t('empEmail'), r.email, 'email')}
         ${field('role', t('empRole'), r.role)}
@@ -784,6 +847,7 @@ function employeeForm(rec) {
       </div>`,
     onSave: async () => {
       const data = {
+        numeroEmploye: $('#f_numeroEmploye').value.trim(),
         nom: $('#f_nom').value.trim(),
         email: $('#f_email').value.trim(),
         role: $('#f_role').value.trim(),
@@ -819,7 +883,7 @@ async function renderTimeEntries() {
           <label class="block text-sm text-slate-600 mb-1">${escapeHtml(t('timeEmployee'))}</label>
           <select id="te_emp" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm">
             <option value="">${escapeHtml(t('selectEmployee'))}</option>
-            ${employees.map(e => `<option value="${e.id}">${escapeHtml(e.nom)}</option>`).join('')}
+            ${employees.map(e => `<option value="${e.id}">${escapeHtml((e.numeroEmploye ? e.numeroEmploye + ' — ' : '') + e.nom)}</option>`).join('')}
           </select>
         </div>
         <div>
@@ -884,10 +948,10 @@ async function renderTimeEntries() {
   };
   selProject.onchange = () => {
     const pid = Number(selProject.value);
+    // Tasks are reusable across projects: show ALL tasks once a project is picked.
     selTask.disabled = !pid;
-    const ts = tasks.filter(x => x.projectId === pid);
     selTask.innerHTML = `<option value="">${escapeHtml(t('selectTask'))}</option>` +
-      ts.map(x => `<option value="${x.id}">${escapeHtml(x.nom)}</option>`).join('');
+      tasks.map(x => `<option value="${x.id}">${escapeHtml(x.nom)}</option>`).join('');
   };
 
   $('#timeForm').onsubmit = async (e) => {
@@ -956,6 +1020,7 @@ async function renderTimeEntries() {
 
 /* ----- SETTINGS ----- */
 async function renderSettings() {
+  const types = await getProjectTypes();
   PAGE.innerHTML = `
     <h1 class="text-2xl font-bold text-slate-900 mb-6">${escapeHtml(t('settingsTitle'))}</h1>
 
@@ -966,6 +1031,25 @@ async function renderSettings() {
         <option value="en" ${LANG==='en'?'selected':''}>English</option>
         <option value="he" ${LANG==='he'?'selected':''}>עברית</option>
       </select>
+    </div>
+
+    <div class="bg-white rounded-xl border border-slate-200 shadow-sm p-6 mb-6">
+      <h2 class="font-semibold text-slate-900 mb-4">${escapeHtml(t('projectTypesMgmt'))}</h2>
+      <div class="flex gap-2 mb-4">
+        <input id="newTypeInput" type="text" placeholder="${escapeHtml(t('typeName'))}" class="flex-1 max-w-sm px-3 py-2 border border-slate-300 rounded-lg text-sm">
+        <button id="addTypeBtn" class="px-4 py-2 rounded-lg bg-blue-700 text-white hover:bg-blue-800 text-sm">+ ${escapeHtml(t('addType'))}</button>
+      </div>
+      <div id="typesList">
+        ${types.length === 0
+          ? `<p class="text-sm text-slate-500">${escapeHtml(t('noTypes'))}</p>`
+          : `<ul class="divide-y divide-slate-100 border border-slate-200 rounded-lg max-w-md">
+              ${types.map((tp, i) => `
+                <li class="flex items-center justify-between px-3 py-2 text-sm">
+                  <span>${escapeHtml(tp)}</span>
+                  <button data-idx="${i}" class="del-type text-red-600 hover:underline text-xs">${escapeHtml(t('delete'))}</button>
+                </li>`).join('')}
+            </ul>`}
+      </div>
     </div>
 
     <div class="bg-white rounded-xl border border-slate-200 shadow-sm p-6 mb-6">
@@ -996,6 +1080,30 @@ async function renderSettings() {
     applyI18n();
     navigate(currentPage);
   };
+
+  $('#addTypeBtn').onclick = async () => {
+    const input = $('#newTypeInput');
+    const v = input.value.trim();
+    if (!v) return;
+    const list = await getProjectTypes();
+    if (list.some(x => x.toLowerCase() === v.toLowerCase())) {
+      toast(t('typeAlreadyExists'));
+      return;
+    }
+    list.push(v);
+    await setProjectTypes(list);
+    input.value = '';
+    toast(t('saved'));
+    renderSettings();
+  };
+  $$('#typesList .del-type').forEach(b => b.onclick = async () => {
+    const idx = Number(b.dataset.idx);
+    const list = await getProjectTypes();
+    list.splice(idx, 1);
+    await setProjectTypes(list);
+    toast(t('deleted'));
+    renderSettings();
+  });
 
   $('#exportJson').onclick = exportJson;
   $('#importJsonFile').onchange = importJsonHandler;
@@ -1125,15 +1233,22 @@ async function importXlsxHandler(e) {
       }
     }
 
-    // Projects (resolve clientId by name if needed)
+    // Projects (resolve clientId by name if needed; auto-add unknown project types)
     if (sheetMap['projects']) {
       const allClients = await DB.getAll('clients');
       const byName = Object.fromEntries(allClients.map(c => [c.nom.toLowerCase(), c.id]));
+      const knownTypes = new Set((await getProjectTypes()).map(s => s.toLowerCase()));
+      const newTypes = [];
       const rows = XLSX.utils.sheet_to_json(wb.Sheets[sheetMap['projects']], { defval: '' });
       for (const r of rows) {
         if (!r.nom) continue;
         let cid = Number(r.clientId);
         if (!cid && r.clientId) cid = byName[String(r.clientId).toLowerCase().trim()] || null;
+        const type = String(r.typeProjet || '').trim();
+        if (type && !knownTypes.has(type.toLowerCase())) {
+          knownTypes.add(type.toLowerCase());
+          newTypes.push(type);
+        }
         await DB.add('projects', {
           clientId: cid || null,
           nom: String(r.nom).trim(),
@@ -1141,27 +1256,23 @@ async function importXlsxHandler(e) {
           tauxHoraire: r.tauxHoraire === '' ? null : Number(r.tauxHoraire),
           budgetHeures: r.budgetHeures === '' ? null : Number(r.budgetHeures),
           actif: parseBool(r.actif, true),
-          typeProjet: String(r.typeProjet || '').trim()
+          typeProjet: type,
+          statutProjet: String(r.statutProjet || 'active').trim()
         });
         total++;
       }
+      if (newTypes.length) {
+        const current = await getProjectTypes();
+        await setProjectTypes([...current, ...newTypes]);
+      }
     }
 
-    // Tasks (resolve projectId by code or name if needed)
+    // Tasks (global — reusable across projects)
     if (sheetMap['tasks']) {
-      const allProjects = await DB.getAll('projects');
-      const byCode = Object.fromEntries(allProjects.filter(p => p.code).map(p => [p.code.toLowerCase(), p.id]));
-      const byName = Object.fromEntries(allProjects.map(p => [p.nom.toLowerCase(), p.id]));
       const rows = XLSX.utils.sheet_to_json(wb.Sheets[sheetMap['tasks']], { defval: '' });
       for (const r of rows) {
         if (!r.nom) continue;
-        let pid = Number(r.projectId);
-        if (!pid && r.projectId) {
-          const k = String(r.projectId).toLowerCase().trim();
-          pid = byCode[k] || byName[k] || null;
-        }
         await DB.add('tasks', {
-          projectId: pid || null,
           nom: String(r.nom).trim(),
           description: String(r.description || '').trim(),
           statut: String(r.statut || 'open').trim(),
