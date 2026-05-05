@@ -629,7 +629,8 @@ const I18N = {
     chartHoursByEmployee: "Heures par employé (30 derniers jours)",
     chartMissionStatus: "Répartition des missions",
     chartHoursOverTime: "Heures saisies (30 jours)",
-    chartHoursByType: "Heures par type de projet (3 mois)",
+    chartHoursByType: "Heures par type de projet",
+    clickForDetail: "Cliquez sur un type pour voir le détail par client",
     chartCostByType: "Coûts par type de projet (3 mois)",
     colProjectType: "Type de projet",
     expandAll: "Tout étendre", collapseAll: "Tout réduire",
@@ -868,7 +869,8 @@ const I18N = {
     chartHoursByEmployee: "Hours by employee (last 30 days)",
     chartMissionStatus: "Mission status distribution",
     chartHoursOverTime: "Hours entered (30 days)",
-    chartHoursByType: "Hours by project type (3 months)",
+    chartHoursByType: "Hours by project type",
+    clickForDetail: "Click a type to see breakdown by client",
     chartCostByType: "Cost by project type (3 months)",
     colProjectType: "Project type",
     expandAll: "Expand all", collapseAll: "Collapse all",
@@ -1107,7 +1109,8 @@ const I18N = {
     chartHoursByEmployee: "שעות לפי עובד (30 ימים)",
     chartMissionStatus: "התפלגות סטטוס משימות",
     chartHoursOverTime: "שעות שהוזנו (30 ימים)",
-    chartHoursByType: "שעות לפי סוג פרויקט (3 חודשים)",
+    chartHoursByType: "שעות לפי סוג פרויקט",
+    clickForDetail: "לחץ על סוג כדי לראות פירוט לפי לקוח",
     chartCostByType: "עלות לפי סוג פרויקט (3 חודשים)",
     colProjectType: "סוג פרויקט",
     expandAll: "פתח הכל", collapseAll: "סגור הכל",
@@ -3540,52 +3543,7 @@ async function renderDashboard() {
   PAGE.innerHTML = `<h1 class="text-2xl font-bold text-slate-900 mb-6">${escapeHtml(t('dashTitle'))}</h1><div id="dashBody"></div>`;
 
   if (role === 'admin') {
-    const activeEmployees = employees.filter(e => e.actif !== false).length;
-    const pending = submissions.filter(s => s.statut === 'soumis').length;
-    const rejected = submissions.filter(s => s.statut === 'rejete' && (s.dateValidation || '') >= monthStartIso).length;
-    const activeMissions = missions.filter(m => m.statut !== 'effectuee' && m.statut !== 'annulee').length;
-    const lateMissions = missions.filter(m => m.statut !== 'effectuee' && m.statut !== 'annulee' && (m.dateRealisationDemandee || '') < today).length;
-    const activeRecs = recurrences.filter(r => r.actif !== false).length;
-    const done = missions.filter(m => m.statut === 'effectuee');
-    const respect = done.length ? Math.round(100 * done.filter(m => m.respectDelaiDemande === true).length / done.length) : null;
-    $('#dashBody').innerHTML = `
-      <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
-        ${statCard('👥', t('statActiveEmployees'), activeEmployees, 'bg-blue-50 text-blue-800', 'activeEmployees')}
-        ${statCard('⏳', t('statPendingSubs'), pending, 'bg-amber-50 text-amber-800', 'pendingSubs')}
-        ${statCard('⛔', t('statRejectedThisMonth'), rejected, 'bg-red-50 text-red-800', 'rejectedSubs')}
-      </div>
-      <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
-        ${statCard('📋', t('statActiveMissions'), activeMissions, 'bg-slate-100 text-slate-800', 'activeMissions')}
-        ${statCard('🔥', t('statTeamMissionsLate'), lateMissions, 'bg-red-50 text-red-800', 'lateMissions')}
-        ${statCard('🔁', t('statActiveRecurrences'), activeRecs, 'bg-blue-50 text-blue-800', 'activeRecs')}
-        ${statCard('✅', t('statRespectRate'), respect == null ? '—' : respect + '%', 'bg-green-50 text-green-800', 'respectRate')}
-      </div>
-      <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
-        <div class="bg-white rounded-xl border border-slate-200 p-4">
-          <div class="text-xs uppercase tracking-wide text-slate-500 mb-2">${escapeHtml(t('chartHoursByClient'))}</div>
-          <canvas id="ch_client" height="80" style="max-width:320px"></canvas>
-        </div>
-        <div class="bg-white rounded-xl border border-slate-200 p-4">
-          <div class="text-xs uppercase tracking-wide text-slate-500 mb-2">${escapeHtml(t('chartHoursByEmployee'))}</div>
-          <canvas id="ch_emp" height="80" style="max-width:320px"></canvas>
-        </div>
-        <div class="bg-white rounded-xl border border-slate-200 p-4">
-          <div class="text-xs uppercase tracking-wide text-slate-500 mb-2">${escapeHtml(t('chartMissionStatus'))}</div>
-          <canvas id="ch_miss" height="90"></canvas>
-        </div>
-      </div>
-      <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
-        <div class="bg-white rounded-xl border border-slate-200 p-4">
-          <div class="text-xs uppercase tracking-wide text-slate-500 mb-2">${escapeHtml(t('chartHoursByType'))}</div>
-          <canvas id="ch_typeH" height="100"></canvas>
-        </div>
-        <div class="bg-white rounded-xl border border-slate-200 p-4">
-          <div class="text-xs uppercase tracking-wide text-slate-500 mb-2">${escapeHtml(t('chartCostByType'))}</div>
-          <canvas id="ch_typeC" height="100"></canvas>
-        </div>
-      </div>`;
-    wireAdminDashboardClicks(employees, submissions, missions, recurrences);
-    drawAdminCharts(employees, missions, timeEntries);
+    await renderAdminTypeChart(employees, timeEntries);
   } else if (role === 'manager') {
     const teamIds = new Set([session.employeId, ...employees.filter(e => Number(e.managerId) === Number(session.employeId)).map(e => e.id)]);
     const pending = submissions.filter(s => s.statut === 'soumis' && teamIds.has(Number(s.employeId))).length;
@@ -3871,6 +3829,101 @@ function statCard(icon, label, value, cls = 'bg-slate-100 text-slate-700', detai
         ${detailKey ? '<div class="ms-auto text-slate-300 text-sm">▸</div>' : ''}
       </div>
     </div>`;
+}
+
+async function renderAdminTypeChart(employees, timeEntries) {
+  // Previous full calendar month
+  const today = new Date();
+  const firstDay = new Date(today.getFullYear(), today.getMonth() - 1, 1);
+  const lastDay  = new Date(today.getFullYear(), today.getMonth(), 0);
+  const startIso = firstDay.toISOString().slice(0, 10);
+  const endIso   = lastDay.toISOString().slice(0, 10);
+  const localeBcp = LANG === 'fr' ? 'fr-FR' : LANG === 'he' ? 'he-IL' : 'en-US';
+  const monthLabel = firstDay.toLocaleDateString(localeBcp, { month: 'long', year: 'numeric' });
+
+  const [allClients, allProjects] = await Promise.all([DB.getAll('clients'), DB.getAll('projects')]);
+  const cById = Object.fromEntries(allClients.map(c => [c.id, c.nom]));
+  const pById = Object.fromEntries(allProjects.map(p => [p.id, p]));
+  const eFull = Object.fromEntries(employees.map(e => [e.id, e]));
+
+  const lastMonthEntries = timeEntries.filter(en => (en.date || '') >= startIso && (en.date || '') <= endIso);
+
+  const byType = {};
+  for (const en of lastMonthEntries) {
+    const proj = pById[en.projectId];
+    const type = proj?.typeProjet || t('untyped');
+    const hours = Number(en.heures) || 0;
+    const rate  = Number(eFull[en.employeId]?.tauxHoraire) || 0;
+    const cost  = hours * rate;
+    if (!byType[type]) byType[type] = { hours: 0, cost: 0, byClient: {} };
+    byType[type].hours += hours;
+    byType[type].cost  += cost;
+    const cName = cById[en.clientId] || '—';
+    if (!byType[type].byClient[cName]) byType[type].byClient[cName] = { hours: 0, cost: 0 };
+    byType[type].byClient[cName].hours += hours;
+    byType[type].byClient[cName].cost  += cost;
+  }
+  const sorted = Object.entries(byType).sort((a, b) => b[1].hours - a[1].hours);
+
+  const chartHeight = Math.max(80, sorted.length * 26);
+  $('#dashBody').innerHTML = `
+    <div class="bg-white rounded-xl border border-slate-200 p-4 max-w-2xl">
+      <div class="text-xs uppercase tracking-wide text-slate-500 mb-1">${escapeHtml(t('chartHoursByType'))}</div>
+      <div class="text-sm font-semibold text-slate-800 mb-3">${escapeHtml(monthLabel)}</div>
+      ${sorted.length === 0
+        ? `<p class="text-sm text-slate-500">${escapeHtml(t('noResults'))}</p>`
+        : `<canvas id="ch_typeMain" height="${chartHeight}" style="max-width:320px"></canvas>
+           <p class="text-xs text-slate-500 mt-3">${escapeHtml(t('clickForDetail'))}</p>`}
+    </div>
+  `;
+
+  if (!sorted.length || typeof Chart === 'undefined') return;
+
+  const inst = Chart.getChart('ch_typeMain');
+  if (inst) inst.destroy();
+
+  new Chart($('#ch_typeMain'), {
+    type: 'bar',
+    data: {
+      labels: sorted.map(([type, d]) => `${type} · ${d.hours.toFixed(1)} h`),
+      datasets: [{
+        data: sorted.map(([, d]) => +d.hours.toFixed(2)),
+        backgroundColor: '#4f46e5',
+        borderRadius: 3
+      }]
+    },
+    options: {
+      plugins: {
+        legend: { display: false },
+        tooltip: { callbacks: {
+          label: (ctx) => {
+            const [, d] = sorted[ctx.dataIndex];
+            return `${d.hours.toFixed(2)} h · ${d.cost.toFixed(2)}`;
+          }
+        } }
+      },
+      indexAxis: 'y',
+      responsive: true,
+      maintainAspectRatio: false,
+      layout: { padding: { top: 0, bottom: 0 } },
+      scales: {
+        x: { display: false, beginAtZero: true },
+        y: { grid: { display: false }, ticks: { font: { size: 11 } }, border: { display: false } }
+      },
+      datasets: { bar: { categoryPercentage: 0.95, barPercentage: 0.95 } },
+      onClick: (ev, elements) => {
+        if (!elements.length) return;
+        const idx = elements[0].index;
+        const [type, data] = sorted[idx];
+        const rows = Object.entries(data.byClient)
+          .sort((a, b) => b[1].hours - a[1].hours)
+          .map(([cName, d]) => `<tr><td class="px-3 py-2">${escapeHtml(cName)}</td><td class="px-3 py-2 text-end font-medium">${d.hours.toFixed(2)}</td><td class="px-3 py-2 text-end font-medium">${d.cost.toFixed(2)}</td></tr>`);
+        // Add total row
+        rows.push(`<tr class="bg-slate-50 font-semibold border-t border-slate-200"><td class="px-3 py-2">${escapeHtml(t('reportTotalHours'))}/${escapeHtml(t('reportTotalCost'))}</td><td class="px-3 py-2 text-end">${data.hours.toFixed(2)}</td><td class="px-3 py-2 text-end">${data.cost.toFixed(2)}</td></tr>`);
+        showListModal(`${type} — ${monthLabel}`, [t('timeClient'), t('colHours'), t('colCost')], rows);
+      }
+    }
+  });
 }
 
 async function drawAdminCharts(employees, missions, timeEntries) {
