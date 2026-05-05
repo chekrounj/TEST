@@ -89,6 +89,7 @@
 -->
 <script src="https://cdn.tailwindcss.com"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 <style>
   html, body { height: 100%; }
   body { font-family: 'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; }
@@ -104,6 +105,13 @@
   .modal-backdrop { background: rgba(15, 23, 42, 0.5); }
   /* RTL tweaks for icons spacing */
   [dir="rtl"] .ml-auto { margin-left: 0; margin-right: auto; }
+  /* Print mode: hide everything except #printArea */
+  @media print {
+    body * { visibility: hidden; }
+    #printArea, #printArea * { visibility: visible; }
+    #printArea { position: absolute; left: 0; top: 0; width: 100%; padding: 16px; }
+    .no-print { display: none !important; }
+  }
 </style>
 </head>
 <body class="bg-slate-50 text-slate-800">
@@ -187,6 +195,9 @@
       </button>
       <button data-page="missions" data-roles="admin,manager,employe" class="nav-item flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-slate-100 text-slate-700 text-start">
         <span class="nav-ico text-slate-500">📋</span><span data-i18n="navMissions">Missions</span>
+      </button>
+      <button data-page="reports" data-roles="admin,manager" class="nav-item flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-slate-100 text-slate-700 text-start">
+        <span class="nav-ico text-slate-500">📈</span><span data-i18n="navReports">Rapports</span>
       </button>
       <button data-page="settings" data-roles="admin,manager,employe"  class="nav-item flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-slate-100 text-slate-700 text-start">
         <span class="nav-ico text-slate-500">⚙</span><span data-i18n="navSettings">Paramètres</span>
@@ -473,6 +484,27 @@ const I18N = {
     nRecurrencesCreated: "{n} récurrence(s) créée(s)",
     viewDetails: "Voir le détail",
     closeDetails: "Fermer",
+    exportExcel: "Exporter Excel",
+    // Reports
+    navReports: "Rapports",
+    reportsTitle: "Rapports",
+    reportFilters: "Filtres",
+    reportGroupBy: "Grouper par",
+    reportSortBy: "Trier par",
+    reportColumns: "Colonnes",
+    reportNoGroup: "Aucun (à plat)",
+    reportGenerate: "Générer le rapport",
+    reportPrint: "Imprimer / PDF",
+    reportTotalHours: "Total heures",
+    reportTotalCost: "Coût total",
+    reportPeriod: "Période",
+    colDate: "Date", colEmployee: "Employé", colClient: "Client",
+    colProject: "Projet", colTask: "Tâche", colHours: "Heures",
+    colRate: "Taux horaire", colCost: "Coût", colDescription: "Description",
+    chartHoursByClient: "Heures par client (30 derniers jours)",
+    chartHoursByEmployee: "Heures par employé (30 derniers jours)",
+    chartMissionStatus: "Répartition des missions",
+    chartHoursOverTime: "Heures saisies (30 jours)",
   },
   en: {
     appSubtitle: "Time Tracking",
@@ -687,6 +719,26 @@ const I18N = {
     nRecurrencesCreated: "{n} recurrence(s) created",
     viewDetails: "View details",
     closeDetails: "Close",
+    exportExcel: "Export Excel",
+    navReports: "Reports",
+    reportsTitle: "Reports",
+    reportFilters: "Filters",
+    reportGroupBy: "Group by",
+    reportSortBy: "Sort by",
+    reportColumns: "Columns",
+    reportNoGroup: "None (flat)",
+    reportGenerate: "Generate report",
+    reportPrint: "Print / PDF",
+    reportTotalHours: "Total hours",
+    reportTotalCost: "Total cost",
+    reportPeriod: "Period",
+    colDate: "Date", colEmployee: "Employee", colClient: "Client",
+    colProject: "Project", colTask: "Task", colHours: "Hours",
+    colRate: "Rate", colCost: "Cost", colDescription: "Description",
+    chartHoursByClient: "Hours by client (last 30 days)",
+    chartHoursByEmployee: "Hours by employee (last 30 days)",
+    chartMissionStatus: "Mission status distribution",
+    chartHoursOverTime: "Hours entered (30 days)",
   },
   he: {
     appSubtitle: "מעקב זמן",
@@ -901,6 +953,26 @@ const I18N = {
     nRecurrencesCreated: "{n} חזרות נוצרו",
     viewDetails: "הצג פרטים",
     closeDetails: "סגור",
+    exportExcel: "ייצא Excel",
+    navReports: "דוחות",
+    reportsTitle: "דוחות",
+    reportFilters: "מסננים",
+    reportGroupBy: "קבץ לפי",
+    reportSortBy: "מיין לפי",
+    reportColumns: "עמודות",
+    reportNoGroup: "ללא (שטוח)",
+    reportGenerate: "צור דוח",
+    reportPrint: "הדפס / PDF",
+    reportTotalHours: "סה״כ שעות",
+    reportTotalCost: "עלות כוללת",
+    reportPeriod: "תקופה",
+    colDate: "תאריך", colEmployee: "עובד", colClient: "לקוח",
+    colProject: "פרויקט", colTask: "משימה", colHours: "שעות",
+    colRate: "תעריף", colCost: "עלות", colDescription: "תיאור",
+    chartHoursByClient: "שעות לפי לקוח (30 ימים)",
+    chartHoursByEmployee: "שעות לפי עובד (30 ימים)",
+    chartMissionStatus: "התפלגות סטטוס משימות",
+    chartHoursOverTime: "שעות שהוזנו (30 ימים)",
   }
 };
 let LANG = 'fr';
@@ -1537,6 +1609,7 @@ async function navigate(page) {
   if (page === 'attendance')     { if (!guardRole('admin','manager')) return; return renderAttendance(); }
   if (page === 'reconciliation') { if (!guardRole('admin','manager')) return; return renderReconciliation(); }
   if (page === 'missions')       { if (!guardRole('admin','manager','employe')) return; return renderMissions(); }
+  if (page === 'reports')        { if (!guardRole('admin','manager')) return; return renderReports(); }
   if (page === 'settings')       return renderSettings();
 }
 
@@ -1790,6 +1863,7 @@ async function importEntityFile(entity, file) {
 
 function importBarHtml(entity) {
   return `
+    <button data-export="${entity}" class="px-3 py-2 rounded-lg border border-slate-300 hover:bg-slate-50 text-sm">📊 ${escapeHtml(t('exportExcel'))}</button>
     <button data-tpl="${entity}" class="px-3 py-2 rounded-lg border border-slate-300 hover:bg-slate-50 text-sm">⬇ ${escapeHtml(t('downloadTemplate'))}</button>
     <label class="px-3 py-2 rounded-lg border border-slate-300 hover:bg-slate-50 text-sm cursor-pointer">
       ⬆ ${escapeHtml(t('importExcel'))}
@@ -1798,7 +1872,152 @@ function importBarHtml(entity) {
   `;
 }
 
+function exportListToExcel(filename, sheetName, headers, rows) {
+  const aoa = [headers, ...rows];
+  const ws = XLSX.utils.aoa_to_sheet(aoa);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, sheetName);
+  XLSX.writeFile(wb, filename + '.xlsx');
+}
+
+const ENTITY_EXPORTERS = {
+  clients: async () => {
+    const headers = ['nom', 'adresse', 'contact', 'actif'];
+    const rows = (await DB.getAll('clients')).map(r => [r.nom||'', r.adresse||'', r.contact||'', r.actif === false ? 'non' : 'oui']);
+    return { headers, rows };
+  },
+  projects: async () => {
+    const clients = await DB.getAll('clients');
+    const cmap = Object.fromEntries(clients.map(c => [c.id, c.nom]));
+    const headers = ['client', 'nom', 'code', 'tauxHoraire', 'budgetHeures', 'actif', 'typeProjet', 'statutProjet', 'prix', 'typeFacturation'];
+    const rows = (await DB.getAll('projects')).map(r => [
+      cmap[r.clientId] || '',
+      r.nom || '', r.code || '',
+      r.tauxHoraire ?? '', r.budgetHeures ?? '',
+      r.actif === false ? 'non' : 'oui',
+      r.typeProjet || '', r.statutProjet || '',
+      r.prix ?? '', r.typeFacturation || ''
+    ]);
+    return { headers, rows };
+  },
+  tasks: async () => {
+    const headers = ['nom', 'description', 'statut', 'typeTask'];
+    const rows = (await DB.getAll('tasks')).map(r => [r.nom || '', r.description || '', r.statut || '', r.typeTask || '']);
+    return { headers, rows };
+  },
+  employees: async () => {
+    const all = await DB.getAll('employees');
+    const empById = Object.fromEntries(all.map(e => [e.id, e.nom]));
+    const headers = ['numeroEmploye', 'nom', 'email', 'role', 'manager', 'actif', 'tauxHoraire'];
+    const rows = all.map(e => [
+      e.numeroEmploye || '', e.nom || '', e.email || '',
+      roleLabel(e.role || 'employe'),
+      empById[e.managerId] || '',
+      e.actif === false ? 'non' : 'oui',
+      e.tauxHoraire ?? ''
+    ]);
+    return { headers, rows };
+  },
+  timeEntries: async () => {
+    const [emps, clients, projects, tasks] = await Promise.all([
+      DB.getAll('employees'), DB.getAll('clients'),
+      DB.getAll('projects'), DB.getAll('tasks')
+    ]);
+    const eById = Object.fromEntries(emps.map(e => [e.id, e]));
+    const cById = Object.fromEntries(clients.map(c => [c.id, c.nom]));
+    const pById = Object.fromEntries(projects.map(p => [p.id, p.nom]));
+    const tById = Object.fromEntries(tasks.map(x => [x.id, x.nom]));
+    const headers = ['date', 'numeroEmploye', 'nomEmploye', 'client', 'projet', 'tache', 'heures', 'description', 'statut'];
+    const rows = (await DB.getAll('timeEntries'))
+      .sort((a,b) => (b.date || '').localeCompare(a.date || ''))
+      .map(en => [
+        en.date || '',
+        eById[en.employeId]?.numeroEmploye || '',
+        eById[en.employeId]?.nom || '',
+        cById[en.clientId] || '',
+        pById[en.projectId] || '',
+        tById[en.taskId] || '',
+        en.heures ?? '',
+        en.description || '',
+        en.statutValidation || 'brouillon'
+      ]);
+    return { headers, rows };
+  },
+  attendance: async () => {
+    const emps = await DB.getAll('employees');
+    const eById = Object.fromEntries(emps.map(e => [e.id, e]));
+    const headers = ['date', 'numeroEmploye', 'nomEmploye', 'heureEntree', 'heureSortie', 'pause', 'totalHeures', 'source'];
+    const rows = (await DB.getAll('attendance'))
+      .sort((a,b) => (b.date || '').localeCompare(a.date || ''))
+      .map(a => [
+        a.date || '',
+        eById[a.employeId]?.numeroEmploye || '',
+        eById[a.employeId]?.nom || '',
+        a.heureEntree || '', a.heureSortie || '',
+        a.pause ?? '', a.totalHeures ?? '',
+        a.source || ''
+      ]);
+    return { headers, rows };
+  },
+  missions: async () => {
+    const [emps, clients] = await Promise.all([DB.getAll('employees'), DB.getAll('clients')]);
+    const eById = Object.fromEntries(emps.map(e => [e.id, e.nom]));
+    const cById = Object.fromEntries(clients.map(c => [c.id, c.nom]));
+    const headers = ['libelle', 'client', 'assigne', 'creePar', 'priorite', 'dateRealisationDemandee', 'statut', 'dateRealisation', 'delaiJours', 'respectDelai', 'description', 'notes'];
+    const rows = (await DB.getAll('missions')).map(m => [
+      m.libelle || '', cById[m.clientId] || '',
+      eById[m.assigneEmployeId] || '',
+      eById[m.creePar] || '',
+      m.priorite || '', m.dateRealisationDemandee || '',
+      m.statut || '',
+      m.dateRealisation || '',
+      m.delaiRealisationMs != null ? (m.delaiRealisationMs / 86400000).toFixed(2) : '',
+      m.respectDelaiDemande === true ? 'oui' : m.respectDelaiDemande === false ? 'non' : '',
+      m.description || '', m.notes || ''
+    ]);
+    return { headers, rows };
+  },
+  recurrences: async () => {
+    const [emps, clients] = await Promise.all([DB.getAll('employees'), DB.getAll('clients')]);
+    const eById = Object.fromEntries(emps.map(e => [e.id, e.nom]));
+    const cById = Object.fromEntries(clients.map(c => [c.id, c.nom]));
+    const headers = ['libelle', 'client', 'assigne', 'periodicite', 'parametre', 'dateDebut', 'dateFin', 'delaiJours', 'actif'];
+    const rows = (await DB.getAll('recurrences')).map(r => [
+      r.libelle || '', cById[r.clientId] || '',
+      eById[r.assigneEmployeId] || '',
+      r.periodicite || '',
+      JSON.stringify(r.parametre || {}),
+      r.dateDebut || '', r.dateFin || '',
+      r.delaiRealisationJours ?? '',
+      r.actif === false ? 'non' : 'oui'
+    ]);
+    return { headers, rows };
+  },
+  submissions: async () => {
+    const emps = await DB.getAll('employees');
+    const eById = Object.fromEntries(emps.map(e => [e.id, e.nom]));
+    const headers = ['employe', 'periodeDebut', 'periodeFin', 'dateSubmission', 'statut', 'validePar', 'dateValidation', 'commentaire'];
+    const rows = (await DB.getAll('submissions')).map(s => [
+      eById[s.employeId] || '', s.periodeDebut || '', s.periodeFin || '',
+      s.dateSubmission || '', s.statut || '',
+      eById[s.validePar] || '', s.dateValidation || '',
+      s.commentaire || ''
+    ]);
+    return { headers, rows };
+  }
+};
+
+async function exportEntity(entity) {
+  const fn = ENTITY_EXPORTERS[entity];
+  if (!fn) { toast('!'); return; }
+  const { headers, rows } = await fn();
+  const today = new Date().toISOString().slice(0,10);
+  exportListToExcel(`export-${entity}-${today}`, entity, headers, rows);
+  toast(t('exported'));
+}
+
 function wireImportBar(refreshFn) {
+  $$('[data-export]').forEach(b => b.onclick = () => exportEntity(b.dataset.export));
   $$('[data-tpl]').forEach(b => b.onclick = () => downloadTemplate(b.dataset.tpl));
   $$('[data-import]').forEach(inp => {
     inp.onchange = async (e) => {
@@ -2641,6 +2860,7 @@ async function renderAttendance() {
     <div class="flex items-center justify-between mb-6">
       <h1 class="text-2xl font-bold text-slate-900">${escapeHtml(t('attTitle'))}</h1>
       <div class="flex flex-wrap gap-2">
+        <button id="attExportBtn" class="px-3 py-2 rounded-lg border border-slate-300 hover:bg-slate-50 text-sm">📊 ${escapeHtml(t('exportExcel'))}</button>
         <button id="attTplBtn" class="px-3 py-2 rounded-lg border border-slate-300 hover:bg-slate-50 text-sm">⬇ ${escapeHtml(t('downloadTemplate'))}</button>
         <label class="px-3 py-2 rounded-lg border border-slate-300 hover:bg-slate-50 text-sm cursor-pointer">
           ⬆ ${escapeHtml(t('importExcel'))}
@@ -2720,6 +2940,7 @@ async function renderAttendance() {
 
   $('#attAddBtn').onclick = () => attendanceForm();
   $('#attTplBtn').onclick = () => downloadTemplate('attendance');
+  $('#attExportBtn').onclick = () => exportEntity('attendance');
   $('#attImportFile').onchange = importAttendanceHandler;
   ['att_emp_filter','att_from','att_to','att_search'].forEach(id => {
     $('#' + id).oninput = draw;
@@ -3076,13 +3297,32 @@ async function renderDashboard() {
         ${statCard('⏳', t('statPendingSubs'), pending, 'bg-amber-50 text-amber-800', 'pendingSubs')}
         ${statCard('⛔', t('statRejectedThisMonth'), rejected, 'bg-red-50 text-red-800', 'rejectedSubs')}
       </div>
-      <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
+      <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
         ${statCard('📋', t('statActiveMissions'), activeMissions, 'bg-slate-100 text-slate-800', 'activeMissions')}
         ${statCard('🔥', t('statTeamMissionsLate'), lateMissions, 'bg-red-50 text-red-800', 'lateMissions')}
         ${statCard('🔁', t('statActiveRecurrences'), activeRecs, 'bg-blue-50 text-blue-800', 'activeRecs')}
         ${statCard('✅', t('statRespectRate'), respect == null ? '—' : respect + '%', 'bg-green-50 text-green-800', 'respectRate')}
+      </div>
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+        <div class="bg-white rounded-xl border border-slate-200 p-4">
+          <div class="text-xs uppercase tracking-wide text-slate-500 mb-2">${escapeHtml(t('chartHoursByClient'))}</div>
+          <canvas id="ch_client" height="160"></canvas>
+        </div>
+        <div class="bg-white rounded-xl border border-slate-200 p-4">
+          <div class="text-xs uppercase tracking-wide text-slate-500 mb-2">${escapeHtml(t('chartHoursByEmployee'))}</div>
+          <canvas id="ch_emp" height="160"></canvas>
+        </div>
+        <div class="bg-white rounded-xl border border-slate-200 p-4">
+          <div class="text-xs uppercase tracking-wide text-slate-500 mb-2">${escapeHtml(t('chartHoursOverTime'))}</div>
+          <canvas id="ch_time" height="160"></canvas>
+        </div>
+        <div class="bg-white rounded-xl border border-slate-200 p-4">
+          <div class="text-xs uppercase tracking-wide text-slate-500 mb-2">${escapeHtml(t('chartMissionStatus'))}</div>
+          <canvas id="ch_miss" height="160"></canvas>
+        </div>
       </div>`;
     wireAdminDashboardClicks(employees, submissions, missions, recurrences);
+    drawAdminCharts(employees, missions, timeEntries);
   } else if (role === 'manager') {
     const teamIds = new Set([session.employeId, ...employees.filter(e => Number(e.managerId) === Number(session.employeId)).map(e => e.id)]);
     const pending = submissions.filter(s => s.statut === 'soumis' && teamIds.has(Number(s.employeId))).length;
@@ -3370,6 +3610,83 @@ function statCard(icon, label, value, cls = 'bg-slate-100 text-slate-700', detai
     </div>`;
 }
 
+async function drawAdminCharts(employees, missions, timeEntries) {
+  if (typeof Chart === 'undefined') return;
+  // Destroy any previous chart instances on these canvases (Chart.js holds a registry)
+  ['ch_client','ch_emp','ch_time','ch_miss'].forEach(id => {
+    const inst = Chart.getChart(id);
+    if (inst) inst.destroy();
+  });
+  const clients = await DB.getAll('clients');
+  const cById = Object.fromEntries(clients.map(c => [c.id, c.nom]));
+  const eById = Object.fromEntries(employees.map(e => [e.id, e.nom]));
+
+  const today = new Date(); today.setHours(0,0,0,0);
+  const since = new Date(today.getTime() - 30 * 86400000);
+  const sinceIso = since.toISOString().slice(0,10);
+  const recent = timeEntries.filter(en => (en.date || '') >= sinceIso);
+
+  // 1) Hours by client (top 10)
+  const byClient = {};
+  for (const en of recent) {
+    const k = cById[en.clientId] || '—';
+    byClient[k] = (byClient[k] || 0) + (Number(en.heures) || 0);
+  }
+  const cliEntries = Object.entries(byClient).sort((a,b) => b[1] - a[1]).slice(0, 10);
+  if ($('#ch_client')) new Chart($('#ch_client'), {
+    type: 'bar',
+    data: { labels: cliEntries.map(x => x[0]),
+      datasets: [{ label: 'h', data: cliEntries.map(x => +x[1].toFixed(2)), backgroundColor: '#3b82f6' }] },
+    options: { plugins: { legend: { display: false } }, indexAxis: 'y', responsive: true, maintainAspectRatio: false }
+  });
+
+  // 2) Hours by employee
+  const byEmp = {};
+  for (const en of recent) {
+    const k = eById[en.employeId] || '—';
+    byEmp[k] = (byEmp[k] || 0) + (Number(en.heures) || 0);
+  }
+  const empEntries = Object.entries(byEmp).sort((a,b) => b[1] - a[1]).slice(0, 10);
+  if ($('#ch_emp')) new Chart($('#ch_emp'), {
+    type: 'bar',
+    data: { labels: empEntries.map(x => x[0]),
+      datasets: [{ label: 'h', data: empEntries.map(x => +x[1].toFixed(2)), backgroundColor: '#10b981' }] },
+    options: { plugins: { legend: { display: false } }, indexAxis: 'y', responsive: true, maintainAspectRatio: false }
+  });
+
+  // 3) Hours over time (30 days)
+  const days = [];
+  for (let i = 29; i >= 0; i--) {
+    const d = new Date(today.getTime() - i * 86400000);
+    days.push(d.toISOString().slice(0,10));
+  }
+  const byDay = Object.fromEntries(days.map(d => [d, 0]));
+  for (const en of recent) {
+    if (byDay[en.date] != null) byDay[en.date] += Number(en.heures) || 0;
+  }
+  if ($('#ch_time')) new Chart($('#ch_time'), {
+    type: 'line',
+    data: { labels: days.map(d => d.slice(5)),
+      datasets: [{ data: days.map(d => +byDay[d].toFixed(2)), borderColor: '#6366f1', backgroundColor: 'rgba(99,102,241,.15)', fill: true, tension: 0.25, pointRadius: 2 }] },
+    options: { plugins: { legend: { display: false } }, responsive: true, maintainAspectRatio: false }
+  });
+
+  // 4) Mission status distribution
+  const statusKeys = [
+    ['a_faire',   'missionStatusAFaire'],
+    ['en_cours',  'missionStatusEnCours'],
+    ['effectuee', 'missionStatusEffectuee'],
+    ['annulee',   'missionStatusAnnulee']
+  ];
+  const counts = statusKeys.map(([s]) => missions.filter(m => m.statut === s).length);
+  if ($('#ch_miss')) new Chart($('#ch_miss'), {
+    type: 'doughnut',
+    data: { labels: statusKeys.map(([, k]) => t(k)),
+      datasets: [{ data: counts, backgroundColor: ['#94a3b8','#f59e0b','#10b981','#cbd5e1'] }] },
+    options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'bottom' } } }
+  });
+}
+
 function wireAdminDashboardClicks(employees, submissions, missions, recurrences) {
   const empById = Object.fromEntries(employees.map(e => [e.id, e]));
   const today = new Date().toISOString().slice(0,10);
@@ -3595,11 +3912,15 @@ async function renderValidations() {
     .sort((a,b) => (a.dateSubmission || '').localeCompare(b.dateSubmission || ''));
 
   PAGE.innerHTML = `
-    <h1 class="text-2xl font-bold text-slate-900 mb-6">${escapeHtml(t('submissionsTitle'))}</h1>
+    <div class="flex items-center justify-between mb-6">
+      <h1 class="text-2xl font-bold text-slate-900">${escapeHtml(t('submissionsTitle'))}</h1>
+      <button id="subsExportBtn" class="px-3 py-2 rounded-lg border border-slate-300 hover:bg-slate-50 text-sm">📊 ${escapeHtml(t('exportExcel'))}</button>
+    </div>
     <div class="bg-white rounded-xl border border-slate-200 shadow-sm">
       <div id="listBody"></div>
     </div>
   `;
+  $('#subsExportBtn').onclick = () => exportEntity('submissions');
 
   const rows = await Promise.all(visible.map(async s => {
     const entries = timeEntries.filter(e => Number(e.submissionId) === Number(s.id));
@@ -3887,7 +4208,8 @@ async function renderMissionsPonctuelles() {
   const missions = allMissions.filter(m => visibleEmpIds.has(Number(m.assigneEmployeId)));
 
   $('#missionsTabBody').innerHTML = `
-    <div class="flex justify-end mb-4">
+    <div class="flex justify-end gap-2 mb-4">
+      <button id="missionsExportBtn" class="px-3 py-2 rounded-lg border border-slate-300 hover:bg-slate-50 text-sm">📊 ${escapeHtml(t('exportExcel'))}</button>
       <button id="newMissionBtn" class="px-4 py-2 rounded-lg bg-blue-700 text-white hover:bg-blue-800 text-sm font-medium">+ ${escapeHtml(t('newMission'))}</button>
     </div>
     <div class="bg-white rounded-xl border border-slate-200 shadow-sm">
@@ -3920,6 +4242,7 @@ async function renderMissionsPonctuelles() {
   `;
 
   $('#newMissionBtn').onclick = () => missionForm();
+  $('#missionsExportBtn').onclick = () => exportEntity('missions');
 
   const draw = () => {
     const fEmp = $('#mp_emp').value;
@@ -4104,7 +4427,8 @@ async function renderMissionsRecurrences() {
     </tr>`).join('');
 
   $('#missionsTabBody').innerHTML = `
-    <div class="flex justify-end mb-4">
+    <div class="flex justify-end gap-2 mb-4">
+      <button id="recExportBtn" class="px-3 py-2 rounded-lg border border-slate-300 hover:bg-slate-50 text-sm">📊 ${escapeHtml(t('exportExcel'))}</button>
       <button id="newRecBtn" class="px-4 py-2 rounded-lg bg-blue-700 text-white hover:bg-blue-800 text-sm font-medium">+ ${escapeHtml(t('newRecurrence'))}</button>
     </div>
     <div class="bg-white rounded-xl border border-slate-200 shadow-sm">
@@ -4117,6 +4441,7 @@ async function renderMissionsRecurrences() {
   `;
 
   $('#newRecBtn').onclick = () => recurrenceForm();
+  $('#recExportBtn').onclick = () => exportEntity('recurrences');
   $$('[data-act]').forEach(b => b.onclick = async () => {
     const id = Number(b.dataset.id);
     const act = b.dataset.act;
@@ -4367,6 +4692,248 @@ async function recurrenceForm(rec) {
 
   renderParam(r.periodicite);
   updatePreview();
+}
+
+/* ----- REPORTS ----- */
+const REPORT_COLUMNS = [
+  { key: 'date',        labelKey: 'colDate',        width: 90  },
+  { key: 'employee',    labelKey: 'colEmployee',    width: 120 },
+  { key: 'client',      labelKey: 'colClient',      width: 120 },
+  { key: 'project',     labelKey: 'colProject',     width: 120 },
+  { key: 'task',        labelKey: 'colTask',        width: 120 },
+  { key: 'hours',       labelKey: 'colHours',       width: 70,  num: true },
+  { key: 'rate',        labelKey: 'colRate',        width: 80,  num: true },
+  { key: 'cost',        labelKey: 'colCost',        width: 90,  num: true },
+  { key: 'description', labelKey: 'colDescription', width: 200 }
+];
+
+async function renderReports() {
+  const [employees, clients, projects, tasks, entries] = await Promise.all([
+    DB.getAll('employees'), DB.getAll('clients'),
+    DB.getAll('projects'), DB.getAll('tasks'),
+    DB.getAll('timeEntries')
+  ]);
+  const eById = Object.fromEntries(employees.map(e => [e.id, e]));
+  const cById = Object.fromEntries(clients.map(c => [c.id, c]));
+  const pById = Object.fromEntries(projects.map(p => [p.id, p]));
+  const tById = Object.fromEntries(tasks.map(x => [x.id, x]));
+
+  const today = new Date();
+  const monthAgo = new Date(today.getTime() - 30 * 86400000);
+  const defaultFrom = monthAgo.toISOString().slice(0,10);
+  const defaultTo = today.toISOString().slice(0,10);
+
+  PAGE.innerHTML = `
+    <div class="flex items-center justify-between mb-6">
+      <h1 class="text-2xl font-bold text-slate-900">📈 ${escapeHtml(t('reportsTitle'))}</h1>
+    </div>
+
+    <div class="bg-white rounded-xl border border-slate-200 shadow-sm p-5 mb-4 no-print">
+      <h2 class="font-semibold text-slate-900 mb-3">${escapeHtml(t('reportFilters'))}</h2>
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-3 mb-3">
+        <div>
+          <label class="block text-xs text-slate-500 mb-1">${escapeHtml(t('attFromDate'))}</label>
+          <input id="rp_from" type="date" value="${defaultFrom}" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm">
+        </div>
+        <div>
+          <label class="block text-xs text-slate-500 mb-1">${escapeHtml(t('attToDate'))}</label>
+          <input id="rp_to" type="date" value="${defaultTo}" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm">
+        </div>
+        <div></div>
+        <div>
+          <label class="block text-xs text-slate-500 mb-1">${escapeHtml(t('timeClient'))}</label>
+          <select id="rp_client" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm">
+            <option value="">—</option>
+            ${clients.map(c => `<option value="${c.id}">${escapeHtml(c.nom)}</option>`).join('')}
+          </select>
+        </div>
+        <div>
+          <label class="block text-xs text-slate-500 mb-1">${escapeHtml(t('timeProject'))}</label>
+          <select id="rp_project" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm">
+            <option value="">—</option>
+            ${projects.map(p => `<option value="${p.id}">${escapeHtml(p.nom)}</option>`).join('')}
+          </select>
+        </div>
+        <div>
+          <label class="block text-xs text-slate-500 mb-1">${escapeHtml(t('timeEmployee'))}</label>
+          <select id="rp_emp" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm">
+            <option value="">—</option>
+            ${employees.map(e => `<option value="${e.id}">${escapeHtml(e.nom)}</option>`).join('')}
+          </select>
+        </div>
+      </div>
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-3 mb-3">
+        <div>
+          <label class="block text-xs text-slate-500 mb-1">${escapeHtml(t('reportGroupBy'))}</label>
+          <select id="rp_group" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm">
+            <option value="">${escapeHtml(t('reportNoGroup'))}</option>
+            <option value="client">${escapeHtml(t('colClient'))}</option>
+            <option value="project">${escapeHtml(t('colProject'))}</option>
+            <option value="employee">${escapeHtml(t('colEmployee'))}</option>
+          </select>
+        </div>
+        <div>
+          <label class="block text-xs text-slate-500 mb-1">${escapeHtml(t('reportSortBy'))}</label>
+          <select id="rp_sort" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm">
+            <option value="date">${escapeHtml(t('colDate'))}</option>
+            <option value="employee">${escapeHtml(t('colEmployee'))}</option>
+            <option value="client">${escapeHtml(t('colClient'))}</option>
+            <option value="project">${escapeHtml(t('colProject'))}</option>
+            <option value="hours">${escapeHtml(t('colHours'))}</option>
+            <option value="cost">${escapeHtml(t('colCost'))}</option>
+          </select>
+        </div>
+      </div>
+      <div>
+        <label class="block text-xs text-slate-500 mb-1">${escapeHtml(t('reportColumns'))}</label>
+        <div class="flex flex-wrap gap-2">
+          ${REPORT_COLUMNS.map(c => `
+            <label class="inline-flex items-center gap-1 px-2 py-1 rounded border border-slate-300 text-sm cursor-pointer hover:bg-slate-50">
+              <input type="checkbox" data-col="${c.key}" class="w-4 h-4" ${['date','employee','client','project','hours','cost'].includes(c.key) ? 'checked' : ''}>
+              ${escapeHtml(t(c.labelKey))}
+            </label>`).join('')}
+        </div>
+      </div>
+      <div class="mt-4 flex flex-wrap gap-2 justify-end">
+        <button id="rp_generate" class="px-4 py-2 rounded-lg bg-blue-700 text-white hover:bg-blue-800 text-sm">${escapeHtml(t('reportGenerate'))}</button>
+        <button id="rp_export"   class="px-4 py-2 rounded-lg border border-slate-300 hover:bg-slate-50 text-sm">📊 ${escapeHtml(t('exportExcel'))}</button>
+        <button id="rp_print"    class="px-4 py-2 rounded-lg border border-slate-300 hover:bg-slate-50 text-sm">🖨 ${escapeHtml(t('reportPrint'))}</button>
+      </div>
+    </div>
+
+    <div id="printArea" class="bg-white rounded-xl border border-slate-200 shadow-sm p-5">
+      <h2 class="text-lg font-bold text-slate-900 mb-1">📈 ${escapeHtml(t('reportsTitle'))}</h2>
+      <div id="rp_meta" class="text-sm text-slate-500 mb-3"></div>
+      <div id="rp_body"></div>
+    </div>
+  `;
+
+  // Helper that produces flat rows + grouped structure
+  const computeRows = () => {
+    const fFrom = $('#rp_from').value;
+    const fTo   = $('#rp_to').value;
+    const fCli  = $('#rp_client').value;
+    const fPrj  = $('#rp_project').value;
+    const fEmp  = $('#rp_emp').value;
+    const groupBy = $('#rp_group').value;
+    const sortBy  = $('#rp_sort').value;
+
+    let list = entries.slice();
+    if (fFrom) list = list.filter(en => (en.date || '') >= fFrom);
+    if (fTo)   list = list.filter(en => (en.date || '') <= fTo);
+    if (fCli)  list = list.filter(en => Number(en.clientId) === Number(fCli));
+    if (fPrj)  list = list.filter(en => Number(en.projectId) === Number(fPrj));
+    if (fEmp)  list = list.filter(en => Number(en.employeId) === Number(fEmp));
+
+    const enriched = list.map(en => {
+      const emp = eById[en.employeId] || {};
+      const rate = Number(emp.tauxHoraire) || 0;
+      const hours = Number(en.heures) || 0;
+      return {
+        date: en.date || '',
+        employee: emp.nom || '?',
+        client: cById[en.clientId]?.nom || '',
+        project: pById[en.projectId]?.nom || '',
+        task: tById[en.taskId]?.nom || '',
+        hours,
+        rate,
+        cost: hours * rate,
+        description: en.description || ''
+      };
+    });
+
+    const cmp = (a, b) => {
+      const va = a[sortBy], vb = b[sortBy];
+      if (typeof va === 'number') return vb - va; // numeric desc
+      return String(va || '').localeCompare(String(vb || ''));
+    };
+    enriched.sort(cmp);
+
+    return { rows: enriched, groupBy, fFrom, fTo };
+  };
+
+  const draw = () => {
+    const { rows, groupBy, fFrom, fTo } = computeRows();
+    const cols = REPORT_COLUMNS.filter(c => $(`#printArea-cols`)
+      ? false
+      : (document.querySelector(`[data-col="${c.key}"]`)?.checked));
+    const totalHours = rows.reduce((s, r) => s + r.hours, 0);
+    const totalCost  = rows.reduce((s, r) => s + r.cost, 0);
+
+    const headerRow = `<tr class="bg-slate-50 text-xs uppercase tracking-wide text-slate-500">${
+      cols.map(c => `<th class="px-3 py-2 text-start font-medium">${escapeHtml(t(c.labelKey))}</th>`).join('')
+    }</tr>`;
+
+    const dataRowHtml = (r) => `<tr class="border-t border-slate-100">${
+      cols.map(c => {
+        const v = r[c.key];
+        const txt = c.num ? (v == null ? '' : (Math.round(v * 100) / 100).toString()) : (v ?? '');
+        return `<td class="px-3 py-2 ${c.num ? 'text-end font-medium' : ''}">${escapeHtml(String(txt))}</td>`;
+      }).join('')
+    }</tr>`;
+
+    let bodyHtml = '';
+    if (groupBy) {
+      const groups = {};
+      for (const r of rows) {
+        const k = r[groupBy] || '?';
+        (groups[k] = groups[k] || []).push(r);
+      }
+      const sortedKeys = Object.keys(groups).sort();
+      bodyHtml = sortedKeys.map(k => {
+        const gh = groups[k].reduce((s, r) => s + r.hours, 0);
+        const gc = groups[k].reduce((s, r) => s + r.cost, 0);
+        return `
+          <tr class="bg-blue-50">
+            <td colspan="${cols.length}" class="px-3 py-2 font-semibold text-blue-900">
+              ${escapeHtml(k)} <span class="text-blue-700 text-xs">— ${groups[k].length} · ${fmt(gh)} h · ${fmt(gc)}</span>
+            </td>
+          </tr>
+          ${groups[k].map(dataRowHtml).join('')}
+        `;
+      }).join('');
+    } else {
+      bodyHtml = rows.map(dataRowHtml).join('');
+    }
+
+    const totalRow = `
+      <tr class="bg-slate-100 font-semibold border-t-2 border-slate-300">
+        <td colspan="${Math.max(1, cols.length - 2)}" class="px-3 py-2 text-end">${escapeHtml(t('reportTotalHours'))} / ${escapeHtml(t('reportTotalCost'))}</td>
+        ${cols.find(c => c.key === 'hours') ? `<td class="px-3 py-2 text-end">${fmt(totalHours)}</td>` : ''}
+        ${cols.find(c => c.key === 'cost')  ? `<td class="px-3 py-2 text-end">${fmt(totalCost)}</td>` : ''}
+      </tr>`;
+
+    $('#rp_meta').textContent = `${t('reportPeriod')}: ${fFrom || '—'} → ${fTo || '—'} · ${rows.length} ${t('linesImported')}`;
+    $('#rp_body').innerHTML = rows.length
+      ? `<div class="overflow-x-auto"><table class="w-full text-sm border border-slate-200 rounded">
+          <thead>${headerRow}</thead>
+          <tbody>${bodyHtml}</tbody>
+          <tfoot>${cols.find(c => c.key === 'hours' || c.key === 'cost') ? totalRow : ''}</tfoot>
+        </table></div>`
+      : `<p class="text-sm text-slate-500">${escapeHtml(t('noResults'))}</p>`;
+  };
+
+  $('#rp_generate').onclick = draw;
+  $('#rp_export').onclick = () => {
+    const { rows, groupBy } = computeRows();
+    const cols = REPORT_COLUMNS.filter(c => document.querySelector(`[data-col="${c.key}"]`)?.checked);
+    const headers = cols.map(c => t(c.labelKey));
+    const data = rows.map(r => cols.map(c => c.num ? (Math.round((r[c.key]||0) * 100) / 100) : (r[c.key] ?? '')));
+    // Append totals
+    const totalHours = rows.reduce((s, r) => s + r.hours, 0);
+    const totalCost  = rows.reduce((s, r) => s + r.cost, 0);
+    const totalsRow = cols.map(c => c.key === 'hours' ? totalHours : c.key === 'cost' ? totalCost : '');
+    data.push([]);
+    data.push([`${t('reportTotalHours')} / ${t('reportTotalCost')}`, ...new Array(cols.length - 1).fill('')]);
+    data.push(totalsRow);
+    const today = new Date().toISOString().slice(0,10);
+    exportListToExcel(`rapport-${today}`, 'Rapport', headers, data);
+    toast(t('exported'));
+  };
+  $('#rp_print').onclick = () => window.print();
+
+  // First render
+  draw();
 }
 
 /* ----- SETTINGS ----- */
