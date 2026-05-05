@@ -666,7 +666,7 @@ const IncomesTable = ({ incomes, onAdd, onUpdate, onRemove, onRemoveMany }) => {
 /* =========================================================
    Sidebar
    ========================================================= */
-const Sidebar = ({ data, totals, onPatch }) => {
+const Sidebar = ({ data, totals, onPatch, prevEndBalance, prevLabel }) => {
   const projectedPositive = totals.projected >= 0;
   const targetReached = totals.additionalNeeded <= 0;
 
@@ -687,6 +687,17 @@ const Sidebar = ({ data, totals, onPatch }) => {
             className="flex-1 text-3xl font-semibold tabular-nums bg-transparent outline-none focus:bg-stone-50 rounded px-1 -mx-1"
           />
         </div>
+        {prevLabel && Number(data.openingBalance) !== prevEndBalance && (
+          <button
+            onClick={() => onPatch({ openingBalance: prevEndBalance })}
+            className="mt-2 w-full text-left text-xs text-stone-500 hover:text-stone-900 hover:bg-stone-50 rounded px-2 py-1.5 -mx-1 inline-flex items-center gap-1.5 group"
+            title="Reprendre le solde de fin du mois précédent"
+          >
+            <CornerDownRight className="w-3 h-3 text-stone-400 group-hover:text-stone-700"/>
+            <span>Reprendre solde fin {prevLabel} :</span>
+            <span className="tabular-nums font-semibold text-stone-700">{formatILS(prevEndBalance)}</span>
+          </button>
+        )}
       </div>
 
       {/* Résumé du mois */}
@@ -1217,6 +1228,13 @@ function App() {
   const prevKey = monthKey(prevYM.y, prevYM.m);
   const prevData = useMemo(() => loadMonth(prevKey), [prevKey, saved]);
   const hasPrevMonth = (prevData.expenses.length + prevData.incomes.length) > 0;
+  const prevEndBalance = useMemo(() => {
+    const opening  = Number(prevData.openingBalance) || 0;
+    const received = prevData.incomes.reduce((s, i) => s + (Number(i.received) || 0), 0);
+    const paid     = prevData.expenses.reduce((s, e) => s + (Number(e.paid)    || 0), 0);
+    return opening + received - paid;
+  }, [prevData]);
+  const prevLabel = monthLabel(prevYM.y, prevYM.m);
 
   // Recharger les données quand on change de mois
   useEffect(() => {
@@ -1510,7 +1528,9 @@ function App() {
             )}
           </main>
 
-          <Sidebar data={data} totals={totals} onPatch={patchData}/>
+          <Sidebar data={data} totals={totals} onPatch={patchData}
+                   prevEndBalance={prevEndBalance}
+                   prevLabel={hasPrevMonth ? prevLabel : null}/>
         </div>
 
         <footer className="mt-10 pt-6 border-t border-stone-200 text-xs text-stone-400 text-center">
