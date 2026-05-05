@@ -73,6 +73,11 @@
   .scroll-y { overflow-y: auto; }
   .nav-item.active { background: #1e3a8a; color: white; }
   .nav-item.active .nav-ico { color: white; }
+  .nav-group.open .nav-chevron { transform: rotate(90deg); }
+  [dir="rtl"] .nav-chevron { transform: rotate(180deg); }
+  [dir="rtl"] .nav-group.open .nav-chevron { transform: rotate(90deg); }
+  .nav-group-items { display: none; flex-direction: column; }
+  .nav-group.open .nav-group-items { display: flex; }
   .modal-backdrop { background: rgba(15, 23, 42, 0.5); }
   /* RTL tweaks for icons spacing */
   [dir="rtl"] .ml-auto { margin-left: 0; margin-right: auto; }
@@ -97,12 +102,23 @@
       <button data-page="clients"   class="nav-item active flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-slate-100 text-slate-700 text-start">
         <span class="nav-ico text-slate-500">👥</span><span data-i18n="navClients">Clients</span>
       </button>
-      <button data-page="projects"  class="nav-item flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-slate-100 text-slate-700 text-start">
-        <span class="nav-ico text-slate-500">📁</span><span data-i18n="navProjects">Projets</span>
-      </button>
-      <button data-page="tasks"     class="nav-item flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-slate-100 text-slate-700 text-start">
-        <span class="nav-ico text-slate-500">✓</span><span data-i18n="navTasks">Tâches</span>
-      </button>
+
+      <div class="nav-group" data-group="projmgmt">
+        <button class="nav-group-toggle w-full flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-slate-100 text-slate-700 text-start">
+          <span class="nav-ico text-slate-500">📁</span>
+          <span data-i18n="navProjectMgmt">Gestion des projets</span>
+          <span class="nav-chevron ms-auto text-slate-400 transition-transform">▸</span>
+        </button>
+        <div class="nav-group-items hidden flex-col gap-1 mt-1 ms-3 ps-3 border-s border-slate-200">
+          <button data-page="projects" class="nav-item flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-slate-100 text-slate-700 text-start">
+            <span class="nav-ico text-slate-500">•</span><span data-i18n="navProjects">Projets</span>
+          </button>
+          <button data-page="tasks" class="nav-item flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-slate-100 text-slate-700 text-start">
+            <span class="nav-ico text-slate-500">•</span><span data-i18n="navTasks">Tâches</span>
+          </button>
+        </div>
+      </div>
+
       <button data-page="employees" class="nav-item flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-slate-100 text-slate-700 text-start">
         <span class="nav-ico text-slate-500">👤</span><span data-i18n="navEmployees">Employés</span>
       </button>
@@ -149,7 +165,8 @@
 const I18N = {
   fr: {
     appSubtitle: "Suivi du temps",
-    navClients: "Clients", navProjects: "Projets", navTasks: "Tâches",
+    navClients: "Clients", navProjectMgmt: "Gestion des projets",
+    navProjects: "Projets", navTasks: "Tâches",
     navEmployees: "Employés", navTime: "Saisie heures", navSettings: "Paramètres",
     storedLocally: "Stocké localement (IndexedDB)",
     add: "Ajouter", edit: "Modifier", delete: "Supprimer",
@@ -202,7 +219,8 @@ const I18N = {
   },
   en: {
     appSubtitle: "Time Tracking",
-    navClients: "Clients", navProjects: "Projects", navTasks: "Tasks",
+    navClients: "Clients", navProjectMgmt: "Project management",
+    navProjects: "Projects", navTasks: "Tasks",
     navEmployees: "Employees", navTime: "Time Entry", navSettings: "Settings",
     storedLocally: "Stored locally (IndexedDB)",
     add: "Add", edit: "Edit", delete: "Delete",
@@ -249,7 +267,8 @@ const I18N = {
   },
   he: {
     appSubtitle: "מעקב זמן",
-    navClients: "לקוחות", navProjects: "פרויקטים", navTasks: "משימות",
+    navClients: "לקוחות", navProjectMgmt: "ניהול פרויקטים",
+    navProjects: "פרויקטים", navTasks: "משימות",
     navEmployees: "עובדים", navTime: "רישום שעות", navSettings: "הגדרות",
     storedLocally: "נשמר מקומית (IndexedDB)",
     add: "הוסף", edit: "ערוך", delete: "מחק",
@@ -523,6 +542,11 @@ let currentPage = 'clients';
 async function navigate(page) {
   currentPage = page;
   $$('#nav .nav-item').forEach(b => b.classList.toggle('active', b.dataset.page === page));
+  // Auto-expand any nav group that contains the active page
+  $$('#nav .nav-group').forEach(g => {
+    const has = !!g.querySelector(`.nav-item[data-page="${page}"]`);
+    if (has) g.classList.add('open');
+  });
   if (page === 'clients')   await renderClients();
   else if (page === 'projects') await renderProjects();
   else if (page === 'tasks')    await renderTasks();
@@ -1314,6 +1338,9 @@ async function boot() {
 
   $$('#nav .nav-item').forEach(b => {
     b.onclick = () => navigate(b.dataset.page);
+  });
+  $$('#nav .nav-group-toggle').forEach(b => {
+    b.onclick = () => b.closest('.nav-group').classList.toggle('open');
   });
 
   // Close modal on backdrop click
