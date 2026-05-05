@@ -1216,8 +1216,14 @@ const ENTITY_IMPORTS = {
   },
   timeEntries: {
     template: {
-      headers: ['employe', 'client', 'projet', 'tache', 'date', 'heures', 'description'],
-      sample: [['jean.dupont@example.com', 'Acme Corp', 'WEB-2025', 'Réunion hebdo', '2025-05-01', 1.5, 'Stand-up du lundi']]
+      // Identification de l'employé : fournissez de préférence numeroEmploye + nom.
+      // email est accepté en alternative. Le matching essaie dans l'ordre :
+      // numeroEmploye → email → nom (insensible à la casse et aux accents).
+      headers: ['numeroEmploye', 'nom', 'email', 'client', 'projet', 'tache', 'date', 'heures', 'description'],
+      sample: [
+        ['EMP001', 'Jean Dupont', 'jean.dupont@example.com', 'Acme Corp', 'WEB-2025', 'Réunion hebdo', '2025-05-01', 1.5, 'Stand-up du lundi'],
+        ['EMP002', 'Carla Dev',   '',                        'Acme Corp', 'WEB-2025', 'Développement', '2025-05-01', 6,   'Implémentation login']
+      ]
     },
     buildContext: async () => {
       const [employees, clients, projects, tasks] = await Promise.all([
@@ -1236,7 +1242,9 @@ const ENTITY_IMPORTS = {
       const date = parseAttDate(row.date);
       const heures = Number(row.heures);
       if (!date || !heures) return false;
-      const emp = matchEmployee(ctx.employees, row.employe);
+      // Try numeroEmploye, then email, then nom (or the legacy 'employe' column).
+      const empIdent = pickCol(row, 'numeroEmploye', 'matricule', 'email', 'nom', 'employe', 'employee', 'name');
+      const emp = matchEmployee(ctx.employees, empIdent);
       if (!emp) return false;
       let cid = Number(row.client);
       if (!cid && row.client) cid = ctx.clientByName[String(row.client).toLowerCase().trim()] || null;
@@ -1254,7 +1262,9 @@ const ENTITY_IMPORTS = {
         taskId: tid || null,
         date, heures,
         description: String(row.description || '').trim(),
-        statutValidation: 'draft'
+        statutValidation: 'brouillon',
+        submissionId: null,
+        verrouille: false
       });
       return true;
     }
