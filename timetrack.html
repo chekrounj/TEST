@@ -112,7 +112,7 @@
 <div id="authShell" class="hidden flex min-h-screen items-center justify-center p-6">
   <div class="w-full max-w-md bg-white rounded-2xl shadow-lg border border-slate-200 p-6">
     <div class="flex items-center gap-3 mb-6">
-      <div class="w-10 h-10 rounded-lg bg-blue-700 text-white grid place-items-center font-bold">TT</div>
+      <div data-brand-logo class="w-10 h-10 rounded-lg bg-blue-700 text-white grid place-items-center font-bold overflow-hidden">TT</div>
       <div>
         <div class="font-semibold text-slate-900">TimeTrack</div>
         <div class="text-xs text-slate-500" data-i18n="appSubtitle">Suivi du temps</div>
@@ -133,7 +133,7 @@
   <aside class="sidebar-border w-60 bg-white border-r border-slate-200 flex flex-col shrink-0">
     <div class="p-5 border-b border-slate-200">
       <div class="flex items-center gap-3">
-        <div class="w-10 h-10 rounded-lg bg-blue-700 text-white grid place-items-center font-bold">TT</div>
+        <div data-brand-logo class="w-10 h-10 rounded-lg bg-blue-700 text-white grid place-items-center font-bold overflow-hidden">TT</div>
         <div>
           <div class="font-semibold text-slate-900">TimeTrack</div>
           <div class="text-xs text-slate-500" data-i18n="appSubtitle">Suivi du temps</div>
@@ -373,6 +373,10 @@ const I18N = {
     statToValidate: "Soumissions à valider",
     goToValidations: "Voir les validations",
     goToMySubs: "Mes saisies",
+    companyLogo: "Logo de la société",
+    uploadLogo: "Téléverser un logo",
+    removeLogo: "Retirer le logo",
+    logoHint: "Image PNG ou SVG, idéalement carrée (max ~200 Ko).",
   },
   en: {
     appSubtitle: "Time Tracking",
@@ -506,6 +510,10 @@ const I18N = {
     statToValidate: "Submissions to validate",
     goToValidations: "Go to validations",
     goToMySubs: "My entries",
+    companyLogo: "Company logo",
+    uploadLogo: "Upload logo",
+    removeLogo: "Remove logo",
+    logoHint: "PNG or SVG image, ideally square (max ~200 KB).",
   },
   he: {
     appSubtitle: "מעקב זמן",
@@ -639,6 +647,10 @@ const I18N = {
     statToValidate: "הגשות לאישור",
     goToValidations: "עבור לאישורים",
     goToMySubs: "הרישומים שלי",
+    companyLogo: "לוגו החברה",
+    uploadLogo: "העלה לוגו",
+    removeLogo: "הסר לוגו",
+    logoHint: "תמונת PNG או SVG, רצוי ריבועית (עד 200KB).",
   }
 };
 let LANG = 'fr';
@@ -2854,12 +2866,32 @@ async function renderSettings() {
   const blocking = !!(await DB.getSetting('bloquerSiDepassement', false));
   const role = Auth.getSession()?.role;
   const isAdmin = role === 'admin';
+  const currentLogo = await DB.getSetting('companyLogo', null);
   PAGE.innerHTML = `
     <h1 class="text-2xl font-bold text-slate-900 mb-6">${escapeHtml(t('settingsTitle'))}</h1>
 
     <div class="bg-amber-50 border border-amber-300 text-amber-900 rounded-xl p-5 mb-6">
       <div class="font-semibold flex items-center gap-2">${escapeHtml(t('securityWarningTitle'))}</div>
       <p class="text-sm mt-1">${escapeHtml(t('securityWarning'))}</p>
+    </div>
+
+    <div class="bg-white rounded-xl border border-slate-200 shadow-sm p-6 mb-6 ${isAdmin ? '' : 'hidden'}">
+      <h2 class="font-semibold text-slate-900 mb-4">${escapeHtml(t('companyLogo'))}</h2>
+      <div class="flex items-center gap-4">
+        <div class="w-20 h-20 rounded-lg border border-slate-200 bg-white grid place-items-center overflow-hidden">
+          ${currentLogo
+            ? `<img src="${currentLogo}" alt="logo" class="w-full h-full object-contain">`
+            : `<span class="text-slate-400 text-xs">—</span>`}
+        </div>
+        <div class="flex flex-col gap-2">
+          <label class="px-3 py-2 rounded-lg border border-slate-300 hover:bg-slate-50 text-sm cursor-pointer w-max">
+            ${escapeHtml(t('uploadLogo'))}
+            <input id="logoFile" type="file" accept="image/png,image/jpeg,image/svg+xml,image/webp" class="hidden">
+          </label>
+          ${currentLogo ? `<button id="logoRemove" class="px-3 py-2 rounded-lg border border-red-300 text-red-700 hover:bg-red-50 text-sm w-max">${escapeHtml(t('removeLogo'))}</button>` : ''}
+          <p class="text-xs text-slate-500">${escapeHtml(t('logoHint'))}</p>
+        </div>
+      </div>
     </div>
 
     <div class="bg-white rounded-xl border border-slate-200 shadow-sm p-6 mb-6">
@@ -2942,6 +2974,35 @@ async function renderSettings() {
     applyI18n();
     navigate(currentPage);
   };
+
+  if ($('#logoFile')) {
+    $('#logoFile').onchange = async (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+      if (file.size > 512 * 1024) {
+        toast(`${file.name} > 512 KB`);
+        return;
+      }
+      const dataUrl = await new Promise((resolve, reject) => {
+        const r = new FileReader();
+        r.onload = () => resolve(r.result);
+        r.onerror = () => reject(r.error);
+        r.readAsDataURL(file);
+      });
+      await DB.setSetting('companyLogo', dataUrl);
+      await applyCompanyLogo();
+      toast(t('saved'));
+      renderSettings();
+    };
+  }
+  if ($('#logoRemove')) {
+    $('#logoRemove').onclick = async () => {
+      await DB.setSetting('companyLogo', null);
+      await applyCompanyLogo();
+      toast(t('deleted'));
+      renderSettings();
+    };
+  }
 
   $('#reco_seuil').onchange = async (e) => {
     await DB.setSetting('seuilEcartHeures', Number(e.target.value) || 0);
@@ -3277,6 +3338,21 @@ function roleLabel(r) {
   return t('roleEmploye');
 }
 
+async function applyCompanyLogo() {
+  const url = await DB.getSetting('companyLogo', null);
+  $$('[data-brand-logo]').forEach(el => {
+    if (url) {
+      el.classList.remove('bg-blue-700', 'text-white', 'font-bold', 'grid', 'place-items-center');
+      el.classList.add('bg-white', 'border', 'border-slate-200');
+      el.innerHTML = `<img src="${url}" alt="logo" class="w-full h-full object-contain">`;
+    } else {
+      el.classList.add('bg-blue-700', 'text-white', 'font-bold', 'grid', 'place-items-center');
+      el.classList.remove('bg-white', 'border', 'border-slate-200');
+      el.textContent = 'TT';
+    }
+  });
+}
+
 async function seedDefaultSettings() {
   if (await DB.getSetting('seuilEcartHeures', null) == null) {
     await DB.setSetting('seuilEcartHeures', 0.5);
@@ -3297,6 +3373,7 @@ async function boot() {
     console.warn('DB init issue', e);
   }
   applyI18n();
+  await applyCompanyLogo();
 
   // Close modal on backdrop click
   $('#modal').onclick = (e) => {
