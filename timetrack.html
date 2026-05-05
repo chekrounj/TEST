@@ -182,6 +182,9 @@
       <button data-page="reconciliation" data-roles="admin,manager" class="nav-item flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-slate-100 text-slate-700 text-start">
         <span class="nav-ico text-slate-500">⚖</span><span data-i18n="navReconciliation">Conciliation</span>
       </button>
+      <button data-page="missions" data-roles="admin,manager" class="nav-item flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-slate-100 text-slate-700 text-start">
+        <span class="nav-ico text-slate-500">📋</span><span data-i18n="navMissions">Missions</span>
+      </button>
       <button data-page="settings" data-roles="admin,manager,employe"  class="nav-item flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-slate-100 text-slate-700 text-start">
         <span class="nav-ico text-slate-500">⚙</span><span data-i18n="navSettings">Paramètres</span>
       </button>
@@ -377,6 +380,63 @@ const I18N = {
     uploadLogo: "Téléverser un logo",
     removeLogo: "Retirer le logo",
     logoHint: "Image PNG ou SVG, idéalement carrée (max ~200 Ko).",
+    // Missions
+    navMissions: "Missions",
+    missionsTitle: "Missions",
+    tabMissionsPonct: "Missions ponctuelles",
+    tabMissionsRec: "Missions récurrentes",
+    newMission: "Nouvelle mission",
+    newRecurrence: "Nouvelle récurrence",
+    missionLibelle: "Libellé",
+    missionAssignee: "Employé assigné",
+    missionDateDemandee: "Date de réalisation demandée",
+    missionPriorite: "Priorité",
+    missionStatut: "Statut",
+    missionNotes: "Notes",
+    priorityUrgente: "Urgente", priorityNormale: "Normale", priorityBasse: "Basse",
+    missionStatusAFaire: "À faire", missionStatusEnCours: "En cours",
+    missionStatusEffectuee: "Effectuée", missionStatusAnnulee: "Annulée",
+    missionDelai: "Délai réalisé",
+    missionRespect: "Respect du délai",
+    markStarted: "Démarrer", markDone: "✓ Effectuée", cancelStart: "Annuler démarrage",
+    myMissions: "Mes missions",
+    sortBy: "Trier par",
+    sortClient: "Client", sortUrgency: "Urgence", sortDue: "Date demandée",
+    filterAll: "Toutes", filterTodo: "À faire", filterInProgress: "En cours", filterLate: "En retard",
+    filterClient: "Client",
+    noMissions: "🎉 Aucune mission en attente, bon travail !",
+    completedInTime: "✓ Mission effectuée en {n} jour(s), dans les délais",
+    completedLate: "Mission effectuée avec {n} jour(s) de retard",
+    forDate: "Pour le",
+    completedOn: "Effectuée le {date}, en {n} jour(s)",
+    // Recurrences
+    recPeriodicity: "Périodicité",
+    recDaily: "Quotidien", recWeekly: "Hebdomadaire", recMonthly: "Mensuel",
+    recDailyEvery: "Tous les",
+    recDays: "jour(s)",
+    recWeeklyDays: "Jours de la semaine",
+    recMonthlyDay: "Le",
+    recMonthlyDayEnd: "de chaque mois",
+    recMonthlyLast: "Dernier jour du mois",
+    recStartDate: "Date début", recEndDate: "Date fin",
+    recNoEnd: "Sans fin",
+    recDelayJours: "Délai de réalisation (jours après génération)",
+    recPreview: "Aperçu — 5 prochaines générations",
+    recGenerated: "Missions générées",
+    recGenerateNow: "Générer les missions récurrentes",
+    recGeneratedToast: "{n} mission(s) générée(s)",
+    recDeleteAlsoMissions: "Supprimer aussi les missions générées non effectuées ?",
+    recActif: "Actif",
+    weekDayMon: "L", weekDayTue: "M", weekDayWed: "M", weekDayThu: "J", weekDayFri: "V", weekDaySat: "S", weekDaySun: "D",
+    weekDayMonFull: "Lundi", weekDayTueFull: "Mardi", weekDayWedFull: "Mercredi",
+    weekDayThuFull: "Jeudi", weekDayFriFull: "Vendredi", weekDaySatFull: "Samedi", weekDaySunFull: "Dimanche",
+    // Dashboard manager/admin extras
+    statTeamMissionsLate: "Missions en retard (équipe)",
+    statTopLateEmployees: "Top 5 employés en retard",
+    statTopUrgent: "Top 5 missions urgentes en attente",
+    statActiveMissions: "Missions actives",
+    statActiveRecurrences: "Récurrences actives",
+    statRespectRate: "Taux de respect des délais",
   },
   en: {
     appSubtitle: "Time Tracking",
@@ -514,6 +574,60 @@ const I18N = {
     uploadLogo: "Upload logo",
     removeLogo: "Remove logo",
     logoHint: "PNG or SVG image, ideally square (max ~200 KB).",
+    navMissions: "Missions",
+    missionsTitle: "Missions",
+    tabMissionsPonct: "One-off missions",
+    tabMissionsRec: "Recurring missions",
+    newMission: "New mission",
+    newRecurrence: "New recurrence",
+    missionLibelle: "Label",
+    missionAssignee: "Assignee",
+    missionDateDemandee: "Due date",
+    missionPriorite: "Priority",
+    missionStatut: "Status",
+    missionNotes: "Notes",
+    priorityUrgente: "Urgent", priorityNormale: "Normal", priorityBasse: "Low",
+    missionStatusAFaire: "To do", missionStatusEnCours: "In progress",
+    missionStatusEffectuee: "Done", missionStatusAnnulee: "Cancelled",
+    missionDelai: "Time taken",
+    missionRespect: "On time",
+    markStarted: "Start", markDone: "✓ Done", cancelStart: "Undo start",
+    myMissions: "My missions",
+    sortBy: "Sort by",
+    sortClient: "Client", sortUrgency: "Urgency", sortDue: "Due date",
+    filterAll: "All", filterTodo: "To do", filterInProgress: "In progress", filterLate: "Late",
+    filterClient: "Client",
+    noMissions: "🎉 No pending missions, good job!",
+    completedInTime: "✓ Done in {n} day(s), on time",
+    completedLate: "Done {n} day(s) late",
+    forDate: "Due",
+    completedOn: "Done on {date}, in {n} day(s)",
+    recPeriodicity: "Periodicity",
+    recDaily: "Daily", recWeekly: "Weekly", recMonthly: "Monthly",
+    recDailyEvery: "Every",
+    recDays: "day(s)",
+    recWeeklyDays: "Days of week",
+    recMonthlyDay: "Day",
+    recMonthlyDayEnd: "of each month",
+    recMonthlyLast: "Last day of month",
+    recStartDate: "Start date", recEndDate: "End date",
+    recNoEnd: "No end",
+    recDelayJours: "Time allowed (days after generation)",
+    recPreview: "Preview — next 5 generations",
+    recGenerated: "Missions generated",
+    recGenerateNow: "Generate recurring missions",
+    recGeneratedToast: "{n} mission(s) generated",
+    recDeleteAlsoMissions: "Also delete generated missions not yet done?",
+    recActif: "Active",
+    weekDayMon: "M", weekDayTue: "T", weekDayWed: "W", weekDayThu: "T", weekDayFri: "F", weekDaySat: "S", weekDaySun: "S",
+    weekDayMonFull: "Monday", weekDayTueFull: "Tuesday", weekDayWedFull: "Wednesday",
+    weekDayThuFull: "Thursday", weekDayFriFull: "Friday", weekDaySatFull: "Saturday", weekDaySunFull: "Sunday",
+    statTeamMissionsLate: "Late missions (team)",
+    statTopLateEmployees: "Top 5 late employees",
+    statTopUrgent: "Top 5 urgent pending missions",
+    statActiveMissions: "Active missions",
+    statActiveRecurrences: "Active recurrences",
+    statRespectRate: "On-time rate",
   },
   he: {
     appSubtitle: "מעקב זמן",
@@ -651,6 +765,60 @@ const I18N = {
     uploadLogo: "העלה לוגו",
     removeLogo: "הסר לוגו",
     logoHint: "תמונת PNG או SVG, רצוי ריבועית (עד 200KB).",
+    navMissions: "משימות",
+    missionsTitle: "משימות",
+    tabMissionsPonct: "משימות חד-פעמיות",
+    tabMissionsRec: "משימות חוזרות",
+    newMission: "משימה חדשה",
+    newRecurrence: "חזרה חדשה",
+    missionLibelle: "כותרת",
+    missionAssignee: "מבצע",
+    missionDateDemandee: "תאריך יעד",
+    missionPriorite: "עדיפות",
+    missionStatut: "סטטוס",
+    missionNotes: "הערות",
+    priorityUrgente: "דחוף", priorityNormale: "רגיל", priorityBasse: "נמוך",
+    missionStatusAFaire: "לביצוע", missionStatusEnCours: "בתהליך",
+    missionStatusEffectuee: "בוצע", missionStatusAnnulee: "בוטל",
+    missionDelai: "זמן ביצוע",
+    missionRespect: "בזמן",
+    markStarted: "התחל", markDone: "✓ בוצע", cancelStart: "בטל התחלה",
+    myMissions: "המשימות שלי",
+    sortBy: "מיין לפי",
+    sortClient: "לקוח", sortUrgency: "דחיפות", sortDue: "תאריך יעד",
+    filterAll: "הכל", filterTodo: "לביצוע", filterInProgress: "בתהליך", filterLate: "באיחור",
+    filterClient: "לקוח",
+    noMissions: "🎉 אין משימות ממתינות, עבודה טובה!",
+    completedInTime: "✓ בוצע תוך {n} ימים, בזמן",
+    completedLate: "בוצע באיחור של {n} ימים",
+    forDate: "ליום",
+    completedOn: "בוצע ב-{date}, תוך {n} ימים",
+    recPeriodicity: "תדירות",
+    recDaily: "יומי", recWeekly: "שבועי", recMonthly: "חודשי",
+    recDailyEvery: "כל",
+    recDays: "ימים",
+    recWeeklyDays: "ימי שבוע",
+    recMonthlyDay: "ביום",
+    recMonthlyDayEnd: "בכל חודש",
+    recMonthlyLast: "היום האחרון בחודש",
+    recStartDate: "תאריך התחלה", recEndDate: "תאריך סיום",
+    recNoEnd: "ללא סיום",
+    recDelayJours: "זמן ביצוע (ימים לאחר יצירה)",
+    recPreview: "תצוגה מקדימה — 5 הבאות",
+    recGenerated: "משימות שנוצרו",
+    recGenerateNow: "צור משימות חוזרות",
+    recGeneratedToast: "{n} משימות נוצרו",
+    recDeleteAlsoMissions: "למחוק גם משימות שנוצרו ולא בוצעו?",
+    recActif: "פעיל",
+    weekDayMon: "ב'", weekDayTue: "ג'", weekDayWed: "ד'", weekDayThu: "ה'", weekDayFri: "ו'", weekDaySat: "ש'", weekDaySun: "א'",
+    weekDayMonFull: "שני", weekDayTueFull: "שלישי", weekDayWedFull: "רביעי",
+    weekDayThuFull: "חמישי", weekDayFriFull: "שישי", weekDaySatFull: "שבת", weekDaySunFull: "ראשון",
+    statTeamMissionsLate: "משימות באיחור (צוות)",
+    statTopLateEmployees: "5 העובדים המאחרים ביותר",
+    statTopUrgent: "5 משימות דחופות ממתינות",
+    statActiveMissions: "משימות פעילות",
+    statActiveRecurrences: "חזרות פעילות",
+    statRespectRate: "אחוז עמידה בזמן",
   }
 };
 let LANG = 'fr';
@@ -689,7 +857,7 @@ async function setProjectTypes(list) {
    ===================================================================== */
 const DB = (() => {
   const DB_NAME = 'TimeTrackDB';
-  const DB_VERSION = 3;
+  const DB_VERSION = 4;
   let _dbPromise = null;
 
   function open() {
@@ -701,6 +869,21 @@ const DB = (() => {
       req.onupgradeneeded = (e) => {
         const db = e.target.result;
         const upgradeTx = e.target.transaction;
+        // v4: missions + recurrences stores. No existing data touched.
+        if (!db.objectStoreNames.contains('missions')) {
+          const s = db.createObjectStore('missions', { keyPath: 'id', autoIncrement: true });
+          s.createIndex('assigneEmployeId', 'assigneEmployeId', { unique: false });
+          s.createIndex('clientId', 'clientId', { unique: false });
+          s.createIndex('statut', 'statut', { unique: false });
+          s.createIndex('dateRealisationDemandee', 'dateRealisationDemandee', { unique: false });
+          s.createIndex('recurrenceId', 'recurrenceId', { unique: false });
+        }
+        if (!db.objectStoreNames.contains('recurrences')) {
+          const s = db.createObjectStore('recurrences', { keyPath: 'id', autoIncrement: true });
+          s.createIndex('assigneEmployeId', 'assigneEmployeId', { unique: false });
+          s.createIndex('clientId', 'clientId', { unique: false });
+          s.createIndex('actif', 'actif', { unique: false });
+        }
         // v3: submissions store + role/PIN/managerId/actif on employees + statutValidation/submissionId/verrouille on timeEntries
         if (!db.objectStoreNames.contains('submissions')) {
           const s = db.createObjectStore('submissions', { keyPath: 'id', autoIncrement: true });
@@ -822,7 +1005,7 @@ const DB = (() => {
     return reqToPromise(store.clear());
   }
   async function clearAll() {
-    const stores = ['clients','projects','tasks','employees','timeEntries','attendance','settings'];
+    const stores = ['clients','projects','tasks','employees','timeEntries','attendance','submissions','missions','recurrences','settings'];
     await Promise.all(stores.map(s => clearStore(s)));
   }
   async function getSetting(cle, def = null) {
@@ -872,10 +1055,83 @@ const DB = (() => {
     return { heuresPresence, heuresProjets, ecart, depasseSeuilOuiNon: depasse, seuilApplique };
   }
 
+  /* ----- Missions helpers ----- */
+  async function creerMission(data) {
+    const sess = (() => { try { return JSON.parse(sessionStorage.getItem('sessionActive')); } catch { return null; } })();
+    const record = {
+      libelle: '', description: '', clientId: null, assigneEmployeId: null,
+      priorite: 'normale', notes: '', recurrenceId: null,
+      ...data,
+      dateAssignation: new Date().toISOString(),
+      dateRealisation: null,
+      delaiRealisationMs: null,
+      respectDelaiDemande: null,
+      statut: data.statut || 'a_faire',
+      creePar: data.creePar || sess?.employeId || null
+    };
+    return add('missions', record);
+  }
+  async function marquerMissionEffectuee(missionId) {
+    const m = await getById('missions', missionId);
+    if (!m) throw new Error('mission not found');
+    const now = new Date();
+    const due = m.dateRealisationDemandee ? new Date(m.dateRealisationDemandee + 'T23:59:59') : null;
+    const updates = {
+      statut: 'effectuee',
+      dateRealisation: now.toISOString(),
+      delaiRealisationMs: m.dateAssignation ? (now - new Date(m.dateAssignation)) : null,
+      respectDelaiDemande: due ? (now <= due) : null
+    };
+    await update('missions', missionId, updates);
+    return { ...m, ...updates };
+  }
+  async function getMissionsForEmployee(employeId, options = {}) {
+    let all = await getAll('missions');
+    all = all.filter(m => Number(m.assigneEmployeId) === Number(employeId));
+    if (options.statut) all = all.filter(m => m.statut === options.statut);
+    if (options.clientId) all = all.filter(m => Number(m.clientId) === Number(options.clientId));
+    if (options.priorite) all = all.filter(m => m.priorite === options.priorite);
+    if (options.depuis)   all = all.filter(m => (m.dateRealisationDemandee || '') >= options.depuis);
+    if (options.jusqua)   all = all.filter(m => (m.dateRealisationDemandee || '') <= options.jusqua);
+    return all;
+  }
+  async function getMissionsEnRetard(employeId) {
+    const today = new Date().toISOString().slice(0,10);
+    let all = await getAll('missions');
+    if (employeId != null) all = all.filter(m => Number(m.assigneEmployeId) === Number(employeId));
+    return all.filter(m =>
+      m.statut !== 'effectuee' && m.statut !== 'annulee' &&
+      (m.dateRealisationDemandee || '') < today
+    );
+  }
+  async function getStatsMissionsEmploye(employeId, periode) {
+    let all = await getAll('missions');
+    all = all.filter(m => Number(m.assigneEmployeId) === Number(employeId));
+    if (periode?.depuis) all = all.filter(m => (m.dateAssignation || '') >= periode.depuis);
+    if (periode?.jusqua) all = all.filter(m => (m.dateAssignation || '') <= periode.jusqua);
+    const today = new Date().toISOString().slice(0,10);
+    const total = all.length;
+    const aFaire = all.filter(m => m.statut === 'a_faire').length;
+    const enCours = all.filter(m => m.statut === 'en_cours').length;
+    const effectuees = all.filter(m => m.statut === 'effectuee');
+    const enRetard = all.filter(m =>
+      m.statut !== 'effectuee' && m.statut !== 'annulee' &&
+      (m.dateRealisationDemandee || '') < today
+    ).length;
+    const delaiMoyenMs = effectuees.length
+      ? effectuees.reduce((s, m) => s + (m.delaiRealisationMs || 0), 0) / effectuees.length
+      : 0;
+    const respectes = effectuees.filter(m => m.respectDelaiDemande === true).length;
+    const tauxRespectDelai = effectuees.length ? respectes / effectuees.length : null;
+    return { total, aFaire, enCours, effectuees: effectuees.length, enRetard, delaiMoyenMs, tauxRespectDelai };
+  }
+
   return {
     add, getAll, getById, update, put, remove, clearStore, clearAll,
     getSetting, setSetting,
-    getAttendanceForEmployeeDate, getProjectHoursForEmployeeDate, computeDiscrepancy
+    getAttendanceForEmployeeDate, getProjectHoursForEmployeeDate, computeDiscrepancy,
+    creerMission, marquerMissionEffectuee, getMissionsForEmployee,
+    getMissionsEnRetard, getStatsMissionsEmploye
   };
 })();
 
@@ -958,6 +1214,116 @@ const Auth = (() => {
 
   return { hashPin, login, logout, getSession, getCurrentUser, requireRole, canValidate };
 })();
+
+/* =====================================================================
+   RECURRENCE SCHEDULER — generates missions from recurring templates.
+   ===================================================================== */
+function _ymd(d) { return d.toISOString().slice(0,10); }
+function _addDays(d, n) { const r = new Date(d); r.setDate(r.getDate() + n); return r; }
+function _jsDow(d) { const x = d.getDay(); return x === 0 ? 7 : x; } // 1=Mon..7=Sun
+
+function computeRecurrenceDates(rec, fromDate, toDate, limit) {
+  const out = [];
+  const start = new Date(fromDate); start.setHours(0,0,0,0);
+  const end   = new Date(toDate);   end.setHours(0,0,0,0);
+  const reachedLimit = () => limit != null && out.length >= limit;
+  if (rec.periodicite === 'quotidien') {
+    const step = Math.max(1, Number(rec.parametre?.tousLesNJours) || 1);
+    const anchor = rec.dateDebut ? new Date(rec.dateDebut + 'T00:00:00') : start;
+    anchor.setHours(0,0,0,0);
+    // Walk from anchor forward in steps of `step` days
+    let d = new Date(anchor);
+    // Advance d to the first occurrence >= start
+    if (d < start) {
+      const diffDays = Math.ceil((start - d) / 86400000);
+      const advance = Math.ceil(diffDays / step) * step;
+      d = _addDays(d, advance);
+    }
+    while (d <= end && !reachedLimit()) {
+      out.push(new Date(d));
+      d = _addDays(d, step);
+    }
+  } else if (rec.periodicite === 'hebdomadaire') {
+    const wd = (rec.parametre?.joursSemaine || []).map(Number);
+    if (!wd.length) return out;
+    let d = new Date(start);
+    while (d <= end && !reachedLimit()) {
+      if (wd.includes(_jsDow(d))) out.push(new Date(d));
+      d = _addDays(d, 1);
+    }
+  } else if (rec.periodicite === 'mensuel') {
+    const jm = rec.parametre?.jourDuMois;
+    let cursor = new Date(start.getFullYear(), start.getMonth(), 1);
+    while (cursor <= end && !reachedLimit()) {
+      const lastDay = new Date(cursor.getFullYear(), cursor.getMonth() + 1, 0).getDate();
+      const day = (jm === 'dernier') ? lastDay : Math.min(Number(jm) || 1, lastDay);
+      const candidate = new Date(cursor.getFullYear(), cursor.getMonth(), day);
+      if (candidate >= start && candidate <= end) out.push(candidate);
+      cursor = new Date(cursor.getFullYear(), cursor.getMonth() + 1, 1);
+    }
+  }
+  return out;
+}
+
+function nextRecurrenceDates(rec, count = 5) {
+  const today = new Date(); today.setHours(0,0,0,0);
+  const startBase = rec.dateDebut ? new Date(rec.dateDebut + 'T00:00:00') : today;
+  const from = startBase > today ? startBase : today;
+  const endLimit = rec.dateFin ? new Date(rec.dateFin + 'T23:59:59') : _addDays(today, 365);
+  return computeRecurrenceDates(rec, from, endLimit, count);
+}
+
+async function genererMissionsRecurrentes() {
+  const recs = (await DB.getAll('recurrences')).filter(r => r.actif !== false);
+  const today = new Date(); today.setHours(0,0,0,0);
+  let created = 0;
+  for (const rec of recs) {
+    if (!rec.dateDebut || !rec.assigneEmployeId || !rec.clientId) continue;
+    const fromDate = rec.derniereGeneration
+      ? _addDays(new Date(rec.derniereGeneration + 'T00:00:00'), 1)
+      : new Date(rec.dateDebut + 'T00:00:00');
+    const endLimit = rec.dateFin ? new Date(rec.dateFin + 'T23:59:59') : today;
+    const upTo = today < endLimit ? today : endLimit;
+    if (fromDate > upTo) continue;
+    const candidates = computeRecurrenceDates(rec, fromDate, upTo);
+    if (!candidates.length) continue;
+    // Skip duplicates (same recurrenceId + same generation date)
+    const allMissions = await DB.getAll('missions');
+    const existingByDate = new Set(
+      allMissions
+        .filter(m => Number(m.recurrenceId) === Number(rec.id) && m.dateAssignation)
+        .map(m => m.dateAssignation.slice(0,10))
+    );
+    let lastGen = rec.derniereGeneration;
+    for (const d of candidates) {
+      const iso = _ymd(d);
+      if (existingByDate.has(iso)) { lastGen = lastGen && lastGen > iso ? lastGen : iso; continue; }
+      const due = _addDays(d, Number(rec.delaiRealisationJours) || 0);
+      await DB.add('missions', {
+        libelle: rec.libelle,
+        description: rec.description || '',
+        clientId: rec.clientId,
+        assigneEmployeId: rec.assigneEmployeId,
+        creePar: null,
+        dateAssignation: d.toISOString(),
+        dateRealisationDemandee: _ymd(due),
+        priorite: rec.priorite || 'normale',
+        statut: 'a_faire',
+        dateRealisation: null,
+        delaiRealisationMs: null,
+        respectDelaiDemande: null,
+        recurrenceId: rec.id,
+        notes: rec.notes || ''
+      });
+      lastGen = (!lastGen || iso > lastGen) ? iso : lastGen;
+      created++;
+    }
+    if (lastGen && lastGen !== rec.derniereGeneration) {
+      await DB.update('recurrences', rec.id, { derniereGeneration: lastGen });
+    }
+  }
+  return created;
+}
 
 /* =====================================================================
    3. UI HELPERS
@@ -1080,6 +1446,7 @@ async function navigate(page) {
   if (page === 'validations')    { if (!guardRole('admin','manager')) return; return renderValidations(); }
   if (page === 'attendance')     return renderAttendance();
   if (page === 'reconciliation') { if (!guardRole('admin','manager')) return; return renderReconciliation(); }
+  if (page === 'missions')       { if (!guardRole('admin','manager')) return; return renderMissions(); }
   if (page === 'settings')       return renderSettings();
 }
 
@@ -2496,36 +2863,77 @@ async function renderDashboard() {
   const session = Auth.getSession();
   if (!session) { showAuthShell(); return; }
   const role = session.role;
-  const [employees, submissions, timeEntries] = await Promise.all([
-    DB.getAll('employees'), DB.getAll('submissions'), DB.getAll('timeEntries')
+  const [employees, submissions, timeEntries, missions, recurrences, clients] = await Promise.all([
+    DB.getAll('employees'), DB.getAll('submissions'), DB.getAll('timeEntries'),
+    DB.getAll('missions'), DB.getAll('recurrences'), DB.getAll('clients')
   ]);
   const monthStart = new Date(); monthStart.setDate(1);
   const monthStartIso = monthStart.toISOString().slice(0,10);
+  const today = new Date().toISOString().slice(0,10);
+  const empById = Object.fromEntries(employees.map(e => [e.id, e]));
 
-  let body = '';
+  PAGE.innerHTML = `<h1 class="text-2xl font-bold text-slate-900 mb-6">${escapeHtml(t('dashTitle'))}</h1><div id="dashBody"></div>`;
+
   if (role === 'admin') {
     const activeEmployees = employees.filter(e => e.actif !== false).length;
     const pending = submissions.filter(s => s.statut === 'soumis').length;
     const rejected = submissions.filter(s => s.statut === 'rejete' && (s.dateValidation || '') >= monthStartIso).length;
-    body = `
-      <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+    const activeMissions = missions.filter(m => m.statut !== 'effectuee' && m.statut !== 'annulee').length;
+    const lateMissions = missions.filter(m => m.statut !== 'effectuee' && m.statut !== 'annulee' && (m.dateRealisationDemandee || '') < today).length;
+    const activeRecs = recurrences.filter(r => r.actif !== false).length;
+    const done = missions.filter(m => m.statut === 'effectuee');
+    const respect = done.length ? Math.round(100 * done.filter(m => m.respectDelaiDemande === true).length / done.length) : null;
+    $('#dashBody').innerHTML = `
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
         ${statCard('👥', t('statActiveEmployees'), activeEmployees, 'bg-blue-50 text-blue-800')}
         ${statCard('⏳', t('statPendingSubs'), pending, 'bg-amber-50 text-amber-800')}
         ${statCard('⛔', t('statRejectedThisMonth'), rejected, 'bg-red-50 text-red-800')}
       </div>
-    `;
+      <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
+        ${statCard('📋', t('statActiveMissions'), activeMissions, 'bg-slate-100 text-slate-800')}
+        ${statCard('🔥', t('statTeamMissionsLate'), lateMissions, 'bg-red-50 text-red-800')}
+        ${statCard('🔁', t('statActiveRecurrences'), activeRecs, 'bg-blue-50 text-blue-800')}
+        ${statCard('✅', t('statRespectRate'), respect == null ? '—' : respect + '%', 'bg-green-50 text-green-800')}
+      </div>`;
   } else if (role === 'manager') {
     const teamIds = new Set([session.employeId, ...employees.filter(e => Number(e.managerId) === Number(session.employeId)).map(e => e.id)]);
     const pending = submissions.filter(s => s.statut === 'soumis' && teamIds.has(Number(s.employeId))).length;
-    body = `
-      <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+    const teamMissions = missions.filter(m => teamIds.has(Number(m.assigneEmployeId)));
+    const lateTeam = teamMissions.filter(m => m.statut !== 'effectuee' && m.statut !== 'annulee' && (m.dateRealisationDemandee || '') < today);
+    // Top 5 employees by late count
+    const lateByEmp = {};
+    for (const m of lateTeam) lateByEmp[m.assigneEmployeId] = (lateByEmp[m.assigneEmployeId] || 0) + 1;
+    const topLate = Object.entries(lateByEmp).sort((a,b) => b[1] - a[1]).slice(0, 5);
+    // Top 5 urgent pending
+    const urgent = teamMissions
+      .filter(m => m.priorite === 'urgente' && m.statut !== 'effectuee' && m.statut !== 'annulee')
+      .sort((a,b) => (a.dateRealisationDemandee || '').localeCompare(b.dateRealisationDemandee || ''))
+      .slice(0, 5);
+    $('#dashBody').innerHTML = `
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
         ${statCard('✅', t('statToValidate'), pending, 'bg-blue-50 text-blue-800')}
-        <div class="bg-white rounded-xl border border-slate-200 p-5 flex items-center justify-center">
+        ${statCard('🔥', t('statTeamMissionsLate'), lateTeam.length, 'bg-red-50 text-red-800')}
+        <div class="bg-white rounded-xl border border-slate-200 p-5 flex items-center justify-center gap-3">
           <button id="goValidations" class="px-4 py-2 rounded-lg bg-blue-700 text-white hover:bg-blue-800 text-sm">${escapeHtml(t('goToValidations'))}</button>
         </div>
       </div>
-    `;
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div class="bg-white rounded-xl border border-slate-200 p-5">
+          <div class="text-xs uppercase tracking-wide text-slate-500 mb-3">${escapeHtml(t('statTopLateEmployees'))}</div>
+          ${topLate.length === 0 ? '<div class="text-sm text-slate-400">—</div>' :
+            topLate.map(([eid, n]) => `<div class="flex justify-between text-sm py-1"><span>${escapeHtml(empById[eid]?.nom || '?')}</span><span class="font-medium text-red-700">${n}</span></div>`).join('')}
+        </div>
+        <div class="bg-white rounded-xl border border-slate-200 p-5">
+          <div class="text-xs uppercase tracking-wide text-slate-500 mb-3">${escapeHtml(t('statTopUrgent'))}</div>
+          ${urgent.length === 0 ? '<div class="text-sm text-slate-400">—</div>' :
+            urgent.map(m => `<div class="text-sm py-1"><span class="font-medium">${escapeHtml(m.libelle)}</span> · ${escapeHtml(empById[m.assigneEmployeId]?.nom || '?')} · <span class="text-slate-500">${escapeHtml(m.dateRealisationDemandee || '')}</span></div>`).join('')}
+        </div>
+      </div>`;
+    $('#goValidations')?.addEventListener('click', () => navigate('validations'));
   } else {
+    // EMPLOYEE: missions cards FIRST, then existing stats
+    await renderEmployeeMissions(session.employeId, clients, missions);
+
     const myDraft = timeEntries.filter(e => Number(e.employeId) === Number(session.employeId) && (e.statutValidation || 'brouillon') === 'brouillon');
     const draftHours = myDraft.reduce((s, e) => s + (Number(e.heures) || 0), 0);
     const mySubs = submissions.filter(s => Number(s.employeId) === Number(session.employeId)).sort((a,b) => (b.dateSubmission||'').localeCompare(a.dateSubmission||''));
@@ -2533,33 +2941,187 @@ async function renderDashboard() {
     const lastTxt = last
       ? `${escapeHtml(last.dateSubmission || '')} — <span class="font-medium">${escapeHtml(submissionStatusLabel(last.statut))}</span>${last.statut === 'rejete' && last.commentaire ? `<div class="mt-1 text-xs text-red-700">${escapeHtml(last.commentaire)}</div>` : ''}`
       : '—';
-    body = `
-      <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-        ${statCard('📝', t('statHoursDraft'), fmt(draftHours), 'bg-slate-100 text-slate-800')}
-        <div class="bg-white rounded-xl border border-slate-200 p-5">
-          <div class="text-xs uppercase tracking-wide text-slate-500 mb-1">${escapeHtml(t('statLastSubmission'))}</div>
-          <div class="text-sm">${lastTxt}</div>
-          <button id="goMySubs" class="mt-3 px-3 py-1.5 rounded-lg border border-slate-300 hover:bg-slate-50 text-sm">${escapeHtml(t('goToMySubs'))}</button>
-        </div>
+    const extra = document.createElement('div');
+    extra.className = 'grid grid-cols-1 md:grid-cols-2 gap-4 mt-6';
+    extra.innerHTML = `
+      ${statCard('📝', t('statHoursDraft'), fmt(draftHours), 'bg-slate-100 text-slate-800')}
+      <div class="bg-white rounded-xl border border-slate-200 p-5">
+        <div class="text-xs uppercase tracking-wide text-slate-500 mb-1">${escapeHtml(t('statLastSubmission'))}</div>
+        <div class="text-sm">${lastTxt}</div>
+        <button id="goMySubs" class="mt-3 px-3 py-1.5 rounded-lg border border-slate-300 hover:bg-slate-50 text-sm">${escapeHtml(t('goToMySubs'))}</button>
       </div>
     `;
-  }
+    $('#dashBody').appendChild(extra);
+    $('#goMySubs')?.addEventListener('click', () => navigate('mySubmissions'));
 
-  PAGE.innerHTML = `
-    <h1 class="text-2xl font-bold text-slate-900 mb-6">${escapeHtml(t('dashTitle'))}</h1>
-    ${body}
-  `;
-  $('#goValidations')?.addEventListener('click', () => navigate('validations'));
-  $('#goMySubs')?.addEventListener('click', () => navigate('mySubmissions'));
-
-  // Show banner if last submission is rejected (employees)
-  if (role === 'employe') {
-    const mySubs = submissions.filter(s => Number(s.employeId) === Number(session.employeId)).sort((a,b) => (b.dateSubmission||'').localeCompare(a.dateSubmission||''));
-    const last = mySubs[0];
     if (last && last.statut === 'rejete') {
       showBanner(fillTpl(t('submissionRejected'), { date: last.dateSubmission || '' }), 'error');
     }
   }
+}
+
+/* ----- Employee mission cards (dashboard section) ----- */
+async function renderEmployeeMissions(employeId, clients, allMissions) {
+  const clientById = Object.fromEntries(clients.map(c => [c.id, c]));
+  const myMissions = allMissions.filter(m => Number(m.assigneEmployeId) === Number(employeId));
+  // Don't show effectuees older than 24h
+  const cutoff = Date.now() - 24 * 3600 * 1000;
+  const visible = myMissions.filter(m => {
+    if (m.statut !== 'effectuee') return m.statut !== 'annulee';
+    return m.dateRealisation && Date.parse(m.dateRealisation) >= cutoff;
+  });
+
+  // State: sort + filter + clientFilter
+  renderEmployeeMissions._sort   = renderEmployeeMissions._sort   || 'due';
+  renderEmployeeMissions._filter = renderEmployeeMissions._filter || 'all';
+  renderEmployeeMissions._client = renderEmployeeMissions._client || '';
+
+  const wrap = document.createElement('div');
+  wrap.className = 'mb-6';
+  wrap.innerHTML = `
+    <div class="flex items-center justify-between mb-3">
+      <h2 class="text-lg font-semibold text-slate-900">📋 ${escapeHtml(t('myMissions'))}</h2>
+    </div>
+    <div class="bg-white rounded-xl border border-slate-200 p-4 mb-4 flex flex-wrap items-center gap-3">
+      <div class="flex items-center gap-2 text-sm">
+        <span class="text-slate-500">${escapeHtml(t('sortBy'))}</span>
+        <div id="emSort" class="flex gap-1">
+          ${[
+            ['client',  t('sortClient')],
+            ['urgency', t('sortUrgency')],
+            ['due',     t('sortDue')]
+          ].map(([k,l]) => `<button data-k="${k}" class="px-2.5 py-1 rounded text-xs border ${renderEmployeeMissions._sort===k?'bg-blue-700 text-white border-blue-700':'border-slate-300 text-slate-700 hover:bg-slate-50'}">${escapeHtml(l)}</button>`).join('')}
+        </div>
+      </div>
+      <div id="emFilter" class="flex gap-1">
+        ${[
+          ['all',         t('filterAll')],
+          ['a_faire',     t('filterTodo')],
+          ['en_cours',    t('filterInProgress')],
+          ['late',        t('filterLate')]
+        ].map(([k,l]) => `<button data-f="${k}" class="px-2.5 py-1 rounded text-xs border ${renderEmployeeMissions._filter===k?'bg-blue-700 text-white border-blue-700':'border-slate-300 text-slate-700 hover:bg-slate-50'}">${escapeHtml(l)}</button>`).join('')}
+      </div>
+      <select id="emClient" class="ms-auto px-3 py-1.5 border border-slate-300 rounded text-sm">
+        <option value="">${escapeHtml(t('filterClient'))}</option>
+        ${clients.filter(c => c.actif !== false).map(c => `<option value="${c.id}" ${String(c.id)===String(renderEmployeeMissions._client)?'selected':''}>${escapeHtml(c.nom)}</option>`).join('')}
+      </select>
+    </div>
+    <div id="emCards"></div>
+  `;
+  $('#dashBody').appendChild(wrap);
+
+  $$('#emSort [data-k]').forEach(b => b.onclick = () => { renderEmployeeMissions._sort = b.dataset.k; redraw(); });
+  $$('#emFilter [data-f]').forEach(b => b.onclick = () => { renderEmployeeMissions._filter = b.dataset.f; redraw(); });
+  $('#emClient').onchange = (e) => { renderEmployeeMissions._client = e.target.value; redraw(); };
+
+  function redraw() {
+    // Re-sync button highlights
+    $$('#emSort [data-k]').forEach(b => {
+      const sel = b.dataset.k === renderEmployeeMissions._sort;
+      b.className = `px-2.5 py-1 rounded text-xs border ${sel?'bg-blue-700 text-white border-blue-700':'border-slate-300 text-slate-700 hover:bg-slate-50'}`;
+    });
+    $$('#emFilter [data-f]').forEach(b => {
+      const sel = b.dataset.f === renderEmployeeMissions._filter;
+      b.className = `px-2.5 py-1 rounded text-xs border ${sel?'bg-blue-700 text-white border-blue-700':'border-slate-300 text-slate-700 hover:bg-slate-50'}`;
+    });
+
+    const today = new Date().toISOString().slice(0,10);
+    const f = renderEmployeeMissions._filter;
+    const cf = renderEmployeeMissions._client;
+    const list = visible.filter(m => {
+      if (cf && Number(m.clientId) !== Number(cf)) return false;
+      if (f === 'a_faire'  && m.statut !== 'a_faire') return false;
+      if (f === 'en_cours' && m.statut !== 'en_cours') return false;
+      if (f === 'late'     && !(m.statut !== 'effectuee' && m.statut !== 'annulee' && (m.dateRealisationDemandee||'') < today)) return false;
+      return true;
+    });
+
+    // Sort
+    const priOrder = { urgente: 0, normale: 1, basse: 2 };
+    const sortFn = renderEmployeeMissions._sort === 'urgency'
+      ? (a,b) => (priOrder[a.priorite] ?? 1) - (priOrder[b.priorite] ?? 1) || (a.dateRealisationDemandee||'').localeCompare(b.dateRealisationDemandee||'')
+      : renderEmployeeMissions._sort === 'client'
+      ? (a,b) => (clientById[a.clientId]?.nom||'').localeCompare(clientById[b.clientId]?.nom||'') || (a.dateRealisationDemandee||'').localeCompare(b.dateRealisationDemandee||'')
+      : (a,b) => (a.dateRealisationDemandee||'').localeCompare(b.dateRealisationDemandee||'');
+    list.sort(sortFn);
+
+    if (list.length === 0) {
+      $('#emCards').innerHTML = `<div class="bg-white rounded-xl border border-slate-200 p-8 text-center text-slate-500">${escapeHtml(t('noMissions'))}</div>`;
+      return;
+    }
+
+    const renderCard = (m) => {
+      const isDone = m.statut === 'effectuee';
+      const isLate = !isDone && m.statut !== 'annulee' && (m.dateRealisationDemandee||'') < today;
+      const dueCls = dueDateClass(m.dateRealisationDemandee, m.statut);
+      let bottom = '';
+      if (m.statut === 'a_faire') {
+        bottom = `
+          <button data-act="start" data-id="${m.id}" class="px-3 py-1.5 rounded-lg border border-slate-300 hover:bg-slate-50 text-xs">${escapeHtml(t('markStarted'))}</button>
+          <button data-act="done"  data-id="${m.id}" class="px-3 py-1.5 rounded-lg bg-green-600 text-white hover:bg-green-700 text-xs">${escapeHtml(t('markDone'))}</button>
+        `;
+      } else if (m.statut === 'en_cours') {
+        bottom = `
+          <button data-act="undo" data-id="${m.id}" class="px-3 py-1.5 rounded-lg border border-slate-300 hover:bg-slate-50 text-xs">${escapeHtml(t('cancelStart'))}</button>
+          <button data-act="done" data-id="${m.id}" class="px-3 py-1.5 rounded-lg bg-green-600 text-white hover:bg-green-700 text-xs">${escapeHtml(t('markDone'))}</button>
+        `;
+      } else if (isDone) {
+        const days = m.delaiRealisationMs != null ? Math.max(0, Math.round(m.delaiRealisationMs / 86400000)) : '?';
+        const txt = fillTpl(t('completedOn'), { date: (m.dateRealisation||'').slice(0,16).replace('T',' '), n: days });
+        bottom = `<div class="text-xs text-slate-500">${escapeHtml(txt)}</div>`;
+      }
+      return `
+        <div class="bg-white rounded-xl ${priorityBorderClass(m.priorite)} border border-slate-200 p-4 ${isDone ? 'opacity-60' : ''}">
+          <div class="font-semibold text-slate-900">${escapeHtml(m.libelle)}</div>
+          <div class="mt-1"><span class="px-2 py-0.5 rounded-full bg-slate-100 text-slate-700 text-xs">${escapeHtml(clientById[m.clientId]?.nom || '?')}</span> ${priorityBadge(m.priorite)} ${missionStatusBadge(m.statut)}</div>
+          <div class="mt-2 text-sm ${dueCls}">${escapeHtml(t('forDate'))} ${escapeHtml(m.dateRealisationDemandee || '?')}${isLate ? ' ⚠' : ''}</div>
+          ${m.description ? `<div class="mt-2 text-sm text-slate-600 line-clamp-2">${escapeHtml(m.description)}</div>` : ''}
+          ${bottom ? `<div class="mt-3 flex gap-2 flex-wrap">${bottom}</div>` : ''}
+        </div>`;
+    };
+
+    if (renderEmployeeMissions._sort === 'client') {
+      // Group by client
+      const groups = {};
+      for (const m of list) {
+        const k = clientById[m.clientId]?.nom || '?';
+        (groups[k] = groups[k] || []).push(m);
+      }
+      const html = Object.entries(groups).map(([name, ms]) => `
+        <div class="mb-5">
+          <div class="text-sm font-semibold text-slate-700 mb-2">${escapeHtml(name)} <span class="text-slate-400 font-normal">(${ms.length})</span></div>
+          <div class="grid grid-cols-1 md:grid-cols-3 gap-3">${ms.map(renderCard).join('')}</div>
+        </div>`).join('');
+      $('#emCards').innerHTML = html;
+    } else {
+      $('#emCards').innerHTML = `<div class="grid grid-cols-1 md:grid-cols-3 gap-3">${list.map(renderCard).join('')}</div>`;
+    }
+
+    $$('#emCards [data-act]').forEach(b => b.onclick = async () => {
+      const id = Number(b.dataset.id);
+      const act = b.dataset.act;
+      if (act === 'start') {
+        await DB.update('missions', id, { statut: 'en_cours' });
+        renderDashboard();
+      } else if (act === 'undo') {
+        await DB.update('missions', id, { statut: 'a_faire' });
+        renderDashboard();
+      } else if (act === 'done') {
+        const updated = await DB.marquerMissionEffectuee(id);
+        const days = updated.delaiRealisationMs != null ? Math.max(0, Math.round(updated.delaiRealisationMs / 86400000)) : 0;
+        if (updated.respectDelaiDemande === false) {
+          // Late: compute late days
+          const lateDays = Math.max(1, Math.ceil((Date.parse(updated.dateRealisation) - Date.parse(updated.dateRealisationDemandee + 'T23:59:59')) / 86400000));
+          showBanner(fillTpl(t('completedLate'), { n: lateDays }), 'warn');
+        } else {
+          toast(fillTpl(t('completedInTime'), { n: days }));
+        }
+        renderDashboard();
+      }
+    });
+  }
+
+  redraw();
 }
 
 function statCard(icon, label, value, cls = 'bg-slate-100 text-slate-700') {
@@ -2858,6 +3420,514 @@ async function reviewSubmission(submissionId) {
   };
 }
 
+/* ----- MISSIONS helpers ----- */
+function priorityBadge(p) {
+  const cls = p === 'urgente' ? 'bg-red-100 text-red-800'
+            : p === 'basse'   ? 'bg-slate-100 text-slate-600'
+            : 'bg-blue-100 text-blue-800';
+  const lbl = p === 'urgente' ? t('priorityUrgente') : p === 'basse' ? t('priorityBasse') : t('priorityNormale');
+  return `<span class="px-2 py-0.5 rounded-full text-xs ${cls}">${escapeHtml(lbl)}</span>`;
+}
+function priorityBorderClass(p) {
+  return p === 'urgente' ? 'border-l-4 border-red-500'
+       : p === 'basse'   ? 'border-l-4 border-slate-400'
+       : 'border-l-4 border-blue-500';
+}
+function missionStatusBadge(s) {
+  const map = {
+    a_faire:   { lbl: t('missionStatusAFaire'),   cls: 'bg-slate-100 text-slate-700' },
+    en_cours:  { lbl: t('missionStatusEnCours'),  cls: 'bg-amber-100 text-amber-800' },
+    effectuee: { lbl: t('missionStatusEffectuee'),cls: 'bg-green-100 text-green-800' },
+    annulee:   { lbl: t('missionStatusAnnulee'),  cls: 'bg-slate-200 text-slate-500' }
+  };
+  const x = map[s] || map.a_faire;
+  return `<span class="px-2 py-0.5 rounded-full text-xs ${x.cls}">${escapeHtml(x.lbl)}</span>`;
+}
+function dueDateClass(due, statut) {
+  if (statut === 'effectuee' || statut === 'annulee') return 'text-slate-500';
+  if (!due) return 'text-slate-700';
+  const today = new Date().toISOString().slice(0,10);
+  if (due < today) return 'text-red-700 font-medium';
+  const d2 = new Date(); d2.setDate(d2.getDate() + 2);
+  if (due <= d2.toISOString().slice(0,10)) return 'text-orange-700';
+  return 'text-slate-700';
+}
+function summarizeRecurrence(rec) {
+  if (rec.periodicite === 'quotidien') {
+    const n = Number(rec.parametre?.tousLesNJours) || 1;
+    return n === 1 ? (LANG === 'fr' ? 'Tous les jours' : LANG === 'he' ? 'כל יום' : 'Every day')
+                   : `${t('recDailyEvery')} ${n} ${t('recDays')}`;
+  }
+  if (rec.periodicite === 'hebdomadaire') {
+    const dn = ['weekDayMonFull','weekDayTueFull','weekDayWedFull','weekDayThuFull','weekDayFriFull','weekDaySatFull','weekDaySunFull'];
+    const days = (rec.parametre?.joursSemaine || []).map(n => t(dn[n - 1])).join(', ');
+    return days || '—';
+  }
+  if (rec.periodicite === 'mensuel') {
+    const jm = rec.parametre?.jourDuMois;
+    if (jm === 'dernier') return t('recMonthlyLast');
+    return `${t('recMonthlyDay')} ${jm} ${t('recMonthlyDayEnd')}`;
+  }
+  return '';
+}
+async function visibleEmployeesForMissions() {
+  const sess = Auth.getSession();
+  const all = await DB.getAll('employees');
+  if (!sess) return all;
+  if (sess.role === 'admin') return all;
+  if (sess.role === 'manager') {
+    const mid = Number(sess.employeId);
+    return all.filter(e => e.id === mid || Number(e.managerId) === mid);
+  }
+  return all.filter(e => e.id === Number(sess.employeId));
+}
+function canManageMissionForEmployee(employeeId, allEmployees) {
+  const sess = Auth.getSession();
+  if (!sess) return false;
+  if (sess.role === 'admin') return true;
+  if (sess.role !== 'manager') return false;
+  const emp = allEmployees.find(e => e.id === Number(employeeId));
+  if (!emp) return false;
+  return emp.id === Number(sess.employeId) || Number(emp.managerId) === Number(sess.employeId);
+}
+
+/* ----- MISSIONS PAGE (admin/manager) ----- */
+async function renderMissions() {
+  const tab = renderMissions._tab || 'ponctuelles';
+  PAGE.innerHTML = `
+    <div class="flex items-center justify-between mb-6">
+      <h1 class="text-2xl font-bold text-slate-900">📋 ${escapeHtml(t('missionsTitle'))}</h1>
+    </div>
+    <div class="border-b border-slate-200 mb-6 flex gap-1">
+      <button data-tab="ponctuelles" class="px-4 py-2 text-sm font-medium ${tab==='ponctuelles' ? 'text-blue-700 border-b-2 border-blue-700' : 'text-slate-600 hover:text-slate-900'}">${escapeHtml(t('tabMissionsPonct'))}</button>
+      <button data-tab="recurrences" class="px-4 py-2 text-sm font-medium ${tab==='recurrences' ? 'text-blue-700 border-b-2 border-blue-700' : 'text-slate-600 hover:text-slate-900'}">${escapeHtml(t('tabMissionsRec'))}</button>
+    </div>
+    <div id="missionsTabBody"></div>
+  `;
+  $$('[data-tab]').forEach(b => b.onclick = () => {
+    renderMissions._tab = b.dataset.tab;
+    renderMissions();
+  });
+  if (tab === 'ponctuelles') await renderMissionsPonctuelles();
+  else await renderMissionsRecurrences();
+}
+
+async function renderMissionsPonctuelles() {
+  const [allEmployees, clients, allMissions] = await Promise.all([
+    DB.getAll('employees'), DB.getAll('clients'), DB.getAll('missions')
+  ]);
+  const visibleEmps = await visibleEmployeesForMissions();
+  const visibleEmpIds = new Set(visibleEmps.map(e => e.id));
+  const empById = Object.fromEntries(allEmployees.map(e => [e.id, e]));
+  const clientById = Object.fromEntries(clients.map(c => [c.id, c]));
+  const missions = allMissions.filter(m => visibleEmpIds.has(Number(m.assigneEmployeId)));
+
+  $('#missionsTabBody').innerHTML = `
+    <div class="flex justify-end mb-4">
+      <button id="newMissionBtn" class="px-4 py-2 rounded-lg bg-blue-700 text-white hover:bg-blue-800 text-sm font-medium">+ ${escapeHtml(t('newMission'))}</button>
+    </div>
+    <div class="bg-white rounded-xl border border-slate-200 shadow-sm">
+      <div class="p-4 border-b border-slate-200 grid grid-cols-1 md:grid-cols-5 gap-3">
+        <select id="mp_emp" class="px-3 py-2 border border-slate-300 rounded-lg text-sm">
+          <option value="">${escapeHtml(t('missionAssignee'))}</option>
+          ${visibleEmps.map(e => `<option value="${e.id}">${escapeHtml(e.nom)}</option>`).join('')}
+        </select>
+        <select id="mp_client" class="px-3 py-2 border border-slate-300 rounded-lg text-sm">
+          <option value="">${escapeHtml(t('timeClient'))}</option>
+          ${clients.filter(c => c.actif !== false).map(c => `<option value="${c.id}">${escapeHtml(c.nom)}</option>`).join('')}
+        </select>
+        <select id="mp_statut" class="px-3 py-2 border border-slate-300 rounded-lg text-sm">
+          <option value="">${escapeHtml(t('missionStatut'))}</option>
+          <option value="a_faire">${escapeHtml(t('missionStatusAFaire'))}</option>
+          <option value="en_cours">${escapeHtml(t('missionStatusEnCours'))}</option>
+          <option value="effectuee">${escapeHtml(t('missionStatusEffectuee'))}</option>
+          <option value="annulee">${escapeHtml(t('missionStatusAnnulee'))}</option>
+        </select>
+        <select id="mp_pri" class="px-3 py-2 border border-slate-300 rounded-lg text-sm">
+          <option value="">${escapeHtml(t('missionPriorite'))}</option>
+          <option value="urgente">${escapeHtml(t('priorityUrgente'))}</option>
+          <option value="normale">${escapeHtml(t('priorityNormale'))}</option>
+          <option value="basse">${escapeHtml(t('priorityBasse'))}</option>
+        </select>
+        <input id="mp_search" type="search" placeholder="${escapeHtml(t('search'))}" class="px-3 py-2 border border-slate-300 rounded-lg text-sm">
+      </div>
+      <div id="mp_body"></div>
+    </div>
+  `;
+
+  $('#newMissionBtn').onclick = () => missionForm();
+
+  const draw = () => {
+    const fEmp = $('#mp_emp').value;
+    const fCli = $('#mp_client').value;
+    const fSta = $('#mp_statut').value;
+    const fPri = $('#mp_pri').value;
+    const q = $('#mp_search').value.trim().toLowerCase();
+    const list = missions.filter(m => {
+      if (fEmp && Number(m.assigneEmployeId) !== Number(fEmp)) return false;
+      if (fCli && Number(m.clientId) !== Number(fCli)) return false;
+      if (fSta && m.statut !== fSta) return false;
+      if (fPri && m.priorite !== fPri) return false;
+      if (q && !((m.libelle||'').toLowerCase().includes(q) || (m.description||'').toLowerCase().includes(q))) return false;
+      return true;
+    }).sort((a,b) => (a.dateRealisationDemandee||'').localeCompare(b.dateRealisationDemandee||''));
+    const rows = list.map(m => {
+      let delai = '—';
+      if (m.statut === 'effectuee' && m.delaiRealisationMs != null) {
+        delai = (m.delaiRealisationMs / 86400000).toFixed(1) + ' j';
+      }
+      const respect = m.respectDelaiDemande === true ? '<span class="text-green-700">✓</span>'
+                    : m.respectDelaiDemande === false ? '<span class="text-red-700">✗</span>'
+                    : '<span class="text-slate-400">—</span>';
+      return `
+        <tr class="hover:bg-slate-50">
+          <td class="px-4 py-3">${escapeHtml(m.libelle)}</td>
+          <td class="px-4 py-3 text-slate-600">${escapeHtml(clientById[m.clientId]?.nom || '')}</td>
+          <td class="px-4 py-3 text-slate-600">${escapeHtml(empById[m.assigneEmployeId]?.nom || '?')}</td>
+          <td class="px-4 py-3">${priorityBadge(m.priorite)}</td>
+          <td class="px-4 py-3 ${dueDateClass(m.dateRealisationDemandee, m.statut)}">${escapeHtml(m.dateRealisationDemandee || '')}</td>
+          <td class="px-4 py-3">${missionStatusBadge(m.statut)}</td>
+          <td class="px-4 py-3 text-slate-600 text-sm">${delai}</td>
+          <td class="px-4 py-3 text-center">${respect}</td>
+          <td class="px-4 py-3">
+            <button data-act="edit" data-id="${m.id}" class="text-blue-700 hover:underline text-sm">${escapeHtml(t('edit'))}</button>
+            <button data-act="delete" data-id="${m.id}" class="text-red-600 hover:underline text-sm ms-3">${escapeHtml(t('delete'))}</button>
+          </td>
+        </tr>`;
+    }).join('');
+    $('#mp_body').innerHTML = tableEl(
+      [t('missionLibelle'), t('timeClient'), t('missionAssignee'), t('missionPriorite'),
+       t('missionDateDemandee'), t('missionStatut'), t('missionDelai'), t('missionRespect'), t('actions')],
+      rows
+    );
+    $$('#mp_body [data-act]').forEach(b => b.onclick = async () => {
+      const id = Number(b.dataset.id);
+      if (b.dataset.act === 'edit') missionForm(await DB.getById('missions', id));
+      else if (b.dataset.act === 'delete') {
+        if (await confirmModal(t('confirmDelete'))) {
+          await DB.remove('missions', id);
+          toast(t('deleted'));
+          renderMissionsPonctuelles();
+        }
+      }
+    });
+  };
+  ['mp_emp','mp_client','mp_statut','mp_pri','mp_search'].forEach(id => {
+    $('#' + id).oninput = draw;
+    $('#' + id).onchange = draw;
+  });
+  draw();
+}
+
+async function missionForm(rec) {
+  const [allEmployees, clients] = await Promise.all([DB.getAll('employees'), DB.getAll('clients')]);
+  const visibleEmps = await visibleEmployeesForMissions();
+  const r = rec || {
+    libelle: '', description: '', clientId: '', assigneEmployeId: '',
+    priorite: 'normale', dateRealisationDemandee: '', notes: ''
+  };
+  const priOpts = [
+    { value: 'urgente', label: t('priorityUrgente') },
+    { value: 'normale', label: t('priorityNormale') },
+    { value: 'basse',   label: t('priorityBasse') }
+  ];
+  openModal({
+    title: rec ? t('edit') : t('newMission'),
+    bodyHtml: `
+      <div class="space-y-3">
+        ${field('libelle', t('missionLibelle'), r.libelle, 'text', true)}
+        ${textarea('description', t('taskDesc'), r.description)}
+        ${selectField('clientId', t('timeClient'), clients.filter(c => c.actif !== false).map(c => ({ value: c.id, label: c.nom })), r.clientId, true)}
+        ${selectField('assigneEmployeId', t('missionAssignee'), visibleEmps.map(e => ({ value: e.id, label: e.nom })), r.assigneEmployeId, true)}
+        ${selectField('priorite', t('missionPriorite'), priOpts, r.priorite || 'normale', true)}
+        ${field('dateRealisationDemandee', t('missionDateDemandee'), r.dateRealisationDemandee, 'date', true)}
+        ${textarea('notes', t('missionNotes'), r.notes)}
+      </div>`,
+    onSave: async () => {
+      const data = {
+        libelle: $('#f_libelle').value.trim(),
+        description: $('#f_description').value.trim(),
+        clientId: Number($('#f_clientId').value) || null,
+        assigneEmployeId: Number($('#f_assigneEmployeId').value) || null,
+        priorite: $('#f_priorite').value,
+        dateRealisationDemandee: $('#f_dateRealisationDemandee').value,
+        notes: $('#f_notes').value.trim()
+      };
+      if (!data.libelle || !data.clientId || !data.assigneEmployeId || !data.dateRealisationDemandee) return false;
+      if (!canManageMissionForEmployee(data.assigneEmployeId, allEmployees)) {
+        toast(t('forbidden'));
+        return false;
+      }
+      if (rec) await DB.update('missions', rec.id, data);
+      else await DB.creerMission(data);
+      toast(t('saved'));
+      renderMissionsPonctuelles();
+    }
+  });
+}
+
+async function renderMissionsRecurrences() {
+  const [allEmployees, clients, recurrences, missions] = await Promise.all([
+    DB.getAll('employees'), DB.getAll('clients'),
+    DB.getAll('recurrences'), DB.getAll('missions')
+  ]);
+  const visibleEmps = await visibleEmployeesForMissions();
+  const visibleEmpIds = new Set(visibleEmps.map(e => e.id));
+  const empById = Object.fromEntries(allEmployees.map(e => [e.id, e]));
+  const clientById = Object.fromEntries(clients.map(c => [c.id, c]));
+  const recs = recurrences.filter(r => visibleEmpIds.has(Number(r.assigneEmployeId)));
+
+  const counts = {};
+  for (const m of missions) {
+    if (m.recurrenceId) counts[m.recurrenceId] = (counts[m.recurrenceId] || 0) + 1;
+  }
+
+  const rows = recs.map(r => `
+    <tr class="hover:bg-slate-50">
+      <td class="px-4 py-3">${escapeHtml(r.libelle)}</td>
+      <td class="px-4 py-3 text-slate-600">${escapeHtml(clientById[r.clientId]?.nom || '')}</td>
+      <td class="px-4 py-3 text-slate-600">${escapeHtml(empById[r.assigneEmployeId]?.nom || '?')}</td>
+      <td class="px-4 py-3 text-slate-600">${escapeHtml(summarizeRecurrence(r))}</td>
+      <td class="px-4 py-3 text-slate-600 text-sm">${escapeHtml(r.dateDebut || '')} → ${escapeHtml(r.dateFin || '∞')}</td>
+      <td class="px-4 py-3">${r.actif === false ? '<span class="px-2 py-0.5 rounded-full bg-slate-200 text-slate-600 text-xs">—</span>' : '<span class="px-2 py-0.5 rounded-full bg-green-100 text-green-700 text-xs">●</span>'}</td>
+      <td class="px-4 py-3 text-slate-600">${counts[r.id] || 0}</td>
+      <td class="px-4 py-3">
+        <button data-act="edit"   data-id="${r.id}" class="text-blue-700 hover:underline text-sm">${escapeHtml(t('edit'))}</button>
+        <button data-act="toggle" data-id="${r.id}" class="text-slate-700 hover:underline text-sm ms-3">${escapeHtml(r.actif === false ? t('activate') : t('deactivate'))}</button>
+        <button data-act="delete" data-id="${r.id}" class="text-red-600 hover:underline text-sm ms-3">${escapeHtml(t('delete'))}</button>
+      </td>
+    </tr>`).join('');
+
+  $('#missionsTabBody').innerHTML = `
+    <div class="flex justify-end mb-4">
+      <button id="newRecBtn" class="px-4 py-2 rounded-lg bg-blue-700 text-white hover:bg-blue-800 text-sm font-medium">+ ${escapeHtml(t('newRecurrence'))}</button>
+    </div>
+    <div class="bg-white rounded-xl border border-slate-200 shadow-sm">
+      ${tableEl(
+        [t('missionLibelle'), t('timeClient'), t('missionAssignee'), t('recPeriodicity'),
+         `${t('recStartDate')} / ${t('recEndDate')}`, t('recActif'), t('recGenerated'), t('actions')],
+        rows
+      )}
+    </div>
+  `;
+
+  $('#newRecBtn').onclick = () => recurrenceForm();
+  $$('[data-act]').forEach(b => b.onclick = async () => {
+    const id = Number(b.dataset.id);
+    const act = b.dataset.act;
+    if (act === 'edit') recurrenceForm(await DB.getById('recurrences', id));
+    else if (act === 'toggle') {
+      const r = await DB.getById('recurrences', id);
+      await DB.update('recurrences', id, { actif: !(r.actif !== false) });
+      toast(t('saved'));
+      renderMissionsRecurrences();
+    } else if (act === 'delete') {
+      if (!await confirmModal(t('confirmDelete'))) return;
+      const alsoMissions = await confirmModal(t('recDeleteAlsoMissions'));
+      await DB.remove('recurrences', id);
+      if (alsoMissions) {
+        const ms = await DB.getAll('missions');
+        for (const m of ms) {
+          if (Number(m.recurrenceId) === id && m.statut !== 'effectuee') {
+            await DB.remove('missions', m.id);
+          }
+        }
+      }
+      toast(t('deleted'));
+      renderMissionsRecurrences();
+    }
+  });
+}
+
+async function recurrenceForm(rec) {
+  const [allEmployees, clients] = await Promise.all([DB.getAll('employees'), DB.getAll('clients')]);
+  const visibleEmps = await visibleEmployeesForMissions();
+  const r = rec || {
+    libelle: '', description: '', clientId: '', assigneEmployeId: '',
+    priorite: 'normale', notes: '',
+    periodicite: 'hebdomadaire',
+    parametre: { joursSemaine: [1] },
+    dateDebut: new Date().toISOString().slice(0,10),
+    dateFin: null,
+    delaiRealisationJours: 3,
+    actif: true
+  };
+  const priOpts = [
+    { value: 'urgente', label: t('priorityUrgente') },
+    { value: 'normale', label: t('priorityNormale') },
+    { value: 'basse',   label: t('priorityBasse') }
+  ];
+
+  const dayLabels = ['weekDayMonFull','weekDayTueFull','weekDayWedFull','weekDayThuFull','weekDayFriFull','weekDaySatFull','weekDaySunFull']
+    .map(k => t(k));
+  const selectedDays = new Set((r.parametre?.joursSemaine || []).map(Number));
+
+  openModal({
+    title: rec ? t('edit') : t('newRecurrence'),
+    bodyHtml: `
+      <div class="space-y-3 max-h-[70vh] overflow-y-auto">
+        ${field('libelle', t('missionLibelle'), r.libelle, 'text', true)}
+        ${textarea('description', t('taskDesc'), r.description)}
+        ${selectField('clientId', t('timeClient'), clients.filter(c => c.actif !== false).map(c => ({ value: c.id, label: c.nom })), r.clientId, true)}
+        ${selectField('assigneEmployeId', t('missionAssignee'), visibleEmps.map(e => ({ value: e.id, label: e.nom })), r.assigneEmployeId, true)}
+        ${selectField('priorite', t('missionPriorite'), priOpts, r.priorite || 'normale', true)}
+
+        <div>
+          <label class="block text-sm text-slate-600 mb-1">${escapeHtml(t('recPeriodicity'))}</label>
+          <div class="flex gap-2" id="recPerBtns">
+            <button type="button" data-per="quotidien"    class="px-3 py-2 rounded-lg border text-sm ${r.periodicite==='quotidien'?'bg-blue-700 text-white border-blue-700':'border-slate-300'}">${escapeHtml(t('recDaily'))}</button>
+            <button type="button" data-per="hebdomadaire" class="px-3 py-2 rounded-lg border text-sm ${r.periodicite==='hebdomadaire'?'bg-blue-700 text-white border-blue-700':'border-slate-300'}">${escapeHtml(t('recWeekly'))}</button>
+            <button type="button" data-per="mensuel"      class="px-3 py-2 rounded-lg border text-sm ${r.periodicite==='mensuel'?'bg-blue-700 text-white border-blue-700':'border-slate-300'}">${escapeHtml(t('recMonthly'))}</button>
+          </div>
+        </div>
+
+        <div id="recParam"></div>
+
+        <div class="grid grid-cols-2 gap-3">
+          ${field('dateDebut', t('recStartDate'), r.dateDebut, 'date', true)}
+          ${field('dateFin', t('recEndDate'), r.dateFin || '', 'date')}
+        </div>
+        <label class="inline-flex items-center gap-2 text-sm">
+          <input id="f_noEnd" type="checkbox" ${!r.dateFin ? 'checked' : ''} class="w-4 h-4">${escapeHtml(t('recNoEnd'))}
+        </label>
+
+        ${field('delaiRealisationJours', t('recDelayJours'), r.delaiRealisationJours ?? 3, 'number', true)}
+        ${textarea('notes', t('missionNotes'), r.notes)}
+        ${checkbox('actif', t('recActif'), r.actif !== false)}
+
+        <div class="bg-slate-50 border border-slate-200 rounded p-3 text-sm">
+          <div class="font-medium text-slate-700 mb-1">${escapeHtml(t('recPreview'))}</div>
+          <div id="recPrev" class="text-slate-600"></div>
+        </div>
+      </div>`,
+    onSave: async () => {
+      const periodicite = $('#recPerBtns [data-per].bg-blue-700')?.dataset.per || 'hebdomadaire';
+      const noEnd = $('#f_noEnd').checked;
+      const data = {
+        libelle: $('#f_libelle').value.trim(),
+        description: $('#f_description').value.trim(),
+        clientId: Number($('#f_clientId').value) || null,
+        assigneEmployeId: Number($('#f_assigneEmployeId').value) || null,
+        priorite: $('#f_priorite').value,
+        periodicite,
+        parametre: paramFromForm(periodicite),
+        dateDebut: $('#f_dateDebut').value,
+        dateFin: noEnd ? null : ($('#f_dateFin').value || null),
+        delaiRealisationJours: Number($('#f_delaiRealisationJours').value) || 0,
+        notes: $('#f_notes').value.trim(),
+        actif: $('#f_actif').checked
+      };
+      if (!data.libelle || !data.clientId || !data.assigneEmployeId || !data.dateDebut) return false;
+      if (!canManageMissionForEmployee(data.assigneEmployeId, allEmployees)) {
+        toast(t('forbidden'));
+        return false;
+      }
+      if (rec) await DB.update('recurrences', rec.id, data);
+      else await DB.add('recurrences', { ...data, derniereGeneration: null });
+      toast(t('saved'));
+      renderMissionsRecurrences();
+    }
+  });
+
+  // Param sub-form rendering + preview wiring
+  const renderParam = (per) => {
+    if (per === 'quotidien') {
+      const n = Number(r.parametre?.tousLesNJours) || 1;
+      $('#recParam').innerHTML = `
+        <div class="flex items-center gap-2">
+          <span class="text-sm text-slate-600">${escapeHtml(t('recDailyEvery'))}</span>
+          <input id="f_perN" type="number" min="1" value="${n}" class="w-20 px-2 py-1 border border-slate-300 rounded text-sm">
+          <span class="text-sm text-slate-600">${escapeHtml(t('recDays'))}</span>
+        </div>`;
+      $('#f_perN').oninput = updatePreview;
+    } else if (per === 'hebdomadaire') {
+      const dayKeys = ['weekDayMon','weekDayTue','weekDayWed','weekDayThu','weekDayFri','weekDaySat','weekDaySun'];
+      $('#recParam').innerHTML = `
+        <div>
+          <label class="block text-sm text-slate-600 mb-1">${escapeHtml(t('recWeeklyDays'))}</label>
+          <div class="flex gap-2 flex-wrap">
+            ${dayKeys.map((k, i) => {
+              const d = i + 1;
+              const sel = selectedDays.has(d);
+              return `<label class="inline-flex items-center gap-1 px-3 py-2 border rounded-lg text-sm cursor-pointer ${sel ? 'bg-blue-700 text-white border-blue-700' : 'border-slate-300'}">
+                <input type="checkbox" data-dow="${d}" ${sel ? 'checked' : ''} class="hidden">
+                ${escapeHtml(t(k))} <span class="text-xs opacity-70">${escapeHtml(dayLabels[i].slice(0,3))}</span>
+              </label>`;
+            }).join('')}
+          </div>
+        </div>`;
+      $$('#recParam input[data-dow]').forEach(c => c.onchange = (e) => {
+        const d = Number(e.target.dataset.dow);
+        if (e.target.checked) selectedDays.add(d); else selectedDays.delete(d);
+        e.target.parentElement.className = `inline-flex items-center gap-1 px-3 py-2 border rounded-lg text-sm cursor-pointer ${e.target.checked ? 'bg-blue-700 text-white border-blue-700' : 'border-slate-300'}`;
+        updatePreview();
+      });
+    } else if (per === 'mensuel') {
+      const isLast = r.parametre?.jourDuMois === 'dernier';
+      $('#recParam').innerHTML = `
+        <div class="flex items-center gap-3 flex-wrap">
+          <label class="inline-flex items-center gap-2 text-sm">
+            <span>${escapeHtml(t('recMonthlyDay'))}</span>
+            <input id="f_jourMois" type="number" min="1" max="31" value="${isLast ? 1 : (r.parametre?.jourDuMois || 1)}" class="w-20 px-2 py-1 border border-slate-300 rounded text-sm" ${isLast ? 'disabled' : ''}>
+            <span>${escapeHtml(t('recMonthlyDayEnd'))}</span>
+          </label>
+          <label class="inline-flex items-center gap-2 text-sm">
+            <input id="f_lastDay" type="checkbox" ${isLast ? 'checked' : ''} class="w-4 h-4">
+            ${escapeHtml(t('recMonthlyLast'))}
+          </label>
+        </div>`;
+      $('#f_jourMois').oninput = updatePreview;
+      $('#f_lastDay').onchange = (e) => {
+        $('#f_jourMois').disabled = e.target.checked;
+        updatePreview();
+      };
+    }
+  };
+
+  function paramFromForm(per) {
+    if (per === 'quotidien') return { tousLesNJours: Math.max(1, Number($('#f_perN')?.value) || 1) };
+    if (per === 'hebdomadaire') return { joursSemaine: Array.from(selectedDays).sort((a,b)=>a-b) };
+    if (per === 'mensuel') {
+      const last = $('#f_lastDay')?.checked;
+      return last ? { jourDuMois: 'dernier' } : { jourDuMois: Math.max(1, Math.min(31, Number($('#f_jourMois')?.value) || 1)) };
+    }
+    return {};
+  }
+
+  function currentPer() {
+    return $('#recPerBtns [data-per].bg-blue-700')?.dataset.per || 'hebdomadaire';
+  }
+
+  function updatePreview() {
+    const per = currentPer();
+    const tmp = {
+      periodicite: per,
+      parametre: paramFromForm(per),
+      dateDebut: $('#f_dateDebut').value || null,
+      dateFin: $('#f_noEnd').checked ? null : ($('#f_dateFin').value || null)
+    };
+    const next = nextRecurrenceDates(tmp, 5);
+    $('#recPrev').innerHTML = next.length
+      ? next.map(d => `<div>• ${_ymd(d)}</div>`).join('')
+      : '<div class="text-slate-400">—</div>';
+  }
+
+  $$('#recPerBtns [data-per]').forEach(b => b.onclick = () => {
+    $$('#recPerBtns [data-per]').forEach(x => x.classList.remove('bg-blue-700','text-white','border-blue-700'));
+    $$('#recPerBtns [data-per]').forEach(x => x.classList.add('border-slate-300'));
+    b.classList.add('bg-blue-700','text-white','border-blue-700');
+    b.classList.remove('border-slate-300');
+    renderParam(b.dataset.per);
+    updatePreview();
+  });
+  $('#f_dateDebut').oninput = updatePreview;
+  $('#f_dateFin').oninput = updatePreview;
+  $('#f_noEnd').onchange = updatePreview;
+
+  renderParam(r.periodicite);
+  updatePreview();
+}
+
 /* ----- SETTINGS ----- */
 async function renderSettings() {
   const types = await getProjectTypes();
@@ -2901,6 +3971,11 @@ async function renderSettings() {
         <option value="en" ${LANG==='en'?'selected':''}>English</option>
         <option value="he" ${LANG==='he'?'selected':''}>עברית</option>
       </select>
+    </div>
+
+    <div class="bg-white rounded-xl border border-slate-200 shadow-sm p-6 mb-6 ${isAdmin ? '' : 'hidden'}">
+      <h2 class="font-semibold text-slate-900 mb-4">📋 ${escapeHtml(t('navMissions'))}</h2>
+      <button id="genRecBtn" class="px-4 py-2 rounded-lg border border-slate-300 hover:bg-slate-50 text-sm">${escapeHtml(t('recGenerateNow'))}</button>
     </div>
 
     <div class="bg-white rounded-xl border border-slate-200 shadow-sm p-6 mb-6 ${isAdmin ? '' : 'hidden'}">
@@ -2974,6 +4049,17 @@ async function renderSettings() {
     applyI18n();
     navigate(currentPage);
   };
+
+  if ($('#genRecBtn')) {
+    $('#genRecBtn').onclick = async () => {
+      try {
+        const n = await genererMissionsRecurrentes();
+        toast(fillTpl(t('recGeneratedToast'), { n }));
+      } catch (e) {
+        toast(String(e.message || e));
+      }
+    };
+  }
 
   if ($('#logoFile')) {
     $('#logoFile').onchange = async (e) => {
@@ -3103,6 +4189,9 @@ async function exportJson() {
     employees: await DB.getAll('employees'),
     timeEntries: await DB.getAll('timeEntries'),
     attendance: await DB.getAll('attendance'),
+    submissions: await DB.getAll('submissions'),
+    missions: await DB.getAll('missions'),
+    recurrences: await DB.getAll('recurrences'),
     settings: await DB.getAll('settings'),
     exportedAt: new Date().toISOString()
   };
@@ -3126,7 +4215,7 @@ async function importJsonHandler(e) {
     const text = await file.text();
     const data = JSON.parse(text);
     await DB.clearAll();
-    const stores = ['clients','projects','tasks','employees','timeEntries','attendance','settings'];
+    const stores = ['clients','projects','tasks','employees','timeEntries','attendance','submissions','missions','recurrences','settings'];
     for (const s of stores) {
       if (Array.isArray(data[s])) {
         for (const r of data[s]) await DB.put(s, r);
@@ -3400,6 +4489,8 @@ async function boot() {
 async function bootApp() {
   showAppShell();
   applyI18n();
+  // Auto-generate any missed recurring missions on every login.
+  try { await genererMissionsRecurrentes(); } catch (e) { console.warn('scheduler', e); }
 
   // Wire nav (idempotent — re-bind in case sidebar was rebuilt)
   applyRoleVisibility();
