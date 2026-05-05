@@ -505,6 +505,11 @@ const I18N = {
     chartHoursByEmployee: "Heures par employé (30 derniers jours)",
     chartMissionStatus: "Répartition des missions",
     chartHoursOverTime: "Heures saisies (30 jours)",
+    chartHoursByType: "Heures par type de projet (3 mois)",
+    chartCostByType: "Coûts par type de projet (3 mois)",
+    colProjectType: "Type de projet",
+    expandAll: "Tout étendre", collapseAll: "Tout réduire",
+    untyped: "(non typé)",
   },
   en: {
     appSubtitle: "Time Tracking",
@@ -739,6 +744,11 @@ const I18N = {
     chartHoursByEmployee: "Hours by employee (last 30 days)",
     chartMissionStatus: "Mission status distribution",
     chartHoursOverTime: "Hours entered (30 days)",
+    chartHoursByType: "Hours by project type (3 months)",
+    chartCostByType: "Cost by project type (3 months)",
+    colProjectType: "Project type",
+    expandAll: "Expand all", collapseAll: "Collapse all",
+    untyped: "(untyped)",
   },
   he: {
     appSubtitle: "מעקב זמן",
@@ -973,6 +983,11 @@ const I18N = {
     chartHoursByEmployee: "שעות לפי עובד (30 ימים)",
     chartMissionStatus: "התפלגות סטטוס משימות",
     chartHoursOverTime: "שעות שהוזנו (30 ימים)",
+    chartHoursByType: "שעות לפי סוג פרויקט (3 חודשים)",
+    chartCostByType: "עלות לפי סוג פרויקט (3 חודשים)",
+    colProjectType: "סוג פרויקט",
+    expandAll: "פתח הכל", collapseAll: "סגור הכל",
+    untyped: "(ללא סוג)",
   }
 };
 let LANG = 'fr';
@@ -3320,6 +3335,16 @@ async function renderDashboard() {
           <div class="text-xs uppercase tracking-wide text-slate-500 mb-2">${escapeHtml(t('chartMissionStatus'))}</div>
           <canvas id="ch_miss" height="160"></canvas>
         </div>
+      </div>
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+        <div class="bg-white rounded-xl border border-slate-200 p-4">
+          <div class="text-xs uppercase tracking-wide text-slate-500 mb-2">${escapeHtml(t('chartHoursByType'))}</div>
+          <canvas id="ch_typeH" height="180"></canvas>
+        </div>
+        <div class="bg-white rounded-xl border border-slate-200 p-4">
+          <div class="text-xs uppercase tracking-wide text-slate-500 mb-2">${escapeHtml(t('chartCostByType'))}</div>
+          <canvas id="ch_typeC" height="180"></canvas>
+        </div>
       </div>`;
     wireAdminDashboardClicks(employees, submissions, missions, recurrences);
     drawAdminCharts(employees, missions, timeEntries);
@@ -3613,13 +3638,16 @@ function statCard(icon, label, value, cls = 'bg-slate-100 text-slate-700', detai
 async function drawAdminCharts(employees, missions, timeEntries) {
   if (typeof Chart === 'undefined') return;
   // Destroy any previous chart instances on these canvases (Chart.js holds a registry)
-  ['ch_client','ch_emp','ch_time','ch_miss'].forEach(id => {
+  ['ch_client','ch_emp','ch_time','ch_miss','ch_typeH','ch_typeC'].forEach(id => {
     const inst = Chart.getChart(id);
     if (inst) inst.destroy();
   });
   const clients = await DB.getAll('clients');
+  const projects = await DB.getAll('projects');
   const cById = Object.fromEntries(clients.map(c => [c.id, c.nom]));
+  const eFull = Object.fromEntries(employees.map(e => [e.id, e]));
   const eById = Object.fromEntries(employees.map(e => [e.id, e.nom]));
+  const pById = Object.fromEntries(projects.map(p => [p.id, p]));
 
   const today = new Date(); today.setHours(0,0,0,0);
   const since = new Date(today.getTime() - 30 * 86400000);
@@ -3684,6 +3712,57 @@ async function drawAdminCharts(employees, missions, timeEntries) {
     data: { labels: statusKeys.map(([, k]) => t(k)),
       datasets: [{ data: counts, backgroundColor: ['#94a3b8','#f59e0b','#10b981','#cbd5e1'] }] },
     options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'bottom' } } }
+  });
+
+  // 5+6) Last 3 months × project type → hours and cost
+  const now = new Date();
+  const months = []; // [{label:'2025-04', y:2025, m:3}, ...] last-3-months including current
+  for (let i = 2; i >= 0; i--) {
+    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+    months.push({ y: d.getFullYear(), m: d.getMonth(), label: `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}` });
+  }
+  const earliest = new Date(months[0].y, months[0].m, 1);
+  const earliestIso = earliest.toISOString().slice(0,10);
+  const recent3m = timeEntries.filter(en => (en.date || '') >= earliestIso);
+
+  // Aggregate (month, type) → { hours, cost }
+  const agg = {}; // type → { 'YYYY-MM': { h, c } }
+  const typeSet = new Set();
+  for (const en of recent3m) {
+    const proj = pById[en.projectId];
+    const type = proj?.typeProjet || t('untyped');
+    typeSet.add(type);
+    const dt = new Date(en.date + 'T00:00:00');
+    const lbl = `${dt.getFullYear()}-${String(dt.getMonth()+1).padStart(2,'0')}`;
+    const hours = Number(en.heures) || 0;
+    const rate = Number(eFull[en.employeId]?.tauxHoraire) || 0;
+    if (!agg[type]) agg[type] = {};
+    if (!agg[type][lbl]) agg[type][lbl] = { h: 0, c: 0 };
+    agg[type][lbl].h += hours;
+    agg[type][lbl].c += hours * rate;
+  }
+  const types = Array.from(typeSet);
+  const palette = ['#3b82f6','#10b981','#f59e0b','#ef4444','#8b5cf6','#06b6d4','#f97316','#ec4899','#84cc16','#0ea5e9'];
+  const datasetsHours = types.map((type, i) => ({
+    label: type,
+    data: months.map(m => +(agg[type]?.[m.label]?.h || 0).toFixed(2)),
+    backgroundColor: palette[i % palette.length]
+  }));
+  const datasetsCost = types.map((type, i) => ({
+    label: type,
+    data: months.map(m => +(agg[type]?.[m.label]?.c || 0).toFixed(2)),
+    backgroundColor: palette[i % palette.length]
+  }));
+  const stackedOpts = {
+    responsive: true, maintainAspectRatio: false,
+    plugins: { legend: { position: 'bottom' } },
+    scales: { x: { stacked: true }, y: { stacked: true } }
+  };
+  if ($('#ch_typeH')) new Chart($('#ch_typeH'), {
+    type: 'bar', data: { labels: months.map(m => m.label), datasets: datasetsHours }, options: stackedOpts
+  });
+  if ($('#ch_typeC')) new Chart($('#ch_typeC'), {
+    type: 'bar', data: { labels: months.map(m => m.label), datasets: datasetsCost }, options: stackedOpts
   });
 }
 
@@ -4700,6 +4779,7 @@ const REPORT_COLUMNS = [
   { key: 'employee',    labelKey: 'colEmployee',    width: 120 },
   { key: 'client',      labelKey: 'colClient',      width: 120 },
   { key: 'project',     labelKey: 'colProject',     width: 120 },
+  { key: 'projectType', labelKey: 'colProjectType', width: 110 },
   { key: 'task',        labelKey: 'colTask',        width: 120 },
   { key: 'hours',       labelKey: 'colHours',       width: 70,  num: true },
   { key: 'rate',        labelKey: 'colRate',        width: 80,  num: true },
@@ -4769,6 +4849,7 @@ async function renderReports() {
             <option value="">${escapeHtml(t('reportNoGroup'))}</option>
             <option value="client">${escapeHtml(t('colClient'))}</option>
             <option value="project">${escapeHtml(t('colProject'))}</option>
+            <option value="projectType">${escapeHtml(t('colProjectType'))}</option>
             <option value="employee">${escapeHtml(t('colEmployee'))}</option>
           </select>
         </div>
@@ -4779,6 +4860,7 @@ async function renderReports() {
             <option value="employee">${escapeHtml(t('colEmployee'))}</option>
             <option value="client">${escapeHtml(t('colClient'))}</option>
             <option value="project">${escapeHtml(t('colProject'))}</option>
+            <option value="projectType">${escapeHtml(t('colProjectType'))}</option>
             <option value="hours">${escapeHtml(t('colHours'))}</option>
             <option value="cost">${escapeHtml(t('colCost'))}</option>
           </select>
@@ -4795,6 +4877,8 @@ async function renderReports() {
         </div>
       </div>
       <div class="mt-4 flex flex-wrap gap-2 justify-end">
+        <button id="rp_expandAll"   class="px-3 py-2 rounded-lg border border-slate-300 hover:bg-slate-50 text-sm">▼ ${escapeHtml(t('expandAll'))}</button>
+        <button id="rp_collapseAll" class="px-3 py-2 rounded-lg border border-slate-300 hover:bg-slate-50 text-sm">▶ ${escapeHtml(t('collapseAll'))}</button>
         <button id="rp_generate" class="px-4 py-2 rounded-lg bg-blue-700 text-white hover:bg-blue-800 text-sm">${escapeHtml(t('reportGenerate'))}</button>
         <button id="rp_export"   class="px-4 py-2 rounded-lg border border-slate-300 hover:bg-slate-50 text-sm">📊 ${escapeHtml(t('exportExcel'))}</button>
         <button id="rp_print"    class="px-4 py-2 rounded-lg border border-slate-300 hover:bg-slate-50 text-sm">🖨 ${escapeHtml(t('reportPrint'))}</button>
@@ -4827,13 +4911,15 @@ async function renderReports() {
 
     const enriched = list.map(en => {
       const emp = eById[en.employeId] || {};
+      const proj = pById[en.projectId] || {};
       const rate = Number(emp.tauxHoraire) || 0;
       const hours = Number(en.heures) || 0;
       return {
         date: en.date || '',
         employee: emp.nom || '?',
         client: cById[en.clientId]?.nom || '',
-        project: pById[en.projectId]?.nom || '',
+        project: proj.nom || '',
+        projectType: proj.typeProjet || t('untyped'),
         task: tById[en.taskId]?.nom || '',
         hours,
         rate,
@@ -4883,17 +4969,23 @@ async function renderReports() {
       bodyHtml = sortedKeys.map(k => {
         const gh = groups[k].reduce((s, r) => s + r.hours, 0);
         const gc = groups[k].reduce((s, r) => s + r.cost, 0);
+        const open = renderReports._expanded.has(k);
+        const arrow = open ? '▼' : '▶';
         return `
-          <tr class="bg-blue-50">
+          <tr class="bg-blue-50 cursor-pointer hover:bg-blue-100" data-group-key="${escapeHtml(k)}">
             <td colspan="${cols.length}" class="px-3 py-2 font-semibold text-blue-900">
+              <span class="inline-block w-4 text-blue-700">${arrow}</span>
               ${escapeHtml(k)} <span class="text-blue-700 text-xs">— ${groups[k].length} · ${fmt(gh)} h · ${fmt(gc)}</span>
             </td>
           </tr>
-          ${groups[k].map(dataRowHtml).join('')}
+          ${open ? groups[k].map(dataRowHtml).join('') : ''}
         `;
       }).join('');
+      // Stash for expand/collapse-all buttons
+      renderReports._allKeys = sortedKeys;
     } else {
       bodyHtml = rows.map(dataRowHtml).join('');
+      renderReports._allKeys = [];
     }
 
     const totalRow = `
@@ -4913,7 +5005,27 @@ async function renderReports() {
       : `<p class="text-sm text-slate-500">${escapeHtml(t('noResults'))}</p>`;
   };
 
-  $('#rp_generate').onclick = draw;
+  // Init expanded set (per render)
+  if (!renderReports._expanded) renderReports._expanded = new Set();
+  // Hook group toggle clicks (delegated)
+  $('#rp_body').addEventListener('click', (ev) => {
+    const tr = ev.target.closest('[data-group-key]');
+    if (!tr) return;
+    const k = tr.dataset.groupKey;
+    if (renderReports._expanded.has(k)) renderReports._expanded.delete(k);
+    else renderReports._expanded.add(k);
+    draw();
+  });
+  $('#rp_expandAll').onclick = () => {
+    renderReports._expanded = new Set(renderReports._allKeys || []);
+    draw();
+  };
+  $('#rp_collapseAll').onclick = () => {
+    renderReports._expanded = new Set();
+    draw();
+  };
+
+  $('#rp_generate').onclick = () => { renderReports._expanded = new Set(); draw(); };
   $('#rp_export').onclick = () => {
     const { rows, groupBy } = computeRows();
     const cols = REPORT_COLUMNS.filter(c => document.querySelector(`[data-col="${c.key}"]`)?.checked);
