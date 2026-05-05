@@ -3562,8 +3562,21 @@ async function renderDashboard() {
         ${statCard('🔥', t('statTeamMissionsLate'), lateMissions, 'bg-red-50 text-red-800', 'lateMissions')}
         ${statCard('🔁', t('statActiveRecurrences'), activeRecs, 'bg-blue-50 text-blue-800', 'activeRecs')}
         ${statCard('✅', t('statRespectRate'), respect == null ? '—' : respect + '%', 'bg-green-50 text-green-800', 'respectRate')}
+      </div>
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+        <div class="bg-white rounded-xl border border-slate-200 p-4">
+          <div class="text-xs uppercase tracking-wide text-slate-500">${escapeHtml(t('chartHoursByType'))}</div>
+          <div id="pieHoursMonth" class="text-sm font-semibold text-slate-800 mb-2"></div>
+          <canvas id="pieHours" height="160"></canvas>
+        </div>
+        <div class="bg-white rounded-xl border border-slate-200 p-4">
+          <div class="text-xs uppercase tracking-wide text-slate-500">${escapeHtml(t('chartCostByType'))}</div>
+          <div id="pieCostMonth" class="text-sm font-semibold text-slate-800 mb-2"></div>
+          <canvas id="pieCost" height="160"></canvas>
+        </div>
       </div>`;
     wireAdminDashboardClicks(employees, submissions, missions, recurrences);
+    drawTypePies(employees, timeEntries);
   } else if (role === 'manager') {
     const teamIds = new Set([session.employeId, ...employees.filter(e => Number(e.managerId) === Number(session.employeId)).map(e => e.id)]);
     const pending = submissions.filter(s => s.statut === 'soumis' && teamIds.has(Number(s.employeId))).length;
@@ -3943,6 +3956,77 @@ async function renderAdminTypeChart(employees, timeEntries) {
         showListModal(`${type} — ${monthLabel}`, [t('timeClient'), t('colHours'), t('colCost')], rows);
       }
     }
+  });
+}
+
+async function drawTypePies(employees, timeEntries) {
+  if (typeof Chart === 'undefined') return;
+  ['pieHours','pieCost'].forEach(id => {
+    const inst = Chart.getChart(id);
+    if (inst) inst.destroy();
+  });
+  const today = new Date();
+  const firstDay = new Date(today.getFullYear(), today.getMonth() - 1, 1);
+  const lastDay  = new Date(today.getFullYear(), today.getMonth(), 0);
+  const startIso = firstDay.toISOString().slice(0, 10);
+  const endIso   = lastDay.toISOString().slice(0, 10);
+  const localeBcp = LANG === 'fr' ? 'fr-FR' : LANG === 'he' ? 'he-IL' : 'en-US';
+  const monthLabel = firstDay.toLocaleDateString(localeBcp, { month: 'long', year: 'numeric' });
+  if ($('#pieHoursMonth')) $('#pieHoursMonth').textContent = monthLabel;
+  if ($('#pieCostMonth'))  $('#pieCostMonth').textContent  = monthLabel;
+
+  const projects = await DB.getAll('projects');
+  const pById = Object.fromEntries(projects.map(p => [p.id, p]));
+  const eFull = Object.fromEntries(employees.map(e => [e.id, e]));
+
+  const lastMonthEntries = timeEntries.filter(en => (en.date || '') >= startIso && (en.date || '') <= endIso);
+  const byType = {};
+  for (const en of lastMonthEntries) {
+    const type = pById[en.projectId]?.typeProjet || t('untyped');
+    const hours = Number(en.heures) || 0;
+    const rate  = Number(eFull[en.employeId]?.tauxHoraire) || 0;
+    if (!byType[type]) byType[type] = { hours: 0, cost: 0 };
+    byType[type].hours += hours;
+    byType[type].cost  += hours * rate;
+  }
+  const types = Object.entries(byType);
+  const palette = ['#4f46e5','#10b981','#f59e0b','#ef4444','#8b5cf6','#06b6d4','#f97316','#ec4899','#84cc16','#0ea5e9'];
+  const colors = types.map((_, i) => palette[i % palette.length]);
+  const labels = types.map(([type]) => type);
+  const hoursData = types.map(([, d]) => +d.hours.toFixed(2));
+  const costData  = types.map(([, d]) => +d.cost.toFixed(2));
+
+  const pieOpts = {
+    responsive: true, maintainAspectRatio: false,
+    plugins: {
+      legend: { position: 'right', labels: { boxWidth: 10, font: { size: 11 } } },
+      tooltip: {
+        callbacks: {
+          label: (ctx) => {
+            const total = ctx.dataset.data.reduce((s, v) => s + v, 0);
+            const pct = total ? (100 * ctx.parsed / total).toFixed(1) : 0;
+            return ` ${ctx.label}: ${ctx.formattedValue} (${pct}%)`;
+          }
+        }
+      }
+    }
+  };
+
+  if (types.length === 0) {
+    if ($('#pieHours')) $('#pieHours').replaceWith(Object.assign(document.createElement('p'), { className: 'text-sm text-slate-500', textContent: t('noResults') }));
+    if ($('#pieCost'))  $('#pieCost').replaceWith(Object.assign(document.createElement('p'), { className: 'text-sm text-slate-500', textContent: t('noResults') }));
+    return;
+  }
+
+  if ($('#pieHours')) new Chart($('#pieHours'), {
+    type: 'pie',
+    data: { labels, datasets: [{ data: hoursData, backgroundColor: colors, borderWidth: 1, borderColor: '#fff' }] },
+    options: pieOpts
+  });
+  if ($('#pieCost')) new Chart($('#pieCost'), {
+    type: 'pie',
+    data: { labels, datasets: [{ data: costData, backgroundColor: colors, borderWidth: 1, borderColor: '#fff' }] },
+    options: pieOpts
   });
 }
 
