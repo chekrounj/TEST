@@ -725,6 +725,20 @@ const ExpensesTable = ({ expenses, onAdd, onUpdate, onRemove, onRemoveMany, onRe
                 : "bg-white text-stone-700 ring-stone-200 hover:bg-stone-50")}>
             <Layers className="w-4 h-4"/>{groupByType ? 'Vue groupée' : 'Grouper par type'}
           </button>
+          {groupByType && groups && groups.length > 0 && (() => {
+            const allCollapsed = groups.every(g => collapsed.has(g.type));
+            const expandAll = () => setCollapsed(new Set());
+            const collapseAll = () => setCollapsed(new Set(groups.map(g => g.type)));
+            return (
+              <button onClick={allCollapsed ? expandAll : collapseAll}
+                title={allCollapsed ? "Tout déplier" : "Tout replier"}
+                className="inline-flex items-center gap-1 px-2.5 py-1.5 text-sm rounded-lg bg-white text-stone-700 ring-1 ring-stone-200 hover:bg-stone-50">
+                {allCollapsed
+                  ? <><ChevronDown className="w-4 h-4"/><span className="hidden sm:inline">Tout déplier</span></>
+                  : <><ChevronUp   className="w-4 h-4"/><span className="hidden sm:inline">Tout replier</span></>}
+              </button>
+            );
+          })()}
           {onReportUnpaid && hasPrevMonth && (
             <button onClick={onReportUnpaid}
               className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-lg bg-white text-stone-700 ring-1 ring-stone-200 hover:bg-stone-50">
@@ -1127,6 +1141,7 @@ const Scale = (p) => <Svg {...p}><path d="M16 16l3-8 3 8c-2 1-4 1-6 0z"/><path d
 const Layers = (p) => <Svg {...p}><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></Svg>;
 const Tag = (p) => <Svg {...p}><path d="M20.59 13.41 13.42 20.59a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7"/></Svg>;
 const ChevronDown = (p) => <Svg {...p}><polyline points="6 9 12 15 18 9"/></Svg>;
+const ChevronUp   = (p) => <Svg {...p}><polyline points="18 15 12 9 6 15"/></Svg>;
 const Save = (p) => <Svg {...p}><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></Svg>;
 const Building2 = (p) => <Svg {...p}><path d="M6 22V4a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v18Z"/><path d="M6 12H4a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h2"/><path d="M18 9h2a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2h-2"/><path d="M10 6h4M10 10h4M10 14h4M10 18h4"/></Svg>;
 const X = (p) => <Svg {...p}><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></Svg>;
@@ -1258,7 +1273,7 @@ const ImportModal = ({ pending, onChoose, onCancel }) => {
 /* =========================================================
    Data menu (Excel import + JSON backup/restore)
    ========================================================= */
-const DataMenu = ({ onImportExcel, onExportBackup, onRestoreBackup }) => {
+const DataMenu = ({ onImportExcel, onExportBackup, onRestoreBackup, onGenerateFromImports }) => {
   const [open, setOpen] = useState(false);
   const ref = useRef(null);
   const xlsxRef = useRef(null);
@@ -1309,6 +1324,11 @@ const DataMenu = ({ onImportExcel, onExportBackup, onRestoreBackup }) => {
             sub="Tous les mois" onClick={() => { onExportBackup(); setOpen(false); }}/>
           <MenuItem icon={<Upload className="w-4 h-4"/>} label="Restaurer (JSON)"
             sub="Importer une sauvegarde" onClick={() => jsonRef.current?.click()}/>
+          {onGenerateFromImports && (<>
+            <div className="border-t border-stone-100 my-1"/>
+            <MenuItem icon={<Sparkles className="w-4 h-4"/>} label="Générer postes depuis imports"
+              sub="Mois courant · banque" onClick={() => { onGenerateFromImports(); setOpen(false); }}/>
+          </>)}
         </div>
       )}
     </div>
@@ -1325,6 +1345,196 @@ const MenuItem = ({ icon, label, sub, onClick }) => (
     </span>
   </button>
 );
+
+/* =========================================================
+   Generate postes from imported transactions
+   ========================================================= */
+const groupTxByDescription = (txs) => {
+  const groups = new Map();
+  for (const t of txs) {
+    const key = (t.description || '').trim() || '—';
+    const existing = groups.get(key);
+    if (existing) {
+      existing.totalAmount += Math.abs(Number(t.amount) || 0);
+      existing.count++;
+      if (!existing.firstDate || t.date < existing.firstDate) existing.firstDate = t.date;
+    } else {
+      groups.set(key, {
+        name: key,
+        totalAmount: Math.abs(Number(t.amount) || 0),
+        firstDate: t.date,
+        count: 1,
+      });
+    }
+  }
+  return [...groups.values()];
+};
+
+const computeGeneratedPosts = ({ monthKey, direction, scope, currentExpenses, currentIncomes }) => {
+  const idx = loadImportedTx();
+  const txs = Object.values(idx).filter(t => t.monthKey === monthKey);
+
+  // Direction filter (amount > 0 → sortie, < 0 → entrée)
+  const outs = txs.filter(t => (Number(t.amount) || 0) > 0);
+  const ins  = txs.filter(t => (Number(t.amount) || 0) < 0);
+
+  let expenses = (direction === 'in')  ? [] : groupTxByDescription(outs);
+  let incomes  = (direction === 'out') ? [] : groupTxByDescription(ins);
+
+  if (scope === 'new') {
+    const matchesExisting = (name, items) => {
+      const n = name.toLowerCase().trim();
+      if (!n) return false;
+      return items.some(item => {
+        const itemName = (item.name || '').toLowerCase().trim();
+        if (!itemName) return false;
+        return itemName.includes(n) || n.includes(itemName);
+      });
+    };
+    expenses = expenses.filter(g => !matchesExisting(g.name, currentExpenses));
+    incomes  = incomes.filter(g  => !matchesExisting(g.name, currentIncomes));
+  }
+  return { expenses, incomes, sourceCount: txs.length };
+};
+
+const Pill = ({ active, onClick, children }) => (
+  <button onClick={onClick}
+    className={
+      "px-3 py-1.5 text-sm rounded-full ring-1 transition " +
+      (active
+        ? "bg-stone-900 text-white ring-stone-900"
+        : "bg-white text-stone-700 ring-stone-200 hover:bg-stone-50")
+    }>{children}</button>
+);
+
+const GeneratePostsModal = ({ open, monthKey, monthLabelStr, currentExpenses, currentIncomes, onClose, onGenerate }) => {
+  const [direction, setDirection] = useState('both'); // 'in' | 'out' | 'both'
+  const [scope, setScope] = useState('new');          // 'all' | 'new'
+
+  useEffect(() => {
+    if (open) { setDirection('both'); setScope('new'); }
+  }, [open]);
+
+  const proposed = useMemo(() => {
+    if (!open) return { expenses: [], incomes: [], sourceCount: 0 };
+    return computeGeneratedPosts({ monthKey, direction, scope, currentExpenses, currentIncomes });
+  }, [open, monthKey, direction, scope, currentExpenses, currentIncomes]);
+
+  if (!open) return null;
+  const totalToCreate = proposed.expenses.length + proposed.incomes.length;
+
+  return (
+    <div className="fixed inset-0 z-50 bg-stone-900/50 flex items-center justify-center p-4" onClick={onClose}>
+      <div className="bg-white rounded-xl shadow-xl ring-1 ring-stone-200 w-full max-w-xl flex flex-col max-h-[90vh]"
+           onClick={e => e.stopPropagation()}>
+        <header className="px-5 py-4 border-b border-stone-200">
+          <h3 className="font-semibold text-stone-900 text-lg">Générer des postes depuis les imports</h3>
+          <p className="text-xs text-stone-500 mt-0.5">
+            Mois : <span className="font-medium text-stone-700">{monthLabelStr}</span>
+            {' · '}{proposed.sourceCount} transaction{proposed.sourceCount > 1 ? 's' : ''} bancaire{proposed.sourceCount > 1 ? 's' : ''} indexée{proposed.sourceCount > 1 ? 's' : ''}
+          </p>
+        </header>
+
+        <div className="px-5 py-4 space-y-4 overflow-auto flex-1">
+          <div>
+            <div className="text-xs uppercase tracking-wide text-stone-500 font-medium mb-1.5">Direction</div>
+            <div className="flex gap-2 flex-wrap">
+              <Pill active={direction === 'out'}  onClick={() => setDirection('out')}>Sorties uniquement</Pill>
+              <Pill active={direction === 'in'}   onClick={() => setDirection('in')}>Entrées uniquement</Pill>
+              <Pill active={direction === 'both'} onClick={() => setDirection('both')}>Les deux</Pill>
+            </div>
+          </div>
+
+          <div>
+            <div className="text-xs uppercase tracking-wide text-stone-500 font-medium mb-1.5">Portée</div>
+            <div className="flex gap-2 flex-wrap">
+              <Pill active={scope === 'new'} onClick={() => setScope('new')}>
+                Seulement les nouvelles
+              </Pill>
+              <Pill active={scope === 'all'} onClick={() => setScope('all')}>
+                Toutes les transactions
+              </Pill>
+            </div>
+            <p className="text-xs text-stone-500 mt-1">
+              {scope === 'new'
+                ? "Crée un poste seulement si aucun poste du mois ne correspond déjà au libellé."
+                : "Crée un poste pour chaque libellé distinct, même si un poste similaire existe."}
+            </p>
+          </div>
+
+          {/* Aperçu */}
+          <div className="rounded-lg ring-1 ring-stone-200 overflow-hidden">
+            <div className="px-3 py-2 bg-stone-50 text-xs font-medium text-stone-600 flex items-center justify-between">
+              <span>Aperçu</span>
+              <span className="tabular-nums text-stone-500">
+                {totalToCreate} poste{totalToCreate > 1 ? 's' : ''} à créer
+              </span>
+            </div>
+            <div className="max-h-72 overflow-auto divide-y divide-stone-100">
+              {totalToCreate === 0 && (
+                <div className="px-3 py-6 text-center text-xs text-stone-400">
+                  {proposed.sourceCount === 0
+                    ? "Aucune transaction bancaire indexée pour ce mois. Importez d'abord un relevé Hapoalim."
+                    : "Rien à créer avec les filtres actuels."}
+                </div>
+              )}
+              {proposed.expenses.length > 0 && (
+                <div className="px-3 py-2 bg-rose-50/50 text-[10px] uppercase tracking-wide text-rose-700 font-medium">
+                  Sorties — {proposed.expenses.length}
+                </div>
+              )}
+              {proposed.expenses.map((g, i) => (
+                <div key={'e' + i} className="px-3 py-1.5 text-xs flex items-center gap-3">
+                  <div className="flex-1 min-w-0">
+                    <div className="truncate text-stone-800" dir="auto" title={g.name}>{g.name}</div>
+                    <div className="text-[10px] text-stone-400">
+                      {g.count} transaction{g.count > 1 ? 's' : ''} · 1<sup>re</sup> le {fmtDayFR(g.firstDate)}
+                    </div>
+                  </div>
+                  <span className="tabular-nums font-medium text-rose-600 w-24 text-right">
+                    {formatNum(g.totalAmount)}
+                  </span>
+                </div>
+              ))}
+              {proposed.incomes.length > 0 && (
+                <div className="px-3 py-2 bg-emerald-50/50 text-[10px] uppercase tracking-wide text-emerald-700 font-medium">
+                  Entrées — {proposed.incomes.length}
+                </div>
+              )}
+              {proposed.incomes.map((g, i) => (
+                <div key={'i' + i} className="px-3 py-1.5 text-xs flex items-center gap-3">
+                  <div className="flex-1 min-w-0">
+                    <div className="truncate text-stone-800" dir="auto" title={g.name}>{g.name}</div>
+                    <div className="text-[10px] text-stone-400">
+                      {g.count} transaction{g.count > 1 ? 's' : ''} · 1<sup>re</sup> le {fmtDayFR(g.firstDate)}
+                    </div>
+                  </div>
+                  <span className="tabular-nums font-medium text-emerald-600 w-24 text-right">
+                    {formatNum(g.totalAmount)}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        <footer className="px-5 py-3 border-t border-stone-200 flex items-center justify-end gap-2">
+          <button onClick={onClose}
+            className="px-3 py-1.5 text-sm rounded-lg ring-1 ring-stone-200 hover:bg-stone-50">
+            Annuler
+          </button>
+          <button onClick={() => onGenerate(proposed)} disabled={totalToCreate === 0}
+            className={"px-3 py-1.5 text-sm rounded-lg " +
+              (totalToCreate === 0
+                ? "bg-stone-200 text-stone-400 cursor-not-allowed"
+                : "bg-stone-900 text-white hover:bg-stone-800")}>
+            Générer ({totalToCreate})
+          </button>
+        </footer>
+      </div>
+    </div>
+  );
+};
 
 /* =========================================================
    Postes import preview modal
@@ -1937,7 +2147,7 @@ const ReportUnpaidModal = ({ open, items, fromKey, toLabel, onCancel, onConfirm 
 /* =========================================================
    Empty state
    ========================================================= */
-const EmptyState = ({ onManual, onCopyPrev, onReportUnpaid, onImportFile, hasPrevMonth }) => (
+const EmptyState = ({ onManual, onCopyPrev, onReportUnpaid, onImportFile, hasPrevMonth, onGenerateFromImports }) => (
   <div className="bg-white rounded-xl ring-1 ring-stone-200 p-10 text-center">
     <div className="inline-flex items-center justify-center w-12 h-12 rounded-full bg-amber-50 text-amber-600 ring-1 ring-amber-200">
       <Sparkles className="w-6 h-6"/>
@@ -1970,6 +2180,12 @@ const EmptyState = ({ onManual, onCopyPrev, onReportUnpaid, onImportFile, hasPre
         }>
         <ArrowRight className="w-4 h-4"/>Reporter non-payés
       </button>
+      {onGenerateFromImports && (
+        <button onClick={onGenerateFromImports}
+          className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-white text-stone-700 ring-1 ring-stone-200 hover:bg-stone-50 text-sm">
+          <Sparkles className="w-4 h-4"/>Générer depuis imports
+        </button>
+      )}
     </div>
   </div>
 );
@@ -1977,7 +2193,7 @@ const EmptyState = ({ onManual, onCopyPrev, onReportUnpaid, onImportFile, hasPre
 /* =========================================================
    Header
    ========================================================= */
-const Header = ({ year, month, onPrev, onNext, saved, onImportFile, onExportBackup, onRestoreBackup, onOpenImportWizard, onUndo, onRedo, canUndo, canRedo }) => (
+const Header = ({ year, month, onPrev, onNext, saved, onImportFile, onExportBackup, onRestoreBackup, onOpenImportWizard, onUndo, onRedo, canUndo, canRedo, onGenerateFromImports }) => (
   <header className="flex flex-wrap items-center justify-between gap-4 mb-6">
     <div>
       <h1 className="text-2xl font-bold text-stone-900 tracking-tight">Cashflow</h1>
@@ -2012,6 +2228,7 @@ const Header = ({ year, month, onPrev, onNext, saved, onImportFile, onExportBack
         onImportExcel={onImportFile}
         onExportBackup={onExportBackup}
         onRestoreBackup={onRestoreBackup}
+        onGenerateFromImports={onGenerateFromImports}
       />
 
       <button onClick={onOpenImportWizard}
@@ -2050,6 +2267,7 @@ function App() {
   const [reportModal, setReportModal] = useState(null); // { items, fromKey }
   const [wizardOpen, setWizardOpen] = useState(false);
   const [postsImport, setPostsImport] = useState(null); // { expenses: [...] }
+  const [generateOpen, setGenerateOpen] = useState(false);
   const [history, setHistory] = useState({}); // { [monthKey]: { past:[], future:[] } }
   const postsFileRef = useRef(null);
   const skipNextSave = useRef(true);
@@ -2335,6 +2553,40 @@ function App() {
     setPostsImport(null);
   };
 
+  // ---- Générer postes depuis les imports ----
+  const applyGenerated = (proposed) => {
+    const newExpenses = proposed.expenses.map(g => ({
+      id: uid(),
+      name: g.name,
+      type: '',
+      amount: Math.round(g.totalAmount),
+      day: parseInt((g.firstDate || '').slice(8, 10), 10) || 1,
+      mode: 'bank',
+      cardNumber: '',
+      notes: '',
+      paid: Math.round(g.totalAmount),
+    }));
+    const newIncomes = proposed.incomes.map(g => ({
+      id: uid(),
+      name: g.name,
+      amount: Math.round(g.totalAmount),
+      day: parseInt((g.firstDate || '').slice(8, 10), 10) || 1,
+      received: Math.round(g.totalAmount),
+    }));
+    if (newExpenses.length === 0 && newIncomes.length === 0) {
+      setGenerateOpen(false);
+      return;
+    }
+    setData(d => ({
+      ...d,
+      expenses: [...newExpenses, ...d.expenses],
+      incomes:  [...newIncomes,  ...d.incomes],
+    }));
+    setGenerateOpen(false);
+    setImportToast(`${newExpenses.length} sortie${newExpenses.length > 1 ? 's' : ''} · ${newIncomes.length} entrée${newIncomes.length > 1 ? 's' : ''} générée${(newExpenses.length + newIncomes.length) > 1 ? 's' : ''}`);
+    setTimeout(() => setImportToast(null), 3000);
+  };
+
   // ---- Reporter non-payés ----
   const openReportModal = () => {
     const prev = loadMonth(prevKey);
@@ -2449,7 +2701,8 @@ function App() {
                 onRestoreBackup={restoreBackup}
                 onOpenImportWizard={() => setWizardOpen(true)}
                 onUndo={undo} onRedo={redo}
-                canUndo={canUndo} canRedo={canRedo}/>
+                canUndo={canUndo} canRedo={canRedo}
+                onGenerateFromImports={() => setGenerateOpen(true)}/>
 
         <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_360px] gap-6">
           <main className="space-y-6 min-w-0">
@@ -2460,6 +2713,7 @@ function App() {
                 onReportUnpaid={openReportModal}
                 onImportFile={handleImportFile}
                 hasPrevMonth={hasPrevMonth}
+                onGenerateFromImports={() => setGenerateOpen(true)}
               />
             ) : (
               <>
@@ -2521,6 +2775,16 @@ function App() {
         onCancel={() => setPostsImport(null)}
         onAppend={applyPostsAppend}
         onReplace={applyPostsReplace}
+      />
+
+      <GeneratePostsModal
+        open={generateOpen}
+        monthKey={key}
+        monthLabelStr={monthLabel(year, month)}
+        currentExpenses={data.expenses}
+        currentIncomes={data.incomes}
+        onClose={() => setGenerateOpen(false)}
+        onGenerate={applyGenerated}
       />
 
       <ImportWizard
