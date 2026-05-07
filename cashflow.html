@@ -1050,6 +1050,8 @@ const Save = (p) => <Svg {...p}><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h
 const Building2 = (p) => <Svg {...p}><path d="M6 22V4a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v18Z"/><path d="M6 12H4a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h2"/><path d="M18 9h2a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2h-2"/><path d="M10 6h4M10 10h4M10 14h4M10 18h4"/></Svg>;
 const X = (p) => <Svg {...p}><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></Svg>;
 const Download = (p) => <Svg {...p}><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></Svg>;
+const Undo2  = (p) => <Svg {...p}><path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 5.5 5.5v0a5.5 5.5 0 0 1-5.5 5.5H11"/></Svg>;
+const Redo2  = (p) => <Svg {...p}><path d="m15 14 5-5-5-5"/><path d="M20 9H9.5A5.5 5.5 0 0 0 4 14.5v0A5.5 5.5 0 0 0 9.5 20H13"/></Svg>;
 
 /* =========================================================
    Sortable column header helper
@@ -1741,7 +1743,7 @@ const EmptyState = ({ onManual, onCopyPrev, onReportUnpaid, onImportFile, hasPre
 /* =========================================================
    Header
    ========================================================= */
-const Header = ({ year, month, onPrev, onNext, saved, onImportFile, onExportBackup, onRestoreBackup, onOpenImportWizard }) => (
+const Header = ({ year, month, onPrev, onNext, saved, onImportFile, onExportBackup, onRestoreBackup, onOpenImportWizard, onUndo, onRedo, canUndo, canRedo }) => (
   <header className="flex flex-wrap items-center justify-between gap-4 mb-6">
     <div>
       <h1 className="text-2xl font-bold text-stone-900 tracking-tight">Cashflow</h1>
@@ -1757,6 +1759,20 @@ const Header = ({ year, month, onPrev, onNext, saved, onImportFile, onExportBack
       >
         <Check className="w-3.5 h-3.5"/> Sauvegardé
       </span>
+
+      <div className="inline-flex items-center bg-white ring-1 ring-stone-200 rounded-lg overflow-hidden">
+        <button onClick={onUndo} disabled={!canUndo}
+          title="Annuler (Ctrl+Z)" aria-label="Annuler"
+          className="p-2 text-stone-600 hover:bg-stone-50 disabled:text-stone-300 disabled:hover:bg-transparent disabled:cursor-not-allowed">
+          <Undo2 className="w-4 h-4"/>
+        </button>
+        <div className="w-px h-5 bg-stone-200"/>
+        <button onClick={onRedo} disabled={!canRedo}
+          title="Refaire (Ctrl+Maj+Z)" aria-label="Refaire"
+          className="p-2 text-stone-600 hover:bg-stone-50 disabled:text-stone-300 disabled:hover:bg-transparent disabled:cursor-not-allowed">
+          <Redo2 className="w-4 h-4"/>
+        </button>
+      </div>
 
       <DataMenu
         onImportExcel={onImportFile}
@@ -1800,8 +1816,10 @@ function App() {
   const [reportModal, setReportModal] = useState(null); // { items, fromKey }
   const [wizardOpen, setWizardOpen] = useState(false);
   const [postsImport, setPostsImport] = useState(null); // { expenses: [...] }
+  const [history, setHistory] = useState({}); // { [monthKey]: { past:[], future:[] } }
   const postsFileRef = useRef(null);
   const skipNextSave = useRef(true);
+  const prevDataRef = useRef(null);
 
   // Mois précédent
   const prevYM = month === 1 ? { y: year - 1, m: 12 } : { y: year, m: month - 1 };
@@ -1822,17 +1840,87 @@ function App() {
     setData(loadMonth(key));
   }, [key]);
 
-  // Auto-save (debounce 500ms)
+  // Auto-save (debounce 500ms) + push history au même moment
   useEffect(() => {
-    if (skipNextSave.current) { skipNextSave.current = false; return; }
+    if (skipNextSave.current) {
+      skipNextSave.current = false;
+      prevDataRef.current = data;
+      return;
+    }
     const t = setTimeout(() => {
       saveMonth(key, data);
       setSaved(true);
       const f = setTimeout(() => setSaved(false), 1500);
+      // Push history seulement si la modif vient d'une vraie édition
+      // (l'undo/redo synchronise prevDataRef → ref-equality bypass)
+      if (prevDataRef.current && prevDataRef.current !== data) {
+        const prev = prevDataRef.current;
+        setHistory(h => ({
+          ...h,
+          [key]: {
+            past:   [...((h[key] && h[key].past) || []), prev].slice(-50),
+            future: [],
+          },
+        }));
+      }
+      prevDataRef.current = data;
       return () => clearTimeout(f);
     }, 500);
     return () => clearTimeout(t);
   }, [data, key]);
+
+  // Undo / Redo
+  const canUndo = !!(history[key] && history[key].past && history[key].past.length > 0);
+  const canRedo = !!(history[key] && history[key].future && history[key].future.length > 0);
+  const undo = () => {
+    const cur = history[key];
+    if (!cur || !cur.past.length) return;
+    const previous = cur.past[cur.past.length - 1];
+    const newPast = cur.past.slice(0, -1);
+    const currentData = data;
+    prevDataRef.current = previous; // bypass next history push
+    setData(previous);
+    setHistory(h => ({
+      ...h,
+      [key]: { past: newPast, future: [currentData, ...(cur.future || [])] },
+    }));
+  };
+  const redo = () => {
+    const cur = history[key];
+    if (!cur || !cur.future.length) return;
+    const nextState = cur.future[0];
+    const newFuture = cur.future.slice(1);
+    const currentData = data;
+    prevDataRef.current = nextState;
+    setData(nextState);
+    setHistory(h => ({
+      ...h,
+      [key]: { past: [...(cur.past || []), currentData], future: newFuture },
+    }));
+  };
+
+  // Raccourcis clavier
+  useEffect(() => {
+    const handler = (e) => {
+      if (!(e.ctrlKey || e.metaKey)) return;
+      const t = e.target;
+      const isField = t && (
+        t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable
+      );
+      const k = e.key.toLowerCase();
+      if (k === 'z') {
+        if (isField) return; // laisser le navigateur gérer l'undo texte dans les champs
+        e.preventDefault();
+        if (e.shiftKey) redo(); else undo();
+      } else if (k === 'y') {
+        if (isField) return;
+        e.preventDefault();
+        redo();
+      }
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [history, key, data]);
 
   // Navigation
   const prev = () => {
@@ -2125,7 +2213,9 @@ function App() {
                 onImportFile={handleImportFile}
                 onExportBackup={exportBackup}
                 onRestoreBackup={restoreBackup}
-                onOpenImportWizard={() => setWizardOpen(true)}/>
+                onOpenImportWizard={() => setWizardOpen(true)}
+                onUndo={undo} onRedo={redo}
+                canUndo={canUndo} canRedo={canRedo}/>
 
         <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_360px] gap-6">
           <main className="space-y-6 min-w-0">
