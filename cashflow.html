@@ -2148,6 +2148,31 @@ const Sidebar = ({ data, totals, onPatch, prevEndBalance, prevLabel, cardsAll, c
             </div>
           </button>
         </div>
+
+        {/* TVA nette : à payer (rouge si positif) / à recevoir (vert si négatif) */}
+        {(totals.vatCollected > 0 || totals.vatDeducted > 0) && (() => {
+          const owed = totals.vatNet >= 0;
+          const tone = owed
+            ? "bg-rose-50 ring-rose-200 text-rose-700"
+            : "bg-emerald-50 ring-emerald-200 text-emerald-700";
+          return (
+            <div className={"mt-3 rounded-lg ring-1 px-3 py-2 " + tone}>
+              <div className="flex items-center justify-between">
+                <div>
+                  <div className="text-[11px] uppercase tracking-wide opacity-80">
+                    {owed ? 'TVA à payer' : 'TVA à recevoir'}
+                  </div>
+                  <div className="text-[10px] opacity-70 mt-0.5">
+                    Collectée {formatILS(totals.vatCollected)} − déductible {formatILS(totals.vatDeducted)}
+                  </div>
+                </div>
+                <div className="text-xl font-semibold tabular-nums">
+                  {formatILS(Math.abs(totals.vatNet))}
+                </div>
+              </div>
+            </div>
+          );
+        })()}
       </div>
     </aside>
   );
@@ -6023,33 +6048,47 @@ function App() {
       if (r > 0) { varInc += (r - a); varIncCount++; }
     }
     // CA HT (sur encaissements reçus) : received/1.18 si vatTaxable, sinon received entier.
-    let caHT = 0;
+    let caHT = 0, vatCollected = 0;
     for (const i of data.incomes) {
       const r = Number(i.received) || 0;
       if (r <= 0) continue;
-      caHT += i.vatTaxable ? r / VAT_DIVIDER : r;
+      if (i.vatTaxable) {
+        const ht = r / VAT_DIVIDER;
+        caHT += ht;
+        vatCollected += r - ht;
+      } else {
+        caHT += r;
+      }
     }
     // Dépenses HT (décaissements payés) : paid/1.18 si vatTaxable sinon paid entier.
     // On ajoute aussi les synthétiques cartes (mêmes règles : pas regroupées dans
     // expenses, donc traitées comme un bloc séparé — par défaut non TVA, l'utilisateur
     // ne peut pas (encore) flagger une carte synthétique. On considère TTC sans VAT split.)
-    let expHT = 0;
+    let expHT = 0, vatDeducted = 0;
     for (const e of data.expenses) {
       if (isGrouped(e)) continue;
       const p = Number(e.paid) || 0;
       if (p <= 0) continue;
-      expHT += e.vatTaxable ? p / VAT_DIVIDER : p;
+      if (e.vatTaxable) {
+        const ht = p / VAT_DIVIDER;
+        expHT += ht;
+        vatDeducted += p - ht;
+      } else {
+        expHT += p;
+      }
     }
     for (const c of cardsForMonth) {
       if (c.paidAt) expHT += Number(c.upcomingAmount) || 0;
     }
     // Dépenses non affectées : explicitement NON soumis à TVA (ajouté brut)
     expHT += unaffected;
+    // TVA nette = collectée − déductible. Positif ⇒ à payer ; négatif ⇒ à recevoir.
+    const vatNet = vatCollected - vatDeducted;
 
     return { expPlanned, expPaid, expRemaining, incPlanned, incReceived, incRemaining,
              opening, unaffected, current, projected, target, additionalNeeded,
              varExp, varExpCount, varInc, varIncCount,
-             caHT, expHT };
+             caHT, expHT, vatCollected, vatDeducted, vatNet };
   }, [data, cardsForMonth]);
 
   const isEmpty = data.expenses.length === 0 && data.incomes.length === 0;
