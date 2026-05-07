@@ -105,14 +105,42 @@ const isCardDebit = (description) => {
   if (!description) return false;
   return CARD_KEYWORDS.some(k => description.includes(k));
 };
-const findMatchCandidates = (items, description) => {
-  if (!description) return [];
-  const desc = description.toLowerCase().trim();
-  if (!desc) return [];
+
+// Extrait le nom de la contrepartie depuis le champ "פרטים" (col D).
+// Patterns rencontrés : "המבצע: <NOM> עבור: ...", "לטובת: <NOM> עבור: ...",
+// "לטובת: <NOM>", éventuellement précédé d'autres infos.
+const extractDetailsName = (details) => {
+  if (!details) return '';
+  const m = details.match(/(?:לטובת|המבצע)\s*:\s*([^]*?)(?:\s+עבור\s*:|$)/);
+  if (m && m[1]) return m[1].trim();
+  return '';
+};
+
+// Nom de poste à utiliser quand on transforme une transaction bancaire
+// en ligne du mois : on combine description (col C) + détails (col D).
+const buildPosteName = (description, details) => {
+  const extracted = extractDetailsName(details);
+  if (extracted) return extracted;
+  const d = (description || '').trim();
+  const det = (details || '').trim();
+  if (!det) return d;
+  if (!d)   return det;
+  return `${d} — ${det}`;
+};
+
+const findMatchCandidates = (items, description, details) => {
+  const desc = (description || '').toLowerCase().trim();
+  const det  = (details     || '').toLowerCase().trim();
+  const full = (desc + ' ' + det).trim();
+  if (!full) return [];
   return items.filter(item => {
     const name = (item.name || '').toLowerCase().trim();
     if (!name) return false;
-    return name.includes(desc) || desc.includes(name);
+    // Le nom du poste apparaît dans description+details (cas le plus large)
+    if (full.includes(name)) return true;
+    // Ou la description courte est elle-même contenue dans le nom du poste
+    if (desc && name.includes(desc)) return true;
+    return false;
   });
 };
 const pickBestCandidate = (candidates, targetAmount, targetDay) => {
@@ -143,7 +171,7 @@ const matchBankTransactions = (newTransactions) => {
         cardDebits.push({ ...enriched, type: 'card-debit', cardNumber: String(tx.reference) });
         continue;
       }
-      const cands = findMatchCandidates(month.expenses, tx.description);
+      const cands = findMatchCandidates(month.expenses, tx.description, tx.details);
       if (cands.length > 0) {
         const best = pickBestCandidate(cands, tx.debit, day);
         matched.push({
@@ -155,7 +183,7 @@ const matchBankTransactions = (newTransactions) => {
         unmatched.push(enriched);
       }
     } else { // 'in'
-      const cands = findMatchCandidates(month.incomes, tx.description);
+      const cands = findMatchCandidates(month.incomes, tx.description, tx.details);
       if (cands.length > 0) {
         const best = pickBestCandidate(cands, tx.credit, day);
         matched.push({
@@ -488,6 +516,28 @@ const TextInput = ({ value, onChange, placeholder, className = "" }) => (
     className={"w-full bg-transparent outline-none focus:bg-white focus:ring-1 focus:ring-stone-300 rounded px-2 py-1 " + className}
   />
 );
+
+// Champ texte qui retourne à la ligne automatiquement et s'agrandit
+// pour afficher tout le contenu — utilisé pour les noms de postes longs.
+const WrappingInput = ({ value, onChange, placeholder, className = "" }) => {
+  const ref = useRef(null);
+  const resize = () => {
+    const el = ref.current; if (!el) return;
+    el.style.height = 'auto';
+    el.style.height = el.scrollHeight + 'px';
+  };
+  useEffect(() => { resize(); }, [value]);
+  return (
+    <textarea
+      ref={ref} dir="auto" rows={1}
+      value={value || ''}
+      onChange={e => { onChange(e.target.value); resize(); }}
+      onInput={resize}
+      placeholder={placeholder}
+      className={"w-full bg-transparent outline-none focus:bg-white focus:ring-1 focus:ring-stone-300 rounded px-2 py-1 resize-none overflow-hidden leading-snug " + className}
+    />
+  );
+};
 const NumInput = ({ value, onChange, min, max, className = "", placeholder }) => (
   <input
     type="number" inputMode="decimal" value={value === 0 ? '' : value}
@@ -649,14 +699,14 @@ const ExpensesTable = ({ expenses, onAdd, onUpdate, onRemove, onRemoveMany, onRe
   );
 
   const renderRow = (e) => (
-    <tr key={e.id} className={"hover:bg-stone-50/60 " + (selected.has(e.id) ? "bg-stone-50" : "")}>
-      <td className="px-3 py-1">
+    <tr key={e.id} className={"hover:bg-stone-50/60 align-top " + (selected.has(e.id) ? "bg-stone-50" : "")}>
+      <td className="px-3 py-1.5">
         <input type="checkbox" checked={selected.has(e.id)} onChange={() => toggleOne(e.id)}
           className="w-4 h-4 rounded border-stone-300 text-stone-900 focus:ring-stone-400 cursor-pointer"
           aria-label="Sélectionner la ligne"/>
       </td>
       <td className="px-2 py-1">
-        <TextInput value={e.name} onChange={v => onUpdate(e.id, { name: v })} placeholder="Nom du fournisseur"/>
+        <WrappingInput value={e.name} onChange={v => onUpdate(e.id, { name: v })} placeholder="Nom du fournisseur"/>
         <ReportedBadge from={e.reportedFrom}/>
       </td>
       <td className="px-2 py-1">
@@ -667,7 +717,7 @@ const ExpensesTable = ({ expenses, onAdd, onUpdate, onRemove, onRemoveMany, onRe
       </td>
       <td className="px-2 py-1"><NumInput value={e.amount} onChange={v => onUpdate(e.id, { amount: v })}/></td>
       <td className="px-2 py-1"><NumInput value={e.day} onChange={v => onUpdate(e.id, { day: Math.max(1, Math.min(31, v || 1)) })} min={1} max={31}/></td>
-      <td className="px-2 py-1">
+      <td className="px-2 py-1.5">
         <ModeToggle value={e.mode} onChange={v => onUpdate(e.id, { mode: v })}
           cardNumber={e.cardNumber} onCardChange={v => onUpdate(e.id, { cardNumber: v })}/>
       </td>
@@ -675,8 +725,8 @@ const ExpensesTable = ({ expenses, onAdd, onUpdate, onRemove, onRemoveMany, onRe
         <NumInput value={e.paid} onChange={v => onUpdate(e.id, { paid: v })}/>
         <VarianceLabel planned={e.amount} actual={e.paid}/>
       </td>
-      <td className="px-2 py-1"><ExpenseBadge status={expenseStatus(e)}/></td>
-      <td className="px-2 py-1 text-right">
+      <td className="px-2 py-1.5"><ExpenseBadge status={expenseStatus(e)}/></td>
+      <td className="px-2 py-1.5 text-right">
         <button onClick={() => onRemove(e.id)}
           className="p-1.5 text-stone-400 hover:text-rose-600 hover:bg-rose-50 rounded" title="Supprimer">
           <Trash className="w-4 h-4"/>
@@ -920,8 +970,8 @@ const IncomesTable = ({ incomes, onAdd, onUpdate, onRemove, onRemoveMany }) => {
               </td></tr>
             )}
             {sortedIncomes.map((i) => (
-              <tr key={i.id} className={"hover:bg-stone-50/60 " + (selected.has(i.id) ? "bg-stone-50" : "")}>
-                <td className="px-3 py-1">
+              <tr key={i.id} className={"hover:bg-stone-50/60 align-top " + (selected.has(i.id) ? "bg-stone-50" : "")}>
+                <td className="px-3 py-1.5">
                   <input
                     type="checkbox" checked={selected.has(i.id)} onChange={() => toggleOne(i.id)}
                     className="w-4 h-4 rounded border-stone-300 text-stone-900 focus:ring-stone-400 cursor-pointer"
@@ -929,7 +979,7 @@ const IncomesTable = ({ incomes, onAdd, onUpdate, onRemove, onRemoveMany }) => {
                   />
                 </td>
                 <td className="px-2 py-1">
-                  <TextInput value={i.name} onChange={v => onUpdate(i.id, { name: v })} placeholder="Client / description"/>
+                  <WrappingInput value={i.name} onChange={v => onUpdate(i.id, { name: v })} placeholder="Client / description"/>
                 </td>
                 <td className="px-2 py-1">
                   <NumInput value={i.amount} onChange={v => onUpdate(i.id, { amount: v })}/>
@@ -940,8 +990,8 @@ const IncomesTable = ({ incomes, onAdd, onUpdate, onRemove, onRemoveMany }) => {
                 <td className="px-2 py-1">
                   <NumInput value={i.received} onChange={v => onUpdate(i.id, { received: v })}/>
                 </td>
-                <td className="px-2 py-1"><IncomeBadge status={incomeStatus(i)}/></td>
-                <td className="px-2 py-1 text-right">
+                <td className="px-2 py-1.5"><IncomeBadge status={incomeStatus(i)}/></td>
+                <td className="px-2 py-1.5 text-right">
                   <button
                     onClick={() => onRemove(i.id)}
                     className="p-1.5 text-stone-400 hover:text-rose-600 hover:bg-rose-50 rounded"
@@ -1352,7 +1402,8 @@ const MenuItem = ({ icon, label, sub, onClick }) => (
 const groupTxByDescription = (txs) => {
   const groups = new Map();
   for (const t of txs) {
-    const key = (t.description || '').trim() || '—';
+    const name = buildPosteName(t.description, t.details) || '—';
+    const key = name;
     const existing = groups.get(key);
     const amt = Math.abs(Number(t.amount) || 0);
     if (existing) {
@@ -1361,7 +1412,7 @@ const groupTxByDescription = (txs) => {
       if (!existing.firstDate || t.date < existing.firstDate) existing.firstDate = t.date;
     } else {
       groups.set(key, {
-        name: key, cardNumber: '',
+        name, cardNumber: '',
         totalAmount: amt, firstDate: t.date, count: 1,
       });
     }
@@ -1375,7 +1426,8 @@ const groupTxsForMode = (txs, mode) => {
     const isCardTx = isCardDebit(t.description);
     const ref = (t.refKey || '').split('|')[0] || '';
     const useCard = mode === 'card' && isCardTx;
-    const key = useCard ? `card:${ref}` : `desc:${(t.description || '').trim() || '—'}`;
+    const fullName = buildPosteName(t.description, t.details) || '—';
+    const key = useCard ? `card:${ref}` : `name:${fullName}`;
     const amt = Math.abs(Number(t.amount) || 0);
     const existing = groups.get(key);
     if (existing) {
@@ -1384,7 +1436,7 @@ const groupTxsForMode = (txs, mode) => {
       if (!existing.firstDate || t.date < existing.firstDate) existing.firstDate = t.date;
     } else {
       groups.set(key, {
-        name: useCard ? (t.description || '—') : ((t.description || '').trim() || '—'),
+        name: useCard ? (t.description || '—') : fullName,
         cardNumber: useCard ? ref : '',
         totalAmount: amt, firstDate: t.date, count: 1,
       });
@@ -1415,6 +1467,7 @@ const ImportedTransactionsModal = ({ open, currentMonthKey, onClose, onCreate })
   const [sourceFilter, setSourceFilter] = useState('all'); // all | bank | card
   const [dirFilter, setDirFilter] = useState('all');       // all | out | in
   const [selected, setSelected] = useState(() => new Set());
+  const [sort, onSort] = useSort();
 
   useEffect(() => {
     if (!open) return;
@@ -1442,9 +1495,19 @@ const ImportedTransactionsModal = ({ open, currentMonthKey, onClose, onCreate })
     if (sourceFilter === 'card') list = list.filter(t =>  isCardDebit(t.description));
     if (dirFilter === 'out') list = list.filter(t => Number(t.amount) > 0);
     if (dirFilter === 'in')  list = list.filter(t => Number(t.amount) < 0);
-    list.sort((a, b) => a.date.localeCompare(b.date));
+    if (sort.by) {
+      const valueOf = (t, f) => {
+        if (f === 'date')   return t.date;
+        if (f === 'amount') return Math.abs(Number(t.amount) || 0);
+        if (f === 'name')   return (t.description || '') + ' ' + (t.details || '');
+        return t[f];
+      };
+      list = sortRows(list, sort, valueOf);
+    } else {
+      list.sort((a, b) => a.date.localeCompare(b.date));
+    }
     return list;
-  }, [allTxList, monthFilter, sourceFilter, dirFilter]);
+  }, [allTxList, monthFilter, sourceFilter, dirFilter, sort]);
 
   const toggleOne = (refKey) => setSelected(prev => {
     const next = new Set(prev);
@@ -1535,9 +1598,9 @@ const ImportedTransactionsModal = ({ open, currentMonthKey, onClose, onCreate })
                     className="w-4 h-4 rounded border-stone-300 text-stone-900 focus:ring-stone-400 cursor-pointer disabled:cursor-not-allowed"
                     aria-label="Tout sélectionner"/>
                 </th>
-                <th className="text-left font-medium px-2 py-2 w-16">Date</th>
-                <th className="text-left font-medium px-2 py-2">Libellé</th>
-                <th className="text-right font-medium px-2 py-2 w-28">Montant</th>
+                <SortableTh field="date"   label="Date"    sort={sort} onSort={onSort} className="text-left w-16"/>
+                <SortableTh field="name"   label="Libellé" sort={sort} onSort={onSort} className="text-left"/>
+                <SortableTh field="amount" label="Montant" sort={sort} onSort={onSort} className="text-right w-28"/>
               </tr>
             </thead>
             <tbody className="divide-y divide-stone-100">
@@ -1564,6 +1627,11 @@ const ImportedTransactionsModal = ({ open, currentMonthKey, onClose, onCreate })
                         {isCard && <CreditCard className="w-3 h-3 text-violet-500 flex-none"/>}
                         <span className="truncate text-stone-800" dir="auto" title={t.description}>{t.description || '—'}</span>
                       </div>
+                      {t.details && (
+                        <div className="truncate text-[10px] text-stone-400 mt-0.5" dir="auto" title={t.details}>
+                          {t.details}
+                        </div>
+                      )}
                     </td>
                     <td className={"px-2 py-1.5 text-right tabular-nums font-medium text-xs " +
                       (isOut ? "text-rose-600" : "text-emerald-600")}>
@@ -1700,7 +1768,7 @@ const UnmatchedRow = ({ tx, onCreate, onIgnore }) => {
   const day = parseInt(tx.date.slice(8, 10), 10) || 1;
   const [creating, setCreating] = useState(false);
   const [draft, setDraft] = useState({
-    name: tx.description || '',
+    name: buildPosteName(tx.description, tx.details),
     type: '',
     amount: Math.abs(tx.amount),
     day,
@@ -2972,6 +3040,7 @@ function App() {
                 date: t.date,
                 amount: t.amount,
                 description: t.description,
+                details: t.details || '',
                 importedAt,
                 monthKey: t.date.slice(0, 7),
               };
