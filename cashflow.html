@@ -9,6 +9,8 @@
 <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
 <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 <script src="https://unpkg.com/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
 <style>
   html, body { background: #fafaf9; }
   /* Hide number input spinners */
@@ -2132,6 +2134,8 @@ const Repeat = (p) => <Svg {...p}><polyline points="17 1 21 5 17 9"/><path d="M3
 const Lock = (p) => <Svg {...p}><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></Svg>;
 const RefreshCw = (p) => <Svg {...p}><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10"/><path d="M20.49 15a9 9 0 0 1-14.85 3.36L1 14"/></Svg>;
 const Info = (p) => <Svg {...p}><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></Svg>;
+const FileText = (p) => <Svg {...p}><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></Svg>;
+const Printer = (p) => <Svg {...p}><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></Svg>;
 const Users = (p) => <Svg {...p}><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></Svg>;
 const Shield = (p) => <Svg {...p}><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></Svg>;
 const Landmark = (p) => <Svg {...p}><line x1="3" y1="22" x2="21" y2="22"/><line x1="6" y1="18" x2="6" y2="11"/><line x1="10" y1="18" x2="10" y2="11"/><line x1="14" y1="18" x2="14" y2="11"/><line x1="18" y1="18" x2="18" y2="11"/><polygon points="12 2 20 7 4 7"/></Svg>;
@@ -3608,6 +3612,454 @@ const countRuleOccurrences = (ruleId) => {
 };
 
 /* =========================================================
+   PDF / Print export
+   ========================================================= */
+const escapeHtml = (s) => String(s ?? '')
+  .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+  .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+
+const reportInlineCSS = `
+  *,*::before,*::after { box-sizing: border-box; }
+  body { font-family: "Helvetica Neue","Segoe UI",Helvetica,Arial,sans-serif;
+    color: #1c1917; font-size: 11pt; line-height: 1.4; margin: 0; padding: 24px; background: white; }
+  h1 { font-size: 18pt; margin: 0 0 4px; }
+  h2 { font-size: 13pt; margin: 18px 0 8px; padding-bottom: 4px; border-bottom: 1px solid #d6d3d1;
+       page-break-after: avoid; }
+  .meta { color: #57534e; font-size: 9.5pt; }
+  .grid { display: grid; gap: 12px; }
+  .stat { border: 1px solid #e7e5e4; border-radius: 8px; padding: 10px 12px; background: #fafaf9; }
+  .stat .label { font-size: 8.5pt; color: #78716c; text-transform: uppercase; letter-spacing: .03em; }
+  .stat .val { font-size: 13pt; font-weight: 600; margin-top: 2px; font-variant-numeric: tabular-nums; }
+  table { width: 100%; border-collapse: collapse; font-size: 9.5pt; page-break-inside: auto; }
+  table.compact th, table.compact td { padding: 5px 7px; border-bottom: 1px solid #e7e5e4; }
+  thead { background: #f5f5f4; }
+  th { text-align: left; font-weight: 600; color: #44403c; }
+  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+  tr.section td { background: #f5f5f4; font-weight: 600; padding-top: 8px; padding-bottom: 4px; }
+  tr.total td { font-weight: 600; background: #fafaf9; }
+  .pos { color: #047857; }
+  .neg { color: #be123c; }
+  .gray { color: #78716c; }
+  .badge { display: inline-block; padding: 1px 6px; border-radius: 999px; font-size: 8pt;
+    background: #e7e5e4; color: #44403c; }
+  .keep-together { page-break-inside: avoid; }
+  .footer { margin-top: 24px; padding-top: 8px; border-top: 1px solid #d6d3d1;
+    font-size: 8pt; color: #78716c; display: flex; justify-content: space-between; }
+  .chart { margin: 8px 0; }
+  @media print {
+    @page { size: A4; margin: 1.5cm 1cm; }
+    body { padding: 0; }
+    .no-print { display: none !important; }
+    h2 { page-break-after: avoid; }
+    table, .keep-together { page-break-inside: avoid; }
+  }
+`;
+
+const buildReportHTML = ({
+  monthKey, year, month, data, totals, cardsForMonth, categoriesById,
+  series, threshold, cabinet, sections,
+}) => {
+  const monthLbl = monthLabel(year, month);
+  const editedAt = new Date();
+  const fmtNow = `${String(editedAt.getDate()).padStart(2,'0')}/${String(editedAt.getMonth()+1).padStart(2,'0')}/${editedAt.getFullYear()} ${String(editedAt.getHours()).padStart(2,'0')}:${String(editedAt.getMinutes()).padStart(2,'0')}`;
+  const ils = (n) => formatILS(Math.round(Number(n) || 0));
+  const prevEnd = (() => {
+    const py = month === 1 ? year - 1 : year;
+    const pm = month === 1 ? 12 : month - 1;
+    return computeRealEndBalance(monthKey.replace(/^\d{4}-\d{2}$/, `${py}-${String(pm).padStart(2,'0')}`));
+  })();
+
+  // Synthèse
+  const syntheseHTML = `
+    <div class="keep-together">
+      <h2>Synthèse financière</h2>
+      <div class="grid" style="grid-template-columns:repeat(3,1fr);">
+        <div class="stat"><div class="label">Solde début de mois</div><div class="val">${ils(totals.opening)}</div></div>
+        <div class="stat"><div class="label">Solde réel actuel</div><div class="val">${ils(totals.current)}</div></div>
+        <div class="stat"><div class="label">Solde projeté fin de mois</div>
+          <div class="val ${totals.projected >= 0 ? 'pos' : 'neg'}">${ils(totals.projected)}</div></div>
+        <div class="stat"><div class="label">Total dépenses prévues</div>
+          <div class="val">${ils(totals.expPlanned)}</div>
+          <div class="meta">dont ${ils(totals.expPaid)} payés</div></div>
+        <div class="stat"><div class="label">Total encaissements prévus</div>
+          <div class="val">${ils(totals.incPlanned)}</div>
+          <div class="meta">dont ${ils(totals.incReceived)} reçus</div></div>
+        <div class="stat"><div class="label">Écart prévu / réel (sur lignes payées)</div>
+          <div class="val ${totals.varExp > 0 ? 'neg' : (totals.varExp < 0 ? 'pos' : 'gray')}">${totals.varExp > 0 ? '+' : (totals.varExp < 0 ? '−' : '')}${ils(Math.abs(totals.varExp))}</div>
+          <div class="meta">${totals.varExpCount} ligne(s) payée(s)</div></div>
+      </div>
+    </div>
+  `;
+
+  // Courbe : SVG statique petit (re-render compact)
+  let chartHTML = '';
+  if (sections.chart && series && series.length > 0) {
+    const W = 700, H = 180, P = { l: 50, r: 16, t: 16, b: 28 };
+    const iw = W - P.l - P.r, ih = H - P.t - P.b;
+    const balances = [Number(data.openingBalance) || 0, ...series.map(s => s.balance)];
+    const yMin = Math.min(0, ...balances) - Math.max((Math.max(0, ...balances) - Math.min(0, ...balances)) * 0.1, 1000);
+    const yMax = Math.max(0, ...balances) + Math.max((Math.max(0, ...balances) - Math.min(0, ...balances)) * 0.1, 1000);
+    const xS = (d) => P.l + ((d - 1) / Math.max(1, series.length - 1)) * iw;
+    const yS = (v) => P.t + ((yMax - v) / (yMax - yMin)) * ih;
+    let path = `M ${xS(1)} ${yS(Number(data.openingBalance) || 0)}`;
+    for (let i = 0; i < series.length; i++) {
+      const s = series[i];
+      path += ` L ${xS(s.day)} ${yS(s.balance)}`;
+      if (i < series.length - 1) path += ` L ${xS(series[i+1].day)} ${yS(s.balance)}`;
+    }
+    let lowest = series[0];
+    for (const s of series) if (s.balance < lowest.balance) lowest = s;
+    chartHTML = `
+      <div class="keep-together">
+        <h2>Courbe de trésorerie</h2>
+        <div class="chart">
+          <svg viewBox="0 0 ${W} ${H}" width="100%" height="${H}" xmlns="http://www.w3.org/2000/svg">
+            <rect x="${P.l}" y="${Math.max(P.t, yS(0))}" width="${iw}" height="${Math.max(0, P.t + ih - Math.max(P.t, yS(0)))}" fill="#fecdd3" opacity="0.4"/>
+            <line x1="${P.l}" y1="${yS(0)}" x2="${P.l + iw}" y2="${yS(0)}" stroke="#78716c" stroke-width="0.8"/>
+            <line x1="${P.l}" y1="${yS(threshold)}" x2="${P.l + iw}" y2="${yS(threshold)}" stroke="#d97706" stroke-width="0.8" stroke-dasharray="3 3"/>
+            <text x="${P.l - 6}" y="${yS(yMax)}" text-anchor="end" font-size="9" fill="#78716c">${formatCompactILS(yMax)}</text>
+            <text x="${P.l - 6}" y="${yS(yMin)}" text-anchor="end" font-size="9" fill="#78716c">${formatCompactILS(yMin)}</text>
+            <text x="${P.l - 6}" y="${yS(0) + 3}" text-anchor="end" font-size="9" fill="#78716c">0</text>
+            <path d="${path}" fill="none" stroke="#1c1917" stroke-width="2"/>
+          </svg>
+          <div class="meta">Plus bas du mois : <strong>${ils(lowest.balance)}</strong> le ${String(lowest.day).padStart(2,'0')}/${String(month).padStart(2,'0')}</div>
+        </div>
+      </div>
+    `;
+  }
+
+  // Tableau dépenses
+  let depHTML = '';
+  if (sections.expenses) {
+    const cardsByNum = new Map((cardsForMonth || []).map(c => [String(c.cardNumber), c]));
+    const isGrouped = (e) => e.mode === 'card' && cardsByNum.has(String(e.cardNumber));
+    const expRows = data.expenses.filter(e => !isGrouped(e));
+    const synthRows = (cardsForMonth || []).map(c => ({
+      synth: true, cardNumber: c.cardNumber, debitDate: c.debitDate,
+      amount: c.upcomingAmount, paid: c.paidAt ? c.upcomingAmount : 0,
+    }));
+    let tbody = '';
+    if (sections.expensesByCategory && categoriesById) {
+      const byCat = new Map();
+      for (const e of expRows) {
+        const id = e.category && categoriesById.has(e.category) ? e.category : '__none';
+        if (!byCat.has(id)) byCat.set(id, []);
+        byCat.get(id).push(e);
+      }
+      const orderedCats = [...byCat.entries()]
+        .map(([id, items]) => ({
+          id, items,
+          name: id === '__none' ? 'Non catégorisé' : (categoriesById.get(id)?.name || id),
+          total: items.reduce((s, e) => s + (Number(e.amount) || 0), 0),
+        }))
+        .sort((a, b) => b.total - a.total);
+      for (const g of orderedCats) {
+        const sumP = g.items.reduce((s, e) => s + (Number(e.paid) || 0), 0);
+        tbody += `<tr class="section"><td colspan="6">${escapeHtml(g.name)}</td><td class="num">${ils(g.total)}</td></tr>`;
+        for (const e of g.items) {
+          tbody += rowExp(e);
+        }
+        tbody += `<tr class="total"><td colspan="3" style="padding-left:24px;">Sous-total ${escapeHtml(g.name)}</td>
+          <td class="num">${ils(g.total)}</td><td></td><td class="num">${ils(sumP)}</td><td></td></tr>`;
+      }
+      for (const s of synthRows) tbody += rowSynth(s);
+    } else {
+      const sorted = [...expRows].sort((a, b) => (a.day || 1) - (b.day || 1));
+      for (const e of sorted) tbody += rowExp(e);
+      for (const s of synthRows) tbody += rowSynth(s);
+    }
+    function rowExp(e) {
+      const cat = e.category && categoriesById && categoriesById.get(e.category);
+      const status = expenseStatus(e);
+      const stTxt = status === 'paid' ? 'Payé' : status === 'partial' ? 'Partiel' : 'À payer';
+      return `<tr>
+        <td>${cat ? `<span class="badge">${escapeHtml(cat.name)}</span>` : '<span class="gray">—</span>'}</td>
+        <td>${escapeHtml(e.name)}</td>
+        <td class="num">${e.day || ''}</td>
+        <td class="num">${ils(e.amount)}</td>
+        <td>${e.mode === 'card' ? 'CB ' + escapeHtml(e.cardNumber || '') : 'B'}</td>
+        <td class="num">${ils(e.paid)}</td>
+        <td class="${status === 'paid' ? 'pos' : (status === 'unpaid' ? 'neg' : 'gray')}">${stTxt}</td>
+      </tr>`;
+    }
+    function rowSynth(s) {
+      return `<tr>
+        <td><span class="badge">Carte ${escapeHtml(s.cardNumber)}</span></td>
+        <td>Débit groupé carte ${escapeHtml(s.cardNumber)}</td>
+        <td class="num">${(s.debitDate || '').slice(8, 10)}</td>
+        <td class="num">${ils(s.amount)}</td>
+        <td>CB</td>
+        <td class="num">${ils(s.paid)}</td>
+        <td class="${s.paid ? 'pos' : 'gray'}">${s.paid ? 'Débité' : 'Attendu'}</td>
+      </tr>`;
+    }
+    depHTML = `
+      <h2>Dépenses</h2>
+      <table class="compact">
+        <thead><tr>
+          <th>Catégorie</th><th>Fournisseur / poste</th><th class="num">Jour</th>
+          <th class="num">Prévu</th><th>Mode</th><th class="num">Payé</th><th>Statut</th>
+        </tr></thead>
+        <tbody>${tbody}</tbody>
+        <tfoot><tr class="total">
+          <td colspan="3">Totaux</td>
+          <td class="num">${ils(totals.expPlanned)}</td><td></td>
+          <td class="num">${ils(totals.expPaid)}</td>
+          <td class="neg">Reste ${ils(totals.expRemaining)}</td>
+        </tr></tfoot>
+      </table>
+    `;
+  }
+
+  // Tableau encaissements
+  let incHTML = '';
+  if (sections.incomes && data.incomes.length > 0) {
+    const sorted = [...data.incomes].sort((a, b) => (a.day || 1) - (b.day || 1));
+    let tbody = '';
+    for (const i of sorted) {
+      const status = incomeStatus(i);
+      const stTxt = status === 'received' ? 'Reçu' : status === 'partial' ? 'Partiel' : 'Attendu';
+      tbody += `<tr>
+        <td>${escapeHtml(i.name)}</td>
+        <td class="num">${i.day || ''}</td>
+        <td class="num">${ils(i.amount)}</td>
+        <td class="num">${ils(i.received)}</td>
+        <td class="${status === 'received' ? 'pos' : 'gray'}">${stTxt}</td>
+      </tr>`;
+    }
+    incHTML = `
+      <h2>Encaissements</h2>
+      <table class="compact">
+        <thead><tr><th>Description</th><th class="num">Jour</th>
+          <th class="num">Prévu</th><th class="num">Reçu</th><th>Statut</th></tr></thead>
+        <tbody>${tbody}</tbody>
+        <tfoot><tr class="total">
+          <td>Totaux</td><td></td>
+          <td class="num">${ils(totals.incPlanned)}</td>
+          <td class="num">${ils(totals.incReceived)}</td>
+          <td class="pos">Reste ${ils(totals.incRemaining)}</td>
+        </tr></tfoot>
+      </table>
+    `;
+  }
+
+  // Cartes
+  let cardsHTML = '';
+  if (sections.cards && cardsForMonth && cardsForMonth.length > 0) {
+    let tbody = '';
+    for (const c of cardsForMonth) {
+      tbody += `<tr>
+        <td>•••• ${escapeHtml(c.cardNumber)}</td>
+        <td class="num">${ils(c.upcomingAmount)}</td>
+        <td>${(c.debitDate || '').split('-').reverse().join('/')}</td>
+        <td class="${c.paidAt ? 'pos' : 'gray'}">${c.paidAt ? 'Débité le ' + (c.paidAt.split('-').reverse().join('/')) : 'En attente'}</td>
+      </tr>`;
+    }
+    cardsHTML = `
+      <h2>Cartes de crédit</h2>
+      <table class="compact">
+        <thead><tr><th>Carte</th><th class="num">Montant</th><th>Date prochaine</th><th>Statut</th></tr></thead>
+        <tbody>${tbody}</tbody>
+      </table>
+    `;
+  }
+
+  // Postes non payés à reporter
+  let unpaidHTML = '';
+  if (sections.unpaid) {
+    const today = new Date();
+    const nowDay = today.getDate();
+    const isCurrentMonth = today.getFullYear() === year && (today.getMonth() + 1) === month;
+    const showSection = !isCurrentMonth || nowDay >= 25;
+    const unpaid = data.expenses.filter(e => {
+      const remaining = (Number(e.amount) || 0) - (Number(e.paid) || 0);
+      return remaining > 0;
+    });
+    if (showSection && unpaid.length > 0) {
+      let tbody = '';
+      for (const e of unpaid) {
+        const remaining = (Number(e.amount) || 0) - (Number(e.paid) || 0);
+        tbody += `<tr>
+          <td>${escapeHtml(e.name)}</td>
+          <td class="num">${e.day || ''}</td>
+          <td class="num">${ils(e.amount)}</td>
+          <td class="num">${ils(e.paid)}</td>
+          <td class="num neg"><strong>${ils(remaining)}</strong></td>
+        </tr>`;
+      }
+      unpaidHTML = `
+        <h2>Postes non-payés à reporter</h2>
+        <table class="compact">
+          <thead><tr><th>Poste</th><th class="num">Jour</th>
+            <th class="num">Prévu</th><th class="num">Payé</th><th class="num">Reste</th></tr></thead>
+          <tbody>${tbody}</tbody>
+        </table>
+      `;
+    }
+  }
+
+  return `
+<!DOCTYPE html><html lang="fr" dir="ltr"><head>
+<meta charset="UTF-8"/>
+<title>Rapport ${escapeHtml(monthLbl)}${cabinet?.name ? ' — ' + escapeHtml(cabinet.name) : ''}</title>
+<style>${reportInlineCSS}</style>
+</head><body>
+  <header style="margin-bottom:12px;">
+    ${cabinet?.name ? `<div class="meta" style="margin-bottom:4px;font-weight:600;">${escapeHtml(cabinet.name)}</div>` : ''}
+    ${cabinet?.address ? `<div class="meta">${escapeHtml(cabinet.address).replace(/\n/g, '<br>')}</div>` : ''}
+    <h1>Rapport mensuel de trésorerie</h1>
+    <div class="meta">Mois : <strong>${escapeHtml(monthLbl)}</strong> · Édité le ${fmtNow}${prevEnd != null ? ` · Solde réel fin du mois précédent : <strong>${ils(prevEnd)}</strong>` : ''}</div>
+  </header>
+  ${sections.synthese ? syntheseHTML : ''}
+  ${chartHTML}
+  ${depHTML}
+  ${incHTML}
+  ${cardsHTML}
+  ${unpaidHTML}
+  <div class="footer">
+    <span>Édité le ${fmtNow} · Confidentiel — Document interne au cabinet</span>
+    <span class="no-print">Page imprimable</span>
+  </div>
+</body></html>`;
+};
+
+const openPrintPreview = (htmlString) => {
+  const win = window.open('', '_blank');
+  if (!win) {
+    alert("Le navigateur a bloqué la popup. Autorisez les popups pour ce site.");
+    return;
+  }
+  win.document.open();
+  win.document.write(htmlString);
+  win.document.close();
+  // Laisser le temps au layout de se construire avant d'imprimer
+  setTimeout(() => { try { win.focus(); win.print(); } catch {} }, 400);
+};
+
+const exportPDFFromHTML = async (htmlString, fileName) => {
+  if (typeof html2canvas !== 'function' || !window.jspdf) {
+    alert("Bibliothèques PDF en cours de chargement, réessayez dans un instant.");
+    return;
+  }
+  const container = document.createElement('div');
+  container.style.position = 'fixed';
+  container.style.left = '-99999px';
+  container.style.top = '0';
+  container.style.width = '794px';
+  container.style.background = 'white';
+  // On extrait juste le body du HTML composé (pour garder le CSS inline tags)
+  container.innerHTML = htmlString.replace(/^[\s\S]*<body[^>]*>/i, '').replace(/<\/body>[\s\S]*$/i, '');
+  // Insérer le CSS du rapport
+  const style = document.createElement('style');
+  style.textContent = reportInlineCSS;
+  container.prepend(style);
+  document.body.appendChild(container);
+  try {
+    const canvas = await html2canvas(container, { scale: 2, backgroundColor: '#ffffff', useCORS: true });
+    const { jsPDF } = window.jspdf;
+    const pdf = new jsPDF('p', 'mm', 'a4');
+    const pageW = 210, pageH = 297;
+    const imgW = pageW;
+    const imgH = (canvas.height * imgW) / canvas.width;
+    const dataUrl = canvas.toDataURL('image/png');
+    let position = 0;
+    let heightLeft = imgH;
+    pdf.addImage(dataUrl, 'PNG', 0, position, imgW, imgH);
+    heightLeft -= pageH;
+    while (heightLeft > 0) {
+      position -= pageH;
+      pdf.addPage();
+      pdf.addImage(dataUrl, 'PNG', 0, position, imgW, imgH);
+      heightLeft -= pageH;
+    }
+    pdf.save(fileName);
+  } catch (err) {
+    alert("Erreur lors de la génération du PDF : " + err.message);
+  } finally {
+    document.body.removeChild(container);
+  }
+};
+
+const ExportOptionsModal = ({ open, onClose, onConfirm, monthLabelStr }) => {
+  const [mode, setMode] = useState('print'); // 'print' | 'pdf'
+  const [sections, setSections] = useState({
+    synthese: true, chart: true, expenses: true,
+    expensesByCategory: false, incomes: true, cards: true, unpaid: true,
+  });
+  useEffect(() => { if (open) { setMode('print'); } }, [open]);
+  if (!open) return null;
+  const toggle = (k) => setSections(s => ({ ...s, [k]: !s[k] }));
+  return (
+    <div className="fixed inset-0 z-50 bg-stone-900/50 flex items-center justify-center p-4" onClick={onClose}>
+      <div className="bg-white rounded-xl shadow-xl ring-1 ring-stone-200 max-w-md w-full p-5"
+           onClick={e => e.stopPropagation()}>
+        <header className="flex items-center justify-between mb-2">
+          <h3 className="font-semibold text-stone-900 text-lg">Exporter le rapport</h3>
+          <button onClick={onClose}
+            className="p-1.5 rounded hover:bg-stone-100 text-stone-400 hover:text-stone-700">
+            <X className="w-4 h-4"/>
+          </button>
+        </header>
+        <p className="text-xs text-stone-500 mb-3">Mois : <span className="font-medium text-stone-700">{monthLabelStr}</span></p>
+
+        <div className="mb-3">
+          <div className="text-xs uppercase tracking-wide text-stone-500 font-medium mb-1.5">Mode d'export</div>
+          <div className="grid grid-cols-1 gap-2">
+            <button onClick={() => setMode('print')}
+              className={"text-left p-3 rounded-lg ring-1 transition " +
+                (mode === 'print' ? "bg-stone-50 ring-stone-900" : "bg-white ring-stone-200 hover:bg-stone-50")}>
+              <div className="font-medium text-sm text-stone-900 flex items-center gap-2">
+                <Printer className="w-4 h-4"/>Aperçu d'impression <span className="text-[10px] text-emerald-600">recommandé</span>
+              </div>
+              <div className="text-xs text-stone-500 mt-1">Ouvre une page propre dans un nouvel onglet. Cmd/Ctrl+P → « Enregistrer en PDF ». Rendu parfait Hebrew (RTL).</div>
+            </button>
+            <button onClick={() => setMode('pdf')}
+              className={"text-left p-3 rounded-lg ring-1 transition " +
+                (mode === 'pdf' ? "bg-stone-50 ring-stone-900" : "bg-white ring-stone-200 hover:bg-stone-50")}>
+              <div className="font-medium text-sm text-stone-900 flex items-center gap-2">
+                <FileText className="w-4 h-4"/>Télécharger PDF (1 clic)
+              </div>
+              <div className="text-xs text-stone-500 mt-1">Génère un .pdf via html2canvas + jsPDF. Rendu raster — Hebrew rendu en image, qualité dépend du DPI.</div>
+            </button>
+          </div>
+        </div>
+
+        <div className="mb-4">
+          <div className="text-xs uppercase tracking-wide text-stone-500 font-medium mb-1.5">Sections à inclure</div>
+          <div className="space-y-1">
+            {[
+              ['synthese',           'Synthèse financière'],
+              ['chart',              'Courbe de trésorerie'],
+              ['expenses',           'Tableau des dépenses'],
+              ['expensesByCategory', 'Tableau détaillé par catégorie (sous-totaux)'],
+              ['incomes',            'Tableau des encaissements'],
+              ['cards',              'Cartes de crédit'],
+              ['unpaid',             'Postes non payés à reporter'],
+            ].map(([k, label]) => (
+              <label key={k} className="flex items-center gap-2 text-sm cursor-pointer">
+                <input type="checkbox" checked={sections[k]} onChange={() => toggle(k)}/>
+                <span className="text-stone-700">{label}</span>
+              </label>
+            ))}
+          </div>
+        </div>
+
+        <div className="flex justify-end gap-2">
+          <button onClick={onClose}
+            className="px-3 py-1.5 text-sm rounded-lg ring-1 ring-stone-200 hover:bg-stone-50">
+            Annuler
+          </button>
+          <button onClick={() => onConfirm({ mode, sections })}
+            className="px-3 py-1.5 text-sm rounded-lg bg-stone-900 text-white hover:bg-stone-800">
+            Générer
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+/* =========================================================
    Settings modal (global app settings)
    ========================================================= */
 const ToggleRow = ({ label, description, value, onChange }) => (
@@ -3631,7 +4083,11 @@ const ToggleRow = ({ label, description, value, onChange }) => (
 
 const SettingsModal = ({ open, onClose, onOpenRules }) => {
   const [rollForward, setRollForward] = useState(() => loadSetting('rollForwardEnabled', true));
+  const [cabinetName, setCabinetName]       = useState(() => loadSetting('cabinetName', ''));
+  const [cabinetAddress, setCabinetAddress] = useState(() => loadSetting('cabinetAddress', ''));
   useEffect(() => { saveSetting('rollForwardEnabled', rollForward); }, [rollForward]);
+  useEffect(() => { saveSetting('cabinetName', cabinetName); }, [cabinetName]);
+  useEffect(() => { saveSetting('cabinetAddress', cabinetAddress); }, [cabinetAddress]);
   if (!open) return null;
   return (
     <div className="fixed inset-0 z-50 bg-stone-900/50 flex items-center justify-center p-4" onClick={onClose}>
@@ -3653,6 +4109,25 @@ const SettingsModal = ({ open, onClose, onOpenRules }) => {
             value={rollForward}
             onChange={setRollForward}
           />
+        </div>
+
+        <div className="border-t border-stone-100 mt-4 pt-3">
+          <div className="text-[10px] uppercase tracking-wide text-stone-500 font-medium mb-2">Identité du cabinet</div>
+          <p className="text-xs text-stone-500 mb-2">Apparaît dans l'en-tête du rapport PDF.</p>
+          <label className="block text-xs font-medium text-stone-700 mb-2">
+            Nom du cabinet
+            <input type="text" dir="auto" value={cabinetName}
+              onChange={e => setCabinetName(e.target.value)}
+              placeholder="ex. Cabinet Shoukroun & associés"
+              className="mt-1 w-full px-2 py-1.5 text-sm ring-1 ring-stone-200 rounded outline-none focus:ring-stone-400"/>
+          </label>
+          <label className="block text-xs font-medium text-stone-700">
+            Adresse
+            <textarea dir="auto" value={cabinetAddress} rows="2"
+              onChange={e => setCabinetAddress(e.target.value)}
+              placeholder="(optionnel)"
+              className="mt-1 w-full px-2 py-1.5 text-sm ring-1 ring-stone-200 rounded outline-none focus:ring-stone-400 resize-none"/>
+          </label>
         </div>
 
         <div className="border-t border-stone-100 mt-4 pt-3">
@@ -4730,7 +5205,7 @@ const EmptyState = ({ onManual, onCopyPrev, onReportUnpaid, onImportFile, hasPre
 /* =========================================================
    Header
    ========================================================= */
-const Header = ({ year, month, onPrev, onNext, saved, onImportFile, onExportBackup, onRestoreBackup, onOpenImportWizard, onUndo, onRedo, canUndo, canRedo, onGenerateFromImports, onClearImports, onOpenRules, onOpenRecurrences, onOpenSettings }) => (
+const Header = ({ year, month, onPrev, onNext, saved, onImportFile, onExportBackup, onRestoreBackup, onOpenImportWizard, onUndo, onRedo, canUndo, canRedo, onGenerateFromImports, onClearImports, onOpenRules, onOpenRecurrences, onOpenSettings, onOpenExport }) => (
   <header className="flex flex-wrap items-center justify-between gap-4 mb-6">
     <div>
       <h1 className="text-2xl font-bold text-stone-900 tracking-tight">Cashflow</h1>
@@ -4778,6 +5253,12 @@ const Header = ({ year, month, onPrev, onNext, saved, onImportFile, onExportBack
       <button onClick={onOpenImportWizard}
         className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-lg bg-stone-900 text-white hover:bg-stone-800">
         <Upload className="w-4 h-4"/>Importer
+      </button>
+
+      <button onClick={onOpenExport}
+        title="Exporter le rapport mensuel"
+        className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-lg bg-white text-stone-700 ring-1 ring-stone-200 hover:bg-stone-50">
+        <FileText className="w-4 h-4"/>Exporter
       </button>
 
       <button onClick={onOpenSettings}
@@ -4846,6 +5327,7 @@ function App() {
   }, [categories]);
   const [recurrencesOpen, setRecurrencesOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [exportOpen, setExportOpen] = useState(false);
   const refreshRecurrenceRules = () => setRecurrenceRules(loadRecurrenceRules());
   const rulesById = useMemo(() => {
     const m = new Map();
@@ -5367,7 +5849,8 @@ function App() {
                 onClearImports={clearAllImports}
                 onOpenRules={() => setRulesOpen(true)}
                 onOpenRecurrences={() => setRecurrencesOpen(true)}
-                onOpenSettings={() => setSettingsOpen(true)}/>
+                onOpenSettings={() => setSettingsOpen(true)}
+                onOpenExport={() => setExportOpen(true)}/>
 
         <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_360px] gap-6">
           <main className="space-y-6 min-w-0">
@@ -5473,6 +5956,37 @@ function App() {
         open={settingsOpen}
         onClose={() => setSettingsOpen(false)}
         onOpenRules={() => setRulesOpen(true)}
+      />
+
+      <ExportOptionsModal
+        open={exportOpen}
+        onClose={() => setExportOpen(false)}
+        monthLabelStr={monthLabel(year, month)}
+        onConfirm={({ mode, sections }) => {
+          const chartMode = loadSetting('chartMode', 'mixed');
+          const threshold = Number(loadSetting('alertThreshold', 30000)) || 0;
+          const series = computeDailySeries({
+            openingBalance: data.openingBalance,
+            expenses: data.expenses, incomes: data.incomes,
+            cardsForMonth, mode: chartMode, year, month,
+          });
+          const cabinet = {
+            name:    loadSetting('cabinetName', ''),
+            address: loadSetting('cabinetAddress', ''),
+          };
+          const html = buildReportHTML({
+            monthKey: key, year, month, data, totals,
+            cardsForMonth, categoriesById,
+            series, threshold, cabinet, sections,
+          });
+          if (mode === 'print') {
+            openPrintPreview(html);
+          } else {
+            const fileName = `Rapport_${monthLabel(year, month).replace(/\s+/g, '_')}.pdf`;
+            exportPDFFromHTML(html, fileName);
+          }
+          setExportOpen(false);
+        }}
       />
 
       <RulesModal
