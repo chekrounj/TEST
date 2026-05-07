@@ -98,6 +98,18 @@ const ruleMatchesText = (rule, text) => {
   return t.toLowerCase().includes(String(rule.pattern).toLowerCase());
 };
 
+/* ---------- Generic settings (alert threshold, UI state) ---------- */
+const loadSetting = (key, def) => {
+  try {
+    const raw = localStorage.getItem('settings:' + key);
+    if (raw == null) return def;
+    return JSON.parse(raw);
+  } catch { return def; }
+};
+const saveSetting = (key, value) => {
+  localStorage.setItem('settings:' + key, JSON.stringify(value));
+};
+
 /* ---------- Statement parsers ---------- */
 // Date Excel → 'YYYY-MM-DD' en local (évite les décalages de timezone que provoquerait toISOString).
 const dateToISO = (d) => {
@@ -2053,6 +2065,411 @@ const ImportedTransactionsModal = ({ open, currentMonthKey, onClose, onCreate, o
 };
 
 /* =========================================================
+   Daily cashflow chart (intra-month)
+   ========================================================= */
+// TODO: Si day tombe vendredi/samedi, considérer que le débit/crédit réel a
+// lieu le dimanche suivant pour les paiements bancaires (Hapoalim ne traite
+// pas le Shabbat). À implémenter quand on aura un calendrier hébraïque
+// (lib hebcal).
+const computeDailySeries = ({ openingBalance, expenses, incomes, cardsForMonth, mode, year, month }) => {
+  const daysInMonth = new Date(year, month, 0).getDate();
+  const cardsByNumber = new Map((cardsForMonth || []).map(c => [String(c.cardNumber), c]));
+  const ymKey = `${year}-${String(month).padStart(2, '0')}`;
+
+  // events[day] = [{ type, label, amount, isCard? }]
+  const events = Array.from({ length: daysInMonth + 1 }, () => []);
+  const clampDay = (d) => {
+    const n = Math.max(1, Math.min(daysInMonth, Math.round(Number(d) || 1)));
+    return n;
+  };
+
+  for (const e of expenses) {
+    if (e.mode === 'card' && cardsByNumber.has(String(e.cardNumber))) continue; // regroupé sous CB
+    const day = clampDay(e.day);
+    const amount  = Number(e.amount) || 0;
+    const paid    = Number(e.paid)   || 0;
+    let value;
+    if      (mode === 'real')    value = paid;
+    else if (mode === 'planned') value = amount;
+    else                         value = paid > 0 ? paid : amount;
+    if (value > 0) events[day].push({ type: 'out', label: e.name || '—', amount: value });
+  }
+  for (const i of incomes) {
+    const day = clampDay(i.day);
+    const amount   = Number(i.amount)   || 0;
+    const received = Number(i.received) || 0;
+    let value;
+    if      (mode === 'real')    value = received;
+    else if (mode === 'planned') value = amount;
+    else                         value = received > 0 ? received : amount;
+    if (value > 0) events[day].push({ type: 'in', label: i.name || '—', amount: value });
+  }
+  for (const c of (cardsForMonth || [])) {
+    const debitDay = clampDay((c.debitDate || '').slice(8, 10));
+    let day = debitDay;
+    if (c.paidAt && c.paidAt.slice(0, 7) === ymKey) {
+      const pd = parseInt(c.paidAt.slice(8, 10), 10);
+      if (pd) day = clampDay(pd);
+    }
+    if (mode === 'real' && !c.paidAt) continue; // pas de débit réel → on ignore
+    const value = Number(c.upcomingAmount) || 0;
+    if (value > 0) events[day].push({
+      type: 'out', label: `Carte ${c.cardNumber} — débit groupé`,
+      amount: value, isCard: true,
+    });
+  }
+
+  let balance = Number(openingBalance) || 0;
+  const series = [];
+  for (let d = 1; d <= daysInMonth; d++) {
+    for (const ev of events[d]) {
+      balance += ev.type === 'in' ? ev.amount : -ev.amount;
+    }
+    series.push({ day: d, balance, events: events[d] });
+  }
+  return series;
+};
+
+const formatCompactILS = (n) => {
+  const sign = n < 0 ? '−' : '';
+  const a = Math.abs(n);
+  if (a >= 1e6) return sign + '₪' + (a / 1e6).toFixed(1).replace(/\.0$/, '') + 'M';
+  if (a >= 1e3) return sign + '₪' + Math.round(a / 1e3) + 'k';
+  return sign + '₪' + Math.round(a);
+};
+
+const niceYTicks = (min, max, target = 5) => {
+  const range = max - min;
+  if (range <= 0) return [Math.round(min)];
+  const rawStep = range / target;
+  const magnitude = Math.pow(10, Math.floor(Math.log10(rawStep)));
+  const norm = rawStep / magnitude;
+  let nice;
+  if      (norm < 1.5) nice = 1;
+  else if (norm < 3)   nice = 2;
+  else if (norm < 7)   nice = 5;
+  else                 nice = 10;
+  const step = nice * magnitude;
+  const start = Math.ceil(min / step) * step;
+  const ticks = [];
+  for (let v = start; v <= max + step * 1e-9; v += step) ticks.push(Math.round(v));
+  return ticks;
+};
+
+const CashflowChart = ({ series, openingBalance, threshold, year, month }) => {
+  const containerRef = useRef(null);
+  const [hover, setHover] = useState(null); // { day, x, y }
+
+  const W = 1000, H = 280;
+  const PAD = { top: 30, right: 30, bottom: 40, left: 60 };
+  const IW = W - PAD.left - PAD.right;
+  const IH = H - PAD.top - PAD.bottom;
+  const N = series.length;
+
+  // Y range
+  const balances = [Number(openingBalance) || 0, ...series.map(s => s.balance)];
+  const rawMin = Math.min(0, ...balances);
+  const rawMax = Math.max(0, ...balances);
+  const rangePad = Math.max((rawMax - rawMin) * 0.1, 1000);
+  const yMin = rawMin - rangePad;
+  const yMax = rawMax + rangePad;
+
+  const xScale = (day) => PAD.left + ((day - 1) / Math.max(1, N - 1)) * IW;
+  const yScale = (val) => PAD.top + ((yMax - val) / (yMax - yMin)) * IH;
+
+  // Path : step-after, démarre avec opening avant le jour 1
+  let pathD = `M ${xScale(1)} ${yScale(Number(openingBalance) || 0)}`;
+  for (let i = 0; i < N; i++) {
+    const s = series[i];
+    pathD += ` L ${xScale(s.day)} ${yScale(s.balance)}`;
+    if (i < N - 1) pathD += ` L ${xScale(series[i + 1].day)} ${yScale(s.balance)}`;
+  }
+
+  const yTicks = niceYTicks(yMin, yMax, 5);
+  const xTicks = [1, 5, 10, 15, 20, 25, 30].filter(d => d <= N);
+  if (N > 28 && !xTicks.includes(N)) xTicks.push(N);
+
+  // Today
+  const today = new Date();
+  const isCurrentMonth = today.getFullYear() === year && (today.getMonth() + 1) === month;
+  const todayDay = isCurrentMonth ? today.getDate() : null;
+
+  const handleMove = (e) => {
+    const svg = e.currentTarget.ownerSVGElement || e.currentTarget;
+    const pt = svg.createSVGPoint();
+    pt.x = e.clientX; pt.y = e.clientY;
+    const ctm = svg.getScreenCTM();
+    if (!ctm) return;
+    const cur = pt.matrixTransform(ctm.inverse());
+    const day = Math.max(1, Math.min(N, Math.round(((cur.x - PAD.left) / IW) * Math.max(1, N - 1)) + 1));
+    const cont = containerRef.current?.getBoundingClientRect();
+    if (!cont) return;
+    setHover({ day, x: e.clientX - cont.left, y: e.clientY - cont.top });
+  };
+  const hideHover = () => setHover(null);
+
+  const hovered = hover ? series[hover.day - 1] : null;
+  const balanceColor = (b) => b < 0 ? "text-rose-600"
+                              : b < threshold ? "text-amber-600"
+                              : "text-emerald-600";
+
+  return (
+    <div ref={containerRef} className="relative">
+      <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="xMidYMid meet" className="w-full h-auto select-none">
+        {/* Zones */}
+        {(() => {
+          const yZero = yScale(0);
+          const yThr  = yScale(threshold);
+          const top   = PAD.top;
+          const bot   = PAD.top + IH;
+          const rects = [];
+          // Rouge : Y < 0 (sous zéro)
+          if (yZero < bot) rects.push(
+            <rect key="r" x={PAD.left} y={Math.max(top, yZero)}
+              width={IW} height={Math.max(0, bot - Math.max(top, yZero))}
+              fill="#fecdd3" opacity="0.4"/>
+          );
+          // Ambre : 0 ≤ Y < threshold
+          const ambTop = Math.max(top, yThr);
+          const ambBot = Math.min(bot, yZero);
+          if (ambBot > ambTop) rects.push(
+            <rect key="a" x={PAD.left} y={ambTop} width={IW} height={ambBot - ambTop}
+              fill="#fde68a" opacity="0.3"/>
+          );
+          // Vert : Y ≥ threshold
+          const grnTop = top;
+          const grnBot = Math.min(bot, yThr);
+          if (grnBot > grnTop) rects.push(
+            <rect key="g" x={PAD.left} y={grnTop} width={IW} height={grnBot - grnTop}
+              fill="#a7f3d0" opacity="0.2"/>
+          );
+          return rects;
+        })()}
+
+        {/* Grille horizontale + labels Y */}
+        {yTicks.map(t => (
+          <g key={'y' + t}>
+            <line x1={PAD.left} y1={yScale(t)} x2={PAD.left + IW} y2={yScale(t)}
+              stroke="#e7e5e4" strokeWidth="0.5"/>
+            <text x={PAD.left - 8} y={yScale(t)} textAnchor="end" dominantBaseline="middle"
+              fontSize="11" fill="#78716c">{formatCompactILS(t)}</text>
+          </g>
+        ))}
+
+        {/* Axe X labels */}
+        {xTicks.map(d => (
+          <g key={'x' + d}>
+            <line x1={xScale(d)} y1={PAD.top + IH} x2={xScale(d)} y2={PAD.top + IH + 4}
+              stroke="#a8a29e" strokeWidth="0.5"/>
+            <text x={xScale(d)} y={PAD.top + IH + 18} textAnchor="middle"
+              fontSize="11" fill="#78716c">{d}</text>
+          </g>
+        ))}
+
+        {/* Ligne de seuil */}
+        <line x1={PAD.left} y1={yScale(threshold)} x2={PAD.left + IW} y2={yScale(threshold)}
+          stroke="#d97706" strokeDasharray="3 3" strokeWidth="1"/>
+        <text x={PAD.left + IW} y={yScale(threshold) - 4} textAnchor="end"
+          fontSize="10" fill="#b45309">Seuil {formatCompactILS(threshold)}</text>
+
+        {/* Zéro */}
+        <line x1={PAD.left} y1={yScale(0)} x2={PAD.left + IW} y2={yScale(0)}
+          stroke="#78716c" strokeWidth="1"/>
+
+        {/* Aujourd'hui */}
+        {todayDay && (
+          <g>
+            <line x1={xScale(todayDay)} y1={PAD.top} x2={xScale(todayDay)} y2={PAD.top + IH}
+              stroke="#a8a29e" strokeWidth="1" strokeDasharray="2 4"/>
+            <text x={xScale(todayDay)} y={PAD.top - 8} textAnchor="middle"
+              fontSize="10" fill="#78716c" fontWeight="500">Aujourd'hui</text>
+          </g>
+        )}
+
+        {/* Courbe */}
+        <path d={pathD} fill="none" stroke="#1c1917" strokeWidth="2.5" strokeLinejoin="round"/>
+
+        {/* Points sur les jours avec événements */}
+        {series.filter(s => s.events.length > 0).map(s => {
+          const isCardDay = s.events.some(ev => ev.isCard);
+          let color;
+          if (isCardDay)             color = '#9333ea';
+          else if (s.balance < 0)    color = '#e11d48';
+          else if (s.balance < threshold) color = '#d97706';
+          else                       color = '#10b981';
+          return (
+            <circle key={s.day} cx={xScale(s.day)} cy={yScale(s.balance)} r="4"
+              fill={color} stroke="white" strokeWidth="1.5"/>
+          );
+        })}
+
+        {/* Marqueur de hover */}
+        {hovered && (
+          <g pointerEvents="none">
+            <line x1={xScale(hovered.day)} y1={PAD.top}
+              x2={xScale(hovered.day)} y2={PAD.top + IH}
+              stroke="#1c1917" strokeWidth="0.8" strokeDasharray="2 2" opacity="0.4"/>
+            <circle cx={xScale(hovered.day)} cy={yScale(hovered.balance)} r="5"
+              fill="#1c1917" stroke="white" strokeWidth="2"/>
+          </g>
+        )}
+
+        {/* Capture mouse */}
+        <rect x={PAD.left} y={PAD.top} width={IW} height={IH} fill="transparent"
+          onMouseMove={handleMove} onMouseLeave={hideHover}/>
+      </svg>
+
+      {hover && hovered && (
+        <div
+          className="absolute pointer-events-none bg-stone-900 text-white text-xs rounded-lg shadow-lg px-3 py-2 min-w-[180px] transition-opacity"
+          style={{
+            left: Math.min(hover.x + 12, (containerRef.current?.clientWidth || 0) - 200),
+            top: Math.max(hover.y - 12 - 80, 4),
+          }}>
+          <div className="text-stone-400 text-[10px] uppercase tracking-wide">
+            Jour {String(hover.day).padStart(2, '0')}/{String(month).padStart(2, '0')}
+          </div>
+          <div className={"text-base font-semibold tabular-nums mt-0.5 " + balanceColor(hovered.balance).replace('text-', 'text-')}>
+            <span className={
+              hovered.balance < 0 ? "text-rose-300"
+              : hovered.balance < threshold ? "text-amber-300"
+              : "text-emerald-300"
+            }>{formatILS(hovered.balance)}</span>
+          </div>
+          {hovered.events.length > 0 && (
+            <div className="mt-1.5 space-y-0.5 border-t border-stone-700 pt-1.5">
+              {hovered.events.slice(0, 5).map((ev, i) => (
+                <div key={i} className="flex items-center justify-between gap-2 text-[11px]">
+                  <span className={"truncate " + (ev.isCard ? "text-violet-300" : ev.type === 'in' ? "text-emerald-300" : "text-rose-300")}
+                    dir="auto" title={ev.label}>
+                    {ev.type === 'in' ? '+' : '−'} {ev.label}
+                  </span>
+                  <span className="tabular-nums opacity-90">{formatCompactILS(ev.amount)}</span>
+                </div>
+              ))}
+              {hovered.events.length > 5 && (
+                <div className="text-[10px] text-stone-400">+ {hovered.events.length - 5} autres…</div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+};
+
+const CashflowChartSection = ({ year, month, openingBalance, expenses, incomes, cardsForMonth }) => {
+  const [collapsed, setCollapsed] = useState(() => loadSetting('chartCollapsed', false));
+  const [mode, setMode]           = useState(() => loadSetting('chartMode', 'mixed'));
+  const [threshold, setThreshold] = useState(() => Number(loadSetting('alertThreshold', 30000)) || 0);
+
+  useEffect(() => { saveSetting('chartCollapsed', collapsed); }, [collapsed]);
+  useEffect(() => { saveSetting('chartMode', mode); }, [mode]);
+  useEffect(() => { saveSetting('alertThreshold', threshold); }, [threshold]);
+
+  const series = useMemo(
+    () => computeDailySeries({ openingBalance, expenses, incomes, cardsForMonth, mode, year, month }),
+    [openingBalance, expenses, incomes, cardsForMonth, mode, year, month]
+  );
+
+  const stats = useMemo(() => {
+    let red = 0, amber = 0, lowest = series[0] || null;
+    for (const s of series) {
+      if (s.balance < 0) red++;
+      else if (s.balance < threshold) amber++;
+      if (!lowest || s.balance < lowest.balance) lowest = s;
+    }
+    return { red, amber, lowest };
+  }, [series, threshold]);
+
+  const monthName = monthLabel(year, month);
+
+  return (
+    <section className="bg-white rounded-xl ring-1 ring-stone-200 overflow-hidden">
+      <header className="px-4 py-3 border-b border-stone-200 flex items-center justify-between gap-3 flex-wrap">
+        <div>
+          <h2 className="font-semibold text-stone-900">Courbe de trésorerie · {monthName}</h2>
+          <p className="text-xs text-stone-500 mt-0.5">
+            {series.length} jours · solde fin :{' '}
+            <span className="tabular-nums font-medium text-stone-700">
+              {formatILS(series.length ? series[series.length - 1].balance : (Number(openingBalance) || 0))}
+            </span>
+          </p>
+        </div>
+
+        <div className="flex items-center gap-2 flex-wrap">
+          <div className="inline-flex bg-stone-100 rounded-lg p-0.5">
+            {[
+              ['mixed',   'Réel + Prévu'],
+              ['real',    'Réel seul'],
+              ['planned', 'Prévu seul'],
+            ].map(([v, label]) => (
+              <button key={v} onClick={() => setMode(v)}
+                className={
+                  "px-2.5 py-1 text-xs rounded-md transition " +
+                  (mode === v ? "bg-white text-stone-900 shadow-sm font-medium"
+                              : "text-stone-600 hover:text-stone-900")
+                }>{label}</button>
+            ))}
+          </div>
+          <button onClick={() => setCollapsed(c => !c)}
+            title={collapsed ? "Afficher la courbe" : "Masquer la courbe"}
+            className="p-1.5 rounded-lg bg-white text-stone-600 ring-1 ring-stone-200 hover:bg-stone-50">
+            {collapsed ? <ChevronDown className="w-4 h-4"/> : <ChevronUp className="w-4 h-4"/>}
+          </button>
+        </div>
+      </header>
+
+      {!collapsed && (
+        <div className="px-4 py-3">
+          <div className="flex items-center gap-2 flex-wrap mb-2 justify-end">
+            <span className={
+              "inline-flex items-center gap-1 text-xs px-2 py-1 rounded ring-1 " +
+              (stats.red > 0 ? "bg-rose-50 text-rose-700 ring-rose-200"
+                             : "bg-stone-50 text-stone-500 ring-stone-200")
+            }>
+              {stats.red} jour{stats.red > 1 ? 's' : ''} en zone rouge
+            </span>
+            <span className={
+              "inline-flex items-center gap-1 text-xs px-2 py-1 rounded ring-1 " +
+              (stats.amber > 0 ? "bg-amber-50 text-amber-700 ring-amber-200"
+                               : "bg-stone-50 text-stone-500 ring-stone-200")
+            }>
+              {stats.amber} jour{stats.amber > 1 ? 's' : ''} sous seuil
+            </span>
+            {stats.lowest && (
+              <span className="inline-flex items-center gap-1 text-xs px-2 py-1 rounded ring-1 bg-white text-stone-700 ring-stone-200">
+                Plus bas :{' '}
+                <span className={
+                  "tabular-nums font-medium " +
+                  (stats.lowest.balance < 0 ? "text-rose-700"
+                   : stats.lowest.balance < threshold ? "text-amber-700"
+                   : "text-emerald-700")
+                }>{formatILS(stats.lowest.balance)}</span>
+                <span className="text-stone-400 tabular-nums">le {String(stats.lowest.day).padStart(2,'0')}/{String(month).padStart(2,'0')}</span>
+              </span>
+            )}
+          </div>
+
+          <CashflowChart series={series} openingBalance={openingBalance}
+            threshold={threshold} year={year} month={month}/>
+
+          <div className="mt-3 flex items-center gap-2 text-xs text-stone-600">
+            <span>Seuil d'alerte :</span>
+            <span className="text-stone-400">₪</span>
+            <input type="number" value={threshold === 0 ? '' : threshold}
+              onChange={e => setThreshold(e.target.value === '' ? 0 : Number(e.target.value))}
+              placeholder="30000"
+              className="w-28 px-2 py-1 ring-1 ring-stone-200 rounded outline-none focus:ring-stone-400 tabular-nums text-right"/>
+            <span className="text-stone-400">— en dessous, alerte ambre ; sous 0, alerte rouge.</span>
+          </div>
+        </div>
+      )}
+    </section>
+  );
+};
+
+/* =========================================================
    Match rules manager modal
    ========================================================= */
 // Détecte si le poste cible d'une règle existe dans au moins un mois enregistré.
@@ -3706,6 +4123,13 @@ function App() {
 
         <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_360px] gap-6">
           <main className="space-y-6 min-w-0">
+            <CashflowChartSection
+              year={year} month={month}
+              openingBalance={data.openingBalance}
+              expenses={data.expenses}
+              incomes={data.incomes}
+              cardsForMonth={cardsForMonth}
+            />
             {isEmpty ? (
               <EmptyState
                 onManual={addExpense}
