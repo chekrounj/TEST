@@ -37,6 +37,10 @@ const formatILS = (n) => {
 // Évaluateur d'expressions arithmétiques pour les cellules : permet « 1000+500*2 »,
 // « (12+3)*4 », « 5,50 » → 1500, 60, 5.5. Whitelist stricte (chiffres + + − × ÷ ()
 // + virgule/point + signes − unicode), pas d'identifiants, pas de propriétés.
+// Taux de TVA Ma'am israélien (18% depuis 2025)
+const VAT_RATE = 0.18;
+const VAT_DIVIDER = 1 + VAT_RATE;
+
 const evalExpr = (raw) => {
   if (raw == null) return NaN;
   if (typeof raw === 'number') return raw;
@@ -1348,6 +1352,12 @@ const ExpensesTable = ({ expenses, onAdd, onUpdate, onRemove, onRemoveMany, onRe
 
   const renderRow = (e, opts = {}) => (
     <tr key={e.id} className={"hover:bg-stone-50/60 align-top " + (selected.has(e.id) ? "bg-stone-50" : "") + (opts.childOf ? " bg-stone-50/40" : "")}>
+      <td className="px-2 py-1.5 text-center">
+        <input type="checkbox" checked={!!e.vatTaxable}
+          onChange={ev => onUpdate(e.id, { vatTaxable: ev.target.checked })}
+          className="w-4 h-4 rounded border-stone-300 text-emerald-600 focus:ring-emerald-400 cursor-pointer"
+          title={e.vatTaxable ? "Soumis à TVA — décocher pour exclure" : "Non soumis à TVA — cocher pour inclure"}/>
+      </td>
       <td className="px-3 py-1.5">
         {opts.childOf ? <span className="inline-block w-4"/> : (
           <input type="checkbox" checked={selected.has(e.id)} onChange={() => toggleOne(e.id)}
@@ -1506,6 +1516,23 @@ const ExpensesTable = ({ expenses, onAdd, onUpdate, onRemove, onRemoveMany, onRe
         <table className="w-full text-sm">
           <thead className="bg-stone-50 text-stone-500 text-xs uppercase tracking-wide">
             <tr>
+              <th className="px-2 py-2 w-12 text-center" title="Soumis à TVA">
+                {(() => {
+                  const allVat = expenses.length > 0 && expenses.every(e => !!e.vatTaxable);
+                  return (
+                    <input type="checkbox" checked={allVat} disabled={expenses.length === 0}
+                      onChange={() => {
+                        const next = !allVat;
+                        for (const e of expenses) {
+                          if (!!e.vatTaxable !== next) onUpdate(e.id, { vatTaxable: next });
+                        }
+                      }}
+                      className="w-4 h-4 rounded border-stone-300 text-emerald-600 focus:ring-emerald-400 cursor-pointer disabled:cursor-not-allowed"
+                      aria-label="Tout (dé)cocher TVA"/>
+                  );
+                })()}
+                <div className="text-[9px] uppercase tracking-wide text-stone-500 mt-0.5">TVA</div>
+              </th>
               <th className="px-3 py-2 w-10">
                 <input type="checkbox" checked={allSelected} onChange={toggleAll}
                   disabled={expenses.length === 0}
@@ -1525,7 +1552,7 @@ const ExpensesTable = ({ expenses, onAdd, onUpdate, onRemove, onRemoveMany, onRe
           </thead>
           <tbody className="divide-y divide-stone-100">
             {expenses.length === 0 && (cardsForMonth || []).length === 0 && (
-              <tr><td colSpan="10" className="px-4 py-6 text-center text-sm text-stone-400">
+              <tr><td colSpan="11" className="px-4 py-6 text-center text-sm text-stone-400">
                 Aucun poste pour ce mois.
               </td></tr>
             )}
@@ -1533,7 +1560,7 @@ const ExpensesTable = ({ expenses, onAdd, onUpdate, onRemove, onRemoveMany, onRe
             {/* Lignes synthétiques cartes + leurs enfants regroupés */}
             {(cardsForMonth || []).map(c => (
               <React.Fragment key={'card-' + c.cardNumber}>
-                <SyntheticCardRow card={c} colSpan={10}/>
+                <SyntheticCardRow card={c} colSpan={11}/>
                 {(childrenByCard.get(String(c.cardNumber)) || []).map(e => renderRow(e, { childOf: c.cardNumber }))}
               </React.Fragment>
             ))}
@@ -1542,7 +1569,7 @@ const ExpensesTable = ({ expenses, onAdd, onUpdate, onRemove, onRemoveMany, onRe
               <React.Fragment key={g.type}>
                 <tr className="bg-stone-50/80 cursor-pointer hover:bg-stone-100/80"
                     onClick={() => toggleGroup(g.type)}>
-                  <td colSpan="10" className="px-3 py-2">
+                  <td colSpan="11" className="px-3 py-2">
                     <div className="flex items-center justify-between gap-3 flex-wrap">
                       <div className="flex items-center gap-2 font-medium text-stone-800">
                         {collapsed.has(g.type)
@@ -1567,6 +1594,7 @@ const ExpensesTable = ({ expenses, onAdd, onUpdate, onRemove, onRemoveMany, onRe
           {expenses.length > 0 && (
             <tfoot className="bg-stone-50 text-sm">
               <tr className="font-medium">
+                <td></td>
                 <td></td>
                 <td className="px-2 py-2 text-stone-600">Totaux</td>
                 <td></td>
@@ -1652,6 +1680,23 @@ const IncomesTable = ({ incomes, onAdd, onUpdate, onRemove, onRemoveMany, rulesB
         <table className="w-full text-sm">
           <thead className="bg-stone-50 text-stone-500 text-xs uppercase tracking-wide">
             <tr>
+              <th className="px-2 py-2 w-12 text-center" title="Soumis à TVA">
+                {(() => {
+                  const allVat = incomes.length > 0 && incomes.every(i => !!i.vatTaxable);
+                  return (
+                    <input type="checkbox" checked={allVat} disabled={incomes.length === 0}
+                      onChange={() => {
+                        const next = !allVat;
+                        for (const i of incomes) {
+                          if (!!i.vatTaxable !== next) onUpdate(i.id, { vatTaxable: next });
+                        }
+                      }}
+                      className="w-4 h-4 rounded border-stone-300 text-emerald-600 focus:ring-emerald-400 cursor-pointer disabled:cursor-not-allowed"
+                      aria-label="Tout (dé)cocher TVA"/>
+                  );
+                })()}
+                <div className="text-[9px] uppercase tracking-wide text-stone-500 mt-0.5">TVA</div>
+              </th>
               <th className="px-3 py-2 w-10">
                 <input
                   type="checkbox" checked={allSelected} onChange={toggleAll}
@@ -1670,12 +1715,18 @@ const IncomesTable = ({ incomes, onAdd, onUpdate, onRemove, onRemoveMany, rulesB
           </thead>
           <tbody className="divide-y divide-stone-100">
             {incomes.length === 0 && (
-              <tr><td colSpan="7" className="px-4 py-6 text-center text-sm text-stone-400">
+              <tr><td colSpan="8" className="px-4 py-6 text-center text-sm text-stone-400">
                 Aucun encaissement prévu pour ce mois.
               </td></tr>
             )}
             {sortedIncomes.map((i) => (
               <tr key={i.id} className={"hover:bg-stone-50/60 align-top " + (selected.has(i.id) ? "bg-stone-50" : "")}>
+                <td className="px-2 py-1.5 text-center">
+                  <input type="checkbox" checked={!!i.vatTaxable}
+                    onChange={ev => onUpdate(i.id, { vatTaxable: ev.target.checked })}
+                    className="w-4 h-4 rounded border-stone-300 text-emerald-600 focus:ring-emerald-400 cursor-pointer"
+                    title={i.vatTaxable ? "Soumis à TVA" : "Non soumis à TVA"}/>
+                </td>
                 <td className="px-3 py-1.5">
                   <input
                     type="checkbox" checked={selected.has(i.id)} onChange={() => toggleOne(i.id)}
@@ -1712,6 +1763,7 @@ const IncomesTable = ({ incomes, onAdd, onUpdate, onRemove, onRemoveMany, rulesB
           {incomes.length > 0 && (
             <tfoot className="bg-stone-50 text-sm">
               <tr className="font-medium">
+                <td></td>
                 <td></td>
                 <td className="px-2 py-2 text-stone-600">Totaux</td>
                 <td className="px-2 py-2 text-right tabular-nums">{formatILS(totalPlanned)}</td>
@@ -1858,7 +1910,7 @@ const CategoryBreakdown = ({ expenses, categoriesById }) => {
   );
 };
 
-const Sidebar = ({ data, totals, onPatch, prevEndBalance, prevLabel, cardsAll, cardsForMonth, categoriesById }) => {
+const Sidebar = ({ data, totals, onPatch, prevEndBalance, prevLabel, cardsAll, cardsForMonth, categoriesById, onShowUnaffectedDetail, onShowTaxBreakdown }) => {
   const projectedPositive = totals.projected >= 0;
   const targetReached = totals.additionalNeeded <= 0;
 
@@ -1946,11 +1998,18 @@ const Sidebar = ({ data, totals, onPatch, prevEndBalance, prevLabel, cardsAll, c
           <Row label="+ Encaissements reçus" value={formatILS(totals.incReceived)} valueClass="text-emerald-600"/>
           <Row label="− Dépenses payées"     value={formatILS(totals.expPaid)}     valueClass="text-rose-600"/>
           <EditableRow
-            label="− Dépenses non affectées"
+            label={
+              <button onClick={onShowUnaffectedDetail}
+                title="Voir les opérations bancaires importées du mois"
+                className="inline-flex items-center gap-1 hover:text-stone-900 hover:underline cursor-pointer">
+                − Dépenses non affectées
+                <Info className="w-3 h-3 text-stone-400"/>
+              </button>
+            }
             value={totals.unaffected}
             onChange={v => onPatch({ unaffectedExpenses: v })}
             valueClass="text-rose-500"
-            hint="Sorties cash hors postes (ajuste le solde actuel)"
+            hint="Sorties cash hors postes (cliquer pour voir les opérations bancaires)"
           />
           <div className="border-t border-stone-200 my-2"/>
           <EditableRow
@@ -2056,15 +2115,39 @@ const Sidebar = ({ data, totals, onPatch, prevEndBalance, prevLabel, cardsAll, c
         </div>
       )}
 
-      {/* Chiffre d'affaires */}
+      {/* Calculs HT (TVA Ma'am) */}
       <div className="bg-white rounded-xl ring-1 ring-stone-200 p-4">
-        <div className="text-stone-500 text-xs uppercase tracking-wide font-medium">
-          Chiffre d'affaires
+        <div className="flex items-center gap-2 text-stone-500 text-xs uppercase tracking-wide font-medium">
+          <Landmark className="w-3.5 h-3.5"/> Calculs HT (Ma'am {Math.round(VAT_RATE * 100)} %)
         </div>
-        <dl className="mt-3 space-y-1.5 text-sm">
-          <Row label="Total dépenses TTC" value={formatILS(totals.expPlanned)}/>
-          <Row label="Net de Ma'am 18%" value={formatILS(totals.expPlanned / 1.18)} valueClass="text-stone-900 font-semibold"/>
-        </dl>
+        <div className="mt-3 space-y-2">
+          <button onClick={() => onShowTaxBreakdown && onShowTaxBreakdown('income')}
+            className="w-full text-left p-2 rounded-lg ring-1 ring-stone-200 hover:bg-stone-50 hover:ring-stone-400 transition group">
+            <div className="text-[11px] uppercase tracking-wide text-stone-500 flex items-center justify-between">
+              <span>Chiffre d'affaires HT (encaissements)</span>
+              <Info className="w-3 h-3 text-stone-400 group-hover:text-stone-700"/>
+            </div>
+            <div className="text-lg font-semibold tabular-nums text-emerald-700 mt-0.5">
+              {formatILS(totals.caHT)}
+            </div>
+            <div className="text-[10px] text-stone-400 mt-0.5">
+              sur {formatILS(totals.incReceived)} reçus · cliquer pour le détail
+            </div>
+          </button>
+          <button onClick={() => onShowTaxBreakdown && onShowTaxBreakdown('expense')}
+            className="w-full text-left p-2 rounded-lg ring-1 ring-stone-200 hover:bg-stone-50 hover:ring-stone-400 transition group">
+            <div className="text-[11px] uppercase tracking-wide text-stone-500 flex items-center justify-between">
+              <span>Dépenses HT (décaissements payés)</span>
+              <Info className="w-3 h-3 text-stone-400 group-hover:text-stone-700"/>
+            </div>
+            <div className="text-lg font-semibold tabular-nums text-rose-700 mt-0.5">
+              {formatILS(totals.expHT)}
+            </div>
+            <div className="text-[10px] text-stone-400 mt-0.5">
+              non affectées en HT direct · cliquer pour le détail
+            </div>
+          </button>
+        </div>
       </div>
     </aside>
   );
@@ -3609,6 +3692,116 @@ const countRuleOccurrences = (ruleId) => {
     } catch {}
   }
   return n;
+};
+
+/* =========================================================
+   Tax breakdown modal (CA HT / Dépenses HT)
+   ========================================================= */
+const TaxBreakdownModal = ({ open, kind, data, totals, cardsForMonth, onClose }) => {
+  if (!open) return null;
+  const ils = (n) => formatILS(Math.round(Number(n) || 0));
+  const isCA = kind === 'income';
+  const title = isCA ? "Chiffre d'affaires HT — détail" : "Dépenses HT — détail";
+
+  const lines = [];
+  if (isCA) {
+    for (const i of data.incomes) {
+      const r = Number(i.received) || 0;
+      if (r <= 0) continue;
+      const ht = i.vatTaxable ? r / VAT_DIVIDER : r;
+      lines.push({ name: i.name || '—', vatTaxable: !!i.vatTaxable, ttc: r, ht });
+    }
+  } else {
+    const cardsByNum = new Map((cardsForMonth || []).map(c => [String(c.cardNumber), c]));
+    for (const e of data.expenses) {
+      if (e.mode === 'card' && cardsByNum.has(String(e.cardNumber))) continue; // regroupé sous CB
+      const p = Number(e.paid) || 0;
+      if (p <= 0) continue;
+      const ht = e.vatTaxable ? p / VAT_DIVIDER : p;
+      lines.push({ name: e.name || '—', vatTaxable: !!e.vatTaxable, ttc: p, ht, kind: 'expense' });
+    }
+    for (const c of (cardsForMonth || [])) {
+      if (c.paidAt) {
+        const v = Number(c.upcomingAmount) || 0;
+        lines.push({ name: `Carte ${c.cardNumber} — débit groupé`, vatTaxable: false, ttc: v, ht: v, kind: 'card' });
+      }
+    }
+    if ((Number(totals.unaffected) || 0) > 0) {
+      lines.push({ name: 'Dépenses non affectées (cash hors postes)', vatTaxable: false, ttc: totals.unaffected, ht: totals.unaffected, kind: 'unaffected' });
+    }
+  }
+  lines.sort((a, b) => b.ttc - a.ttc);
+  const totalTTC = lines.reduce((s, l) => s + l.ttc, 0);
+  const totalHT  = lines.reduce((s, l) => s + l.ht,  0);
+  const totalVAT = totalTTC - totalHT;
+
+  return (
+    <div className="fixed inset-0 z-50 bg-stone-900/50 flex items-center justify-center p-4" onClick={onClose}>
+      <div className="bg-white rounded-xl shadow-xl ring-1 ring-stone-200 w-full max-w-2xl flex flex-col max-h-[90vh]"
+           onClick={e => e.stopPropagation()}>
+        <header className="px-5 py-4 border-b border-stone-200 flex items-center justify-between">
+          <div>
+            <h3 className="font-semibold text-stone-900 text-lg">{title}</h3>
+            <p className="text-xs text-stone-500 mt-0.5">
+              TVA Ma'am à {Math.round(VAT_RATE * 100)}% · {lines.length} ligne{lines.length > 1 ? 's' : ''}
+            </p>
+          </div>
+          <button onClick={onClose}
+            className="p-1.5 rounded hover:bg-stone-100 text-stone-400 hover:text-stone-700">
+            <X className="w-4 h-4"/>
+          </button>
+        </header>
+        <div className="flex-1 overflow-auto">
+          <table className="w-full text-sm">
+            <thead className="bg-stone-50 text-stone-500 text-xs uppercase tracking-wide sticky top-0">
+              <tr>
+                <th className="text-left font-medium px-3 py-2">Libellé</th>
+                <th className="text-center font-medium px-3 py-2 w-16">TVA</th>
+                <th className="text-right font-medium px-3 py-2 w-28">TTC</th>
+                <th className="text-right font-medium px-3 py-2 w-28">HT</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-stone-100">
+              {lines.length === 0 ? (
+                <tr><td colSpan="4" className="px-3 py-10 text-center text-sm text-stone-400">
+                  Aucune ligne {isCA ? 'reçue' : 'payée'} pour ce mois.
+                </td></tr>
+              ) : lines.map((l, i) => (
+                <tr key={i} className="hover:bg-stone-50/60">
+                  <td className="px-3 py-1.5">
+                    <span dir="auto" className="text-stone-800">{l.name}</span>
+                    {l.kind === 'unaffected' && <span className="ml-2 text-[10px] text-stone-400">(saisi manuellement)</span>}
+                    {l.kind === 'card' && <span className="ml-2 text-[10px] text-violet-500">(carte)</span>}
+                  </td>
+                  <td className="px-3 py-1.5 text-center text-xs">
+                    {l.vatTaxable
+                      ? <span className="text-emerald-700">Oui</span>
+                      : <span className="text-stone-400">Non</span>}
+                  </td>
+                  <td className="px-3 py-1.5 text-right tabular-nums text-stone-700">{ils(l.ttc)}</td>
+                  <td className="px-3 py-1.5 text-right tabular-nums font-medium text-stone-900">{ils(l.ht)}</td>
+                </tr>
+              ))}
+            </tbody>
+            <tfoot className="bg-stone-50 text-sm">
+              <tr className="font-medium">
+                <td className="px-3 py-2 text-stone-600">Totaux</td>
+                <td></td>
+                <td className="px-3 py-2 text-right tabular-nums">{ils(totalTTC)}</td>
+                <td className="px-3 py-2 text-right tabular-nums">{ils(totalHT)}</td>
+              </tr>
+              <tr className="text-xs text-stone-500">
+                <td className="px-3 py-1.5">TVA collectée / déductible</td>
+                <td></td>
+                <td></td>
+                <td className="px-3 py-1.5 text-right tabular-nums">{ils(totalVAT)}</td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+      </div>
+    </div>
+  );
 };
 
 /* =========================================================
@@ -5328,6 +5521,7 @@ function App() {
   const [recurrencesOpen, setRecurrencesOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [exportOpen, setExportOpen] = useState(false);
+  const [taxBreakdown, setTaxBreakdown] = useState(null); // null | 'income' | 'expense'
   const refreshRecurrenceRules = () => setRecurrenceRules(loadRecurrenceRules());
   const rulesById = useMemo(() => {
     const m = new Map();
@@ -5471,7 +5665,7 @@ function App() {
   const addExpense = () => setData(d => ({
     ...d,
     expenses: [{
-      id: uid(), name: '', type: '', amount: 0, day: 1, mode: 'bank', cardNumber: '', notes: '', paid: 0,
+      id: uid(), name: '', type: '', amount: 0, day: 1, mode: 'bank', cardNumber: '', notes: '', paid: 0, vatTaxable: false,
     }, ...d.expenses],
   }));
   const updateExpense = (id, patch) => setData(d => ({
@@ -5486,7 +5680,7 @@ function App() {
   // CRUD - Incomes
   const addIncome = () => setData(d => ({
     ...d,
-    incomes: [{ id: uid(), name: '', amount: 0, day: 1, received: 0 }, ...d.incomes],
+    incomes: [{ id: uid(), name: '', amount: 0, day: 1, received: 0, vatTaxable: false }, ...d.incomes],
   }));
   const updateIncome = (id, patch) => setData(d => ({
     ...d, incomes: d.incomes.map(i => i.id === id ? { ...i, ...patch } : i),
@@ -5828,9 +6022,34 @@ function App() {
       const r = Number(i.received) || 0, a = Number(i.amount) || 0;
       if (r > 0) { varInc += (r - a); varIncCount++; }
     }
+    // CA HT (sur encaissements reçus) : received/1.18 si vatTaxable, sinon received entier.
+    let caHT = 0;
+    for (const i of data.incomes) {
+      const r = Number(i.received) || 0;
+      if (r <= 0) continue;
+      caHT += i.vatTaxable ? r / VAT_DIVIDER : r;
+    }
+    // Dépenses HT (décaissements payés) : paid/1.18 si vatTaxable sinon paid entier.
+    // On ajoute aussi les synthétiques cartes (mêmes règles : pas regroupées dans
+    // expenses, donc traitées comme un bloc séparé — par défaut non TVA, l'utilisateur
+    // ne peut pas (encore) flagger une carte synthétique. On considère TTC sans VAT split.)
+    let expHT = 0;
+    for (const e of data.expenses) {
+      if (isGrouped(e)) continue;
+      const p = Number(e.paid) || 0;
+      if (p <= 0) continue;
+      expHT += e.vatTaxable ? p / VAT_DIVIDER : p;
+    }
+    for (const c of cardsForMonth) {
+      if (c.paidAt) expHT += Number(c.upcomingAmount) || 0;
+    }
+    // Dépenses non affectées : explicitement NON soumis à TVA (ajouté brut)
+    expHT += unaffected;
+
     return { expPlanned, expPaid, expRemaining, incPlanned, incReceived, incRemaining,
              opening, unaffected, current, projected, target, additionalNeeded,
-             varExp, varExpCount, varInc, varIncCount };
+             varExp, varExpCount, varInc, varIncCount,
+             caHT, expHT };
   }, [data, cardsForMonth]);
 
   const isEmpty = data.expenses.length === 0 && data.incomes.length === 0;
@@ -5905,7 +6124,9 @@ function App() {
                    prevLabel={hasPrevMonth ? prevLabel : null}
                    cardsAll={cardsAll}
                    cardsForMonth={cardsForMonth}
-                   categoriesById={categoriesById}/>
+                   categoriesById={categoriesById}
+                   onShowUnaffectedDetail={() => setGenerateOpen(true)}
+                   onShowTaxBreakdown={(k) => setTaxBreakdown(k)}/>
         </div>
 
         <footer className="mt-10 pt-6 border-t border-stone-200 text-xs text-stone-400 text-center">
@@ -5939,6 +6160,15 @@ function App() {
         onCancel={() => setPostsImport(null)}
         onAppend={applyPostsAppend}
         onReplace={applyPostsReplace}
+      />
+
+      <TaxBreakdownModal
+        open={!!taxBreakdown}
+        kind={taxBreakdown}
+        data={data}
+        totals={totals}
+        cardsForMonth={cardsForMonth}
+        onClose={() => setTaxBreakdown(null)}
       />
 
       <ImportedTransactionsModal
