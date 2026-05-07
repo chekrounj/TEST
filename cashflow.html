@@ -269,13 +269,87 @@ const parseBankStatement = async (file) => {
 };
 
 const parseCardStatement = async (file) => {
-  console.log("Parser cartes non implémenté", file?.name);
-  await new Promise(r => setTimeout(r, 600));
+  const buf = await file.arrayBuffer();
+  const wb = XLSX.read(buf, { type: 'array', cellDates: true });
+  const sheet = wb.Sheets[wb.SheetNames[0]];
+  const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
+
+  // Repérer toutes les lignes d'en-tête "שם כרטיס" (col 0) — il y en a deux dans
+  // le format Hapoalim (achats en Israël + achats à l'étranger).
+  const headerIndices = [];
+  for (let i = 0; i < rows.length; i++) {
+    const c0 = String((rows[i] || [])[0] || '').trim();
+    if (c0 === 'שם כרטיס') headerIndices.push(i);
+  }
+
+  const isILSCurrency = (cur) => {
+    const c = String(cur || '').trim();
+    if (!c) return true; // section Israël : pas de col devise → ILS implicite
+    return c === 'ש"ח' || c === "ש''ח" || c === 'ש״ח' || c.toUpperCase() === 'ILS';
+  };
+
+  const warnings = new Set();
+  const entries = [];
+  for (const start of headerIndices) {
+    for (let i = start + 1; i < rows.length; i++) {
+      const row = rows[i] || [];
+      const c0 = String(row[0] || '').trim();
+      const c1 = row[1];
+      const c2 = row[2];
+
+      // Ligne vide → fin de section
+      if (!c0 && (c1 == null || c1 === '') && (c2 == null || c2 === '')) break;
+      // Ligne titre (un seul mot non-vide en col 0, col 1 vide) → fin
+      if (c0 && (c1 == null || c1 === '') && (c2 == null || c2 === '')) break;
+      // Nouvel en-tête → fin
+      if (c0 === 'שם כרטיס') break;
+
+      const cardNumber = c0;
+      const amount = Number(c1) || 0;
+      const debitDate = c2 instanceof Date ? dateToISO(c2)
+                      : (typeof c2 === 'string' ? parseStringDate(c2) : null);
+      const currency = String(row[3] || '').trim();
+
+      if (!cardNumber || !debitDate) continue;
+      if (!isILSCurrency(currency)) {
+        warnings.add(`Achats en ${currency} ignorés pour l'instant — support à venir`);
+        continue;
+      }
+      if (amount === 0) continue; // ligne future sans montant connu
+
+      entries.push({ cardNumber, amount, debitDate, currency: 'ILS' });
+    }
+  }
+
+  // Agrégation par cardNumber + debitDate
+  const aggregated = new Map();
+  for (const e of entries) {
+    const key = `${e.cardNumber}|${e.debitDate}`;
+    const existing = aggregated.get(key);
+    if (existing) existing.amount += e.amount;
+    else aggregated.set(key, { ...e });
+  }
+
+  // Delta par rapport au snapshot courant (pour affichage)
+  const snap = loadCardsSnapshot();
+  const cards = [...aggregated.values()].map(e => {
+    const prev = snap[e.cardNumber];
+    return {
+      cardNumber: e.cardNumber,
+      upcomingAmount: e.amount,
+      debitDate: e.debitDate,
+      currency: e.currency,
+      prevAmount: prev ? prev.upcomingAmount : null,
+      prevDebitDate: prev ? prev.debitDate : null,
+    };
+  });
+
   return {
     kind: 'card',
-    fileName: file?.name || '',
-    summary: "Parser cartes non implémenté",
-    rows: [],
+    fileName: file.name,
+    summary: `${cards.length} carte${cards.length > 1 ? 's' : ''} détectée${cards.length > 1 ? 's' : ''}`,
+    cards,
+    warnings: [...warnings],
   };
 };
 
@@ -634,7 +708,38 @@ const ReportedBadge = ({ from }) => {
   );
 };
 
-const ExpensesTable = ({ expenses, onAdd, onUpdate, onRemove, onRemoveMany, onReportUnpaid, hasPrevMonth, onExportExcel, onImportExcel }) => {
+const SyntheticCardRow = ({ card, colSpan }) => {
+  const isPaid = !!card.paidAt;
+  return (
+    <tr className="bg-violet-50/60 border-l-4 border-violet-400">
+      <td colSpan={colSpan} className="px-3 py-2.5">
+        <div className="flex items-center justify-between gap-3 flex-wrap">
+          <div className="flex items-center gap-2 text-violet-900 min-w-0">
+            <CreditCard className="w-4 h-4 text-violet-600 flex-none"/>
+            <span className="font-medium tabular-nums">Carte {card.cardNumber}</span>
+            <span className="text-xs text-violet-700">— débit groupé prévu le <span className="tabular-nums">{fmtDateFR(card.debitDate)}</span></span>
+          </div>
+          <div className="flex items-center gap-3">
+            <span className="font-semibold tabular-nums text-violet-900">
+              {formatNum(card.upcomingAmount)} ₪
+            </span>
+            {isPaid
+              ? <Badge tone="emerald"><Check className="w-3 h-3"/>Débité</Badge>
+              : <Badge tone="gray">Attendu</Badge>}
+          </div>
+        </div>
+      </td>
+    </tr>
+  );
+};
+
+const GroupedUnderCardBadge = ({ cardNumber }) => (
+  <div className="inline-flex items-center gap-1 mt-0.5 text-[10px] px-1.5 py-0.5 rounded bg-stone-100 text-stone-500 ring-1 ring-stone-200">
+    <CreditCard className="w-3 h-3"/>regroupé sous CB {cardNumber}
+  </div>
+);
+
+const ExpensesTable = ({ expenses, onAdd, onUpdate, onRemove, onRemoveMany, onReportUnpaid, hasPrevMonth, onExportExcel, onImportExcel, cardsForMonth }) => {
   const [selected, setSelected] = useState(() => new Set());
   const [sort, onSort] = useSort();
   const [groupByType, setGroupByType] = useState(false);
@@ -672,7 +777,26 @@ const ExpensesTable = ({ expenses, onAdd, onUpdate, onRemove, onRemoveMany, onRe
     if (f === 'status') return ({ unpaid: 0, partial: 1, paid: 2 })[expenseStatus(e)];
     return e[f];
   };
-  const sortedExpenses = useMemo(() => sortRows(expenses, sort, valueOf), [expenses, sort]);
+  const cardsByNumber = useMemo(
+    () => new Map((cardsForMonth || []).map(c => [String(c.cardNumber), c])),
+    [cardsForMonth]
+  );
+  const childrenByCard = useMemo(() => {
+    const map = new Map();
+    for (const e of expenses) {
+      if (e.mode === 'card' && cardsByNumber.has(String(e.cardNumber))) {
+        const arr = map.get(String(e.cardNumber)) || [];
+        arr.push(e);
+        map.set(String(e.cardNumber), arr);
+      }
+    }
+    return map;
+  }, [expenses, cardsByNumber]);
+  const expensesNotGrouped = useMemo(
+    () => expenses.filter(e => !(e.mode === 'card' && cardsByNumber.has(String(e.cardNumber)))),
+    [expenses, cardsByNumber]
+  );
+  const sortedExpenses = useMemo(() => sortRows(expensesNotGrouped, sort, valueOf), [expensesNotGrouped, sort]);
 
   const groups = useMemo(() => {
     if (!groupByType) return null;
@@ -689,8 +813,14 @@ const ExpensesTable = ({ expenses, onAdd, onUpdate, onRemove, onRemoveMany, onRe
     }));
   }, [sortedExpenses, groupByType]);
 
-  const totalPlanned   = expenses.reduce((s, e) => s + (Number(e.amount) || 0), 0);
-  const totalPaid      = expenses.reduce((s, e) => s + (Number(e.paid)   || 0), 0);
+  // Totaux : exclure les expenses regroupées sous une carte, ajouter les
+  // synthétiques cartes (qui remplacent ces individuelles).
+  const totalPlanned   =
+    expensesNotGrouped.reduce((s, e) => s + (Number(e.amount) || 0), 0)
+    + (cardsForMonth || []).reduce((s, c) => s + (Number(c.upcomingAmount) || 0), 0);
+  const totalPaid      =
+    expensesNotGrouped.reduce((s, e) => s + (Number(e.paid)   || 0), 0)
+    + (cardsForMonth || []).reduce((s, c) => s + (c.paidAt ? (Number(c.upcomingAmount) || 0) : 0), 0);
   const totalRemaining = totalPlanned - totalPaid;
 
   const typeSuggestions = useMemo(
@@ -698,16 +828,20 @@ const ExpensesTable = ({ expenses, onAdd, onUpdate, onRemove, onRemoveMany, onRe
     [expenses]
   );
 
-  const renderRow = (e) => (
-    <tr key={e.id} className={"hover:bg-stone-50/60 align-top " + (selected.has(e.id) ? "bg-stone-50" : "")}>
+  const renderRow = (e, opts = {}) => (
+    <tr key={e.id} className={"hover:bg-stone-50/60 align-top " + (selected.has(e.id) ? "bg-stone-50" : "") + (opts.childOf ? " bg-stone-50/40" : "")}>
       <td className="px-3 py-1.5">
-        <input type="checkbox" checked={selected.has(e.id)} onChange={() => toggleOne(e.id)}
-          className="w-4 h-4 rounded border-stone-300 text-stone-900 focus:ring-stone-400 cursor-pointer"
-          aria-label="Sélectionner la ligne"/>
+        {opts.childOf ? <span className="inline-block w-4"/> : (
+          <input type="checkbox" checked={selected.has(e.id)} onChange={() => toggleOne(e.id)}
+            className="w-4 h-4 rounded border-stone-300 text-stone-900 focus:ring-stone-400 cursor-pointer"
+            aria-label="Sélectionner la ligne"/>
+        )}
       </td>
       <td className="px-2 py-1">
+        {opts.childOf && <span className="inline-block w-4 text-stone-300 mr-1">↳</span>}
         <WrappingInput value={e.name} onChange={v => onUpdate(e.id, { name: v })} placeholder="Nom du fournisseur"/>
         <ReportedBadge from={e.reportedFrom}/>
+        {opts.childOf && <GroupedUnderCardBadge cardNumber={opts.childOf}/>}
       </td>
       <td className="px-2 py-1">
         <input type="text" dir="auto" list="expense-types" value={e.type || ''}
@@ -827,11 +961,19 @@ const ExpensesTable = ({ expenses, onAdd, onUpdate, onRemove, onRemoveMany, onRe
             </tr>
           </thead>
           <tbody className="divide-y divide-stone-100">
-            {expenses.length === 0 && (
+            {expenses.length === 0 && (cardsForMonth || []).length === 0 && (
               <tr><td colSpan="9" className="px-4 py-6 text-center text-sm text-stone-400">
                 Aucun poste pour ce mois.
               </td></tr>
             )}
+
+            {/* Lignes synthétiques cartes + leurs enfants regroupés */}
+            {(cardsForMonth || []).map(c => (
+              <React.Fragment key={'card-' + c.cardNumber}>
+                <SyntheticCardRow card={c} colSpan={9}/>
+                {(childrenByCard.get(String(c.cardNumber)) || []).map(e => renderRow(e, { childOf: c.cardNumber }))}
+              </React.Fragment>
+            ))}
 
             {groups ? groups.map(g => (
               <React.Fragment key={g.type}>
@@ -1025,7 +1167,53 @@ const IncomesTable = ({ incomes, onAdd, onUpdate, onRemove, onRemoveMany }) => {
 /* =========================================================
    Sidebar
    ========================================================= */
-const Sidebar = ({ data, totals, onPatch, prevEndBalance, prevLabel }) => {
+const CardsSidebar = ({ cards }) => {
+  if (!cards || cards.length === 0) return null;
+  const today = new Date(); today.setHours(0,0,0,0);
+  return (
+    <div className="bg-white rounded-xl ring-1 ring-stone-200 p-4">
+      <div className="flex items-center gap-2 text-stone-500 text-xs uppercase tracking-wide font-medium">
+        <CreditCard className="w-3.5 h-3.5"/> Cartes de crédit
+      </div>
+      <div className="mt-3 space-y-2">
+        {cards.map(c => {
+          const debit = new Date(c.debitDate); debit.setHours(0,0,0,0);
+          const days = Math.round((debit - today) / 86400000);
+          let tone = 'gray';
+          if (c.paidAt)            tone = 'emerald';
+          else if (days < 0)       tone = 'rose';
+          else if (days <= 7)      tone = 'amber';
+          const tones = {
+            emerald: 'bg-emerald-50 ring-emerald-200 text-emerald-700',
+            rose:    'bg-rose-50    ring-rose-200    text-rose-700',
+            amber:   'bg-amber-50   ring-amber-200   text-amber-700',
+            gray:    'bg-stone-50   ring-stone-200   text-stone-600',
+          };
+          return (
+            <div key={c.cardNumber}
+                 className={"rounded-lg ring-1 px-3 py-2 flex items-center justify-between gap-3 " + tones[tone]}>
+              <div className="min-w-0">
+                <div className="text-sm font-medium tabular-nums">•••• {c.cardNumber}</div>
+                <div className="text-[11px] opacity-80 mt-0.5 flex items-center gap-1">
+                  {c.paidAt
+                    ? <><Check className="w-3 h-3"/>Débitée le {fmtDateFR(c.paidAt)}</>
+                    : <>Débit le {fmtDateFR(c.debitDate)}{days >= 0 && days <= 7 ? ` · dans ${days} j.` : days < 0 ? ' · en retard' : ''}</>}
+                </div>
+              </div>
+              <div className="text-right">
+                <div className="text-sm font-semibold tabular-nums">
+                  {formatNum(c.upcomingAmount)} ₪
+                </div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+};
+
+const Sidebar = ({ data, totals, onPatch, prevEndBalance, prevLabel, cardsAll, cardsForMonth }) => {
   const projectedPositive = totals.projected >= 0;
   const targetReached = totals.additionalNeeded <= 0;
 
@@ -1058,6 +1246,9 @@ const Sidebar = ({ data, totals, onPatch, prevEndBalance, prevLabel }) => {
           </button>
         )}
       </div>
+
+      {/* Cartes de crédit (toutes les cartes connues) */}
+      <CardsSidebar cards={cardsAll}/>
 
       {/* Résumé du mois */}
       <div className="bg-white rounded-xl ring-1 ring-stone-200 p-4">
@@ -1981,6 +2172,64 @@ const BankRecap = ({ result, onUpdate }) => {
   );
 };
 
+const CardRecap = ({ result }) => {
+  const cards = result.cards || [];
+  const warnings = result.warnings || [];
+  return (
+    <div className="space-y-3">
+      {warnings.length > 0 && (
+        <div className="rounded-lg bg-amber-50 ring-1 ring-amber-200 px-3 py-2 text-sm text-amber-800 space-y-0.5">
+          {warnings.map((w, i) => <div key={i}>⚠ {w}</div>)}
+        </div>
+      )}
+
+      <div className="rounded-lg ring-1 ring-stone-200 overflow-hidden">
+        <div className="px-3 py-2 bg-stone-50 text-xs font-medium text-stone-600 flex items-center justify-between">
+          <span>Cartes détectées</span>
+          <span className="tabular-nums text-stone-500">{cards.length}</span>
+        </div>
+        <div className="divide-y divide-stone-100">
+          {cards.length === 0 ? (
+            <div className="px-3 py-6 text-center text-sm text-stone-400">
+              Aucune carte parsée. Vérifiez le format du fichier.
+            </div>
+          ) : cards.map(c => {
+            const hasPrev = c.prevAmount != null;
+            const delta = hasPrev ? (c.upcomingAmount - c.prevAmount) : 0;
+            return (
+              <div key={c.cardNumber} className="px-3 py-3 flex items-center gap-3">
+                <CreditCard className="w-5 h-5 text-violet-600 flex-none"/>
+                <div className="flex-1 min-w-0">
+                  <div className="font-medium text-stone-900 tabular-nums">•••• {c.cardNumber}</div>
+                  <div className="text-xs text-stone-500 mt-0.5">
+                    Prochain débit : {fmtDateFR(c.debitDate)}
+                    {hasPrev && c.prevDebitDate && c.prevDebitDate !== c.debitDate && (
+                      <span className="text-stone-400"> (était {fmtDateFR(c.prevDebitDate)})</span>
+                    )}
+                  </div>
+                </div>
+                <div className="text-right">
+                  <div className="font-semibold tabular-nums text-stone-900">
+                    {formatNum(c.upcomingAmount)} ₪
+                  </div>
+                  {hasPrev && delta !== 0 && (
+                    <div className={"text-[11px] tabular-nums " + (delta > 0 ? "text-rose-600" : "text-emerald-600")}>
+                      {delta > 0 ? '+' : '−'}{formatNum(Math.abs(delta))} vs précédent
+                    </div>
+                  )}
+                  {hasPrev && delta === 0 && (
+                    <div className="text-[11px] text-stone-400">identique au précédent</div>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+  );
+};
+
 /* =========================================================
    Import wizard (bank statements + credit cards)
    ========================================================= */
@@ -2162,21 +2411,8 @@ const ImportWizard = ({ open, onClose, onConfirmImport }) => {
               setParseResult(prev => typeof updater === 'function' ? updater(prev) : updater)
             }/>
           )}
-          {step === 4 && parseResult && parseResult.kind !== 'bank' && (
-            <div>
-              <div className="rounded-lg ring-1 ring-stone-200 bg-stone-50 p-4">
-                <div className="text-xs uppercase tracking-wide text-stone-500 font-medium">Récap de l'import</div>
-                <div className="mt-2 text-sm text-stone-800">{parseResult.summary || '—'}</div>
-                <div className="mt-3 text-xs text-stone-500 space-y-0.5">
-                  <div>Type : <span className="text-stone-700">{typeLabel}</span></div>
-                  <div>Fichier : <span className="text-stone-700">{parseResult.fileName || file?.name}</span></div>
-                  <div>Lignes détectées : <span className="text-stone-700 tabular-nums">{(parseResult.rows || []).length}</span></div>
-                </div>
-              </div>
-              <p className="mt-3 text-xs text-stone-400">
-                Aucune donnée ne sera modifiée tant que vous n'aurez pas cliqué sur « Confirmer l'import ».
-              </p>
-            </div>
+          {step === 4 && parseResult && parseResult.kind === 'card' && (
+            <CardRecap result={parseResult}/>
           )}
         </div>
 
@@ -2186,7 +2422,7 @@ const ImportWizard = ({ open, onClose, onConfirmImport }) => {
               + (parseResult.unmatched?.length || 0)
               + (parseResult.cardDebits?.length || 0)
               + (parseResult.ignored?.length || 0)
-            : null;
+            : (parseResult?.kind === 'card' ? (parseResult.cards?.length || 0) : null);
           const disabled = newCount === 0;
           return (
             <footer className="px-5 py-3 border-t border-stone-200 flex items-center justify-end gap-2">
@@ -2439,6 +2675,7 @@ function App() {
   const [postsImport, setPostsImport] = useState(null); // { expenses: [...] }
   const [generateOpen, setGenerateOpen] = useState(false);
   const [history, setHistory] = useState({}); // { [monthKey]: { past:[], future:[] } }
+  const [cardsSnapshot, setCardsSnapshot] = useState(() => loadCardsSnapshot());
   const postsFileRef = useRef(null);
   const skipNextSave = useRef(true);
   const prevDataRef = useRef(null);
@@ -2455,6 +2692,19 @@ function App() {
     return opening + received - paid;
   }, [prevData]);
   const prevLabel = monthLabel(prevYM.y, prevYM.m);
+
+  // Cartes : toutes (sidebar) et celles dont le débit tombe ce mois-ci (table + totaux)
+  const cardsAll = useMemo(
+    () => Object.entries(cardsSnapshot)
+      .map(([cardNumber, c]) => ({ cardNumber, ...c }))
+      .sort((a, b) => (a.debitDate || '').localeCompare(b.debitDate || '')),
+    [cardsSnapshot]
+  );
+  const cardsForMonth = useMemo(
+    () => cardsAll.filter(c => (c.debitDate || '').slice(0, 7) === key),
+    [cardsAll, key]
+  );
+  const refreshCards = () => setCardsSnapshot(loadCardsSnapshot());
 
   // Recharger les données quand on change de mois
   useEffect(() => {
@@ -2740,6 +2990,7 @@ function App() {
     )) return;
     localStorage.removeItem('transactions:imported');
     localStorage.removeItem('cards:current');
+    refreshCards();
     setImportToast(`Index effacé (${txCount} transaction${txCount > 1 ? 's' : ''}, ${cardCount} carte${cardCount > 1 ? 's' : ''})`);
     setTimeout(() => setImportToast(null), 3000);
   };
@@ -2874,8 +3125,23 @@ function App() {
 
   // Computations
   const totals = useMemo(() => {
-    const expPlanned   = data.expenses.reduce((s, e) => s + (Number(e.amount)   || 0), 0);
-    const expPaid      = data.expenses.reduce((s, e) => s + (Number(e.paid)     || 0), 0);
+    // Anti-double-comptage : si une carte du mois courant est dans cards:current,
+    // les expenses mode='card' avec ce cardNumber sont "informatives" et NE
+    // comptent PAS — elles sont remplacées par la ligne synthétique de la carte.
+    const cardsByNumber = new Map(cardsForMonth.map(c => [String(c.cardNumber), c]));
+    const isGrouped = (e) => e.mode === 'card' && cardsByNumber.has(String(e.cardNumber));
+
+    let expPlanned = 0, expPaid = 0;
+    for (const e of data.expenses) {
+      if (isGrouped(e)) continue;
+      expPlanned += Number(e.amount) || 0;
+      expPaid    += Number(e.paid)   || 0;
+    }
+    for (const c of cardsForMonth) {
+      const amt = Number(c.upcomingAmount) || 0;
+      expPlanned += amt;
+      if (c.paidAt) expPaid += amt;
+    }
     const expRemaining = expPlanned - expPaid;
     const incPlanned   = data.incomes.reduce((s, i) => s + (Number(i.amount)   || 0), 0);
     const incReceived  = data.incomes.reduce((s, i) => s + (Number(i.received) || 0), 0);
@@ -2886,8 +3152,10 @@ function App() {
     const target       = Number(data.targetBalance) || 0;
     const additionalNeeded = Math.max(0, target - projected);
     // Variances : écart entre réel et prévu, sur les lignes effectivement payées/reçues
+    // Les expenses regroupées sous une carte sont exclues (elles sont remplacées par la synthétique).
     let varExp = 0, varExpCount = 0;
     for (const e of data.expenses) {
+      if (isGrouped(e)) continue;
       const p = Number(e.paid) || 0, a = Number(e.amount) || 0;
       if (p > 0) { varExp += (p - a); varExpCount++; }
     }
@@ -2899,7 +3167,7 @@ function App() {
     return { expPlanned, expPaid, expRemaining, incPlanned, incReceived, incRemaining,
              opening, current, projected, target, additionalNeeded,
              varExp, varExpCount, varInc, varIncCount };
-  }, [data]);
+  }, [data, cardsForMonth]);
 
   const isEmpty = data.expenses.length === 0 && data.incomes.length === 0;
 
@@ -2939,6 +3207,7 @@ function App() {
                   hasPrevMonth={hasPrevMonth}
                   onExportExcel={exportPostsExcel}
                   onImportExcel={() => postsFileRef.current?.click()}
+                  cardsForMonth={cardsForMonth}
                 />
                 <IncomesTable
                   incomes={data.incomes}
@@ -2953,7 +3222,9 @@ function App() {
 
           <Sidebar data={data} totals={totals} onPatch={patchData}
                    prevEndBalance={prevEndBalance}
-                   prevLabel={hasPrevMonth ? prevLabel : null}/>
+                   prevLabel={hasPrevMonth ? prevLabel : null}
+                   cardsAll={cardsAll}
+                   cardsForMonth={cardsForMonth}/>
         </div>
 
         <footer className="mt-10 pt-6 border-t border-stone-200 text-xs text-stone-400 text-center">
@@ -3098,13 +3369,49 @@ function App() {
             }
             saveImportedTx(idx);
 
+            // Auto-match du débit groupé : pour chaque tx 'card-debit', chercher
+            // une carte dans cards:current avec cardNumber=reference, debitDate ±2j,
+            // amount à ±10%. Si match, marquer paidAt.
+            const cardsSnap = loadCardsSnapshot();
+            let cardsTouched = false;
+            for (const cd of (result.cardDebits || [])) {
+              const cardNum = String(cd.cardNumber || cd.reference || '');
+              const c = cardsSnap[cardNum];
+              if (!c || c.paidAt) continue;
+              const dDate = new Date(c.debitDate), tDate = new Date(cd.date);
+              const dayDiff = Math.abs((tDate - dDate) / 86400000);
+              if (dayDiff > 2) continue;
+              const upcoming = Number(c.upcomingAmount) || 0;
+              const ratio = upcoming > 0
+                ? Math.abs((Number(cd.debit) || 0) - upcoming) / upcoming
+                : 1;
+              if (ratio > 0.10) continue;
+              cardsSnap[cardNum] = { ...c, paidAt: cd.date };
+              cardsTouched = true;
+            }
+            if (cardsTouched) {
+              saveCardsSnapshot(cardsSnap);
+              refreshCards();
+            }
+
             const total    = allNew.length;
             const matched  = (result.matched || []).length;
             setImportToast(`${total} transaction${total > 1 ? 's' : ''} importée${total > 1 ? 's' : ''} · ${matched} matchée${matched > 1 ? 's' : ''}`);
-          } else {
-            // Cartes : intégration au prompt suivant.
-            console.log('Import confirmé (stub) :', result);
-            setImportToast(`Import (stub) — cartes`);
+          } else if (result?.kind === 'card') {
+            const importedAt = new Date().toISOString();
+            const snap = loadCardsSnapshot();
+            for (const c of (result.cards || [])) {
+              snap[c.cardNumber] = {
+                upcomingAmount: c.upcomingAmount,
+                debitDate: c.debitDate,
+                lastImportedAt: importedAt,
+                paidAt: undefined,
+              };
+            }
+            saveCardsSnapshot(snap);
+            refreshCards();
+            const n = (result.cards || []).length;
+            setImportToast(`${n} carte${n > 1 ? 's' : ''} mise${n > 1 ? 's' : ''} à jour`);
           }
           setTimeout(() => setImportToast(null), 3000);
         }}
