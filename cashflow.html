@@ -1326,8 +1326,8 @@ const DataMenu = ({ onImportExcel, onExportBackup, onRestoreBackup, onGenerateFr
             sub="Importer une sauvegarde" onClick={() => jsonRef.current?.click()}/>
           {onGenerateFromImports && (<>
             <div className="border-t border-stone-100 my-1"/>
-            <MenuItem icon={<Sparkles className="w-4 h-4"/>} label="Générer postes depuis imports"
-              sub="Mois courant · banque" onClick={() => { onGenerateFromImports(); setOpen(false); }}/>
+            <MenuItem icon={<Sparkles className="w-4 h-4"/>} label="Transactions importées"
+              sub="Voir et créer des postes" onClick={() => { onGenerateFromImports(); setOpen(false); }}/>
           </>)}
         </div>
       )}
@@ -1347,189 +1347,266 @@ const MenuItem = ({ icon, label, sub, onClick }) => (
 );
 
 /* =========================================================
-   Generate postes from imported transactions
+   Imported transactions browser (view + create postes)
    ========================================================= */
 const groupTxByDescription = (txs) => {
   const groups = new Map();
   for (const t of txs) {
     const key = (t.description || '').trim() || '—';
     const existing = groups.get(key);
+    const amt = Math.abs(Number(t.amount) || 0);
     if (existing) {
-      existing.totalAmount += Math.abs(Number(t.amount) || 0);
+      existing.totalAmount += amt;
       existing.count++;
       if (!existing.firstDate || t.date < existing.firstDate) existing.firstDate = t.date;
     } else {
       groups.set(key, {
-        name: key,
-        totalAmount: Math.abs(Number(t.amount) || 0),
-        firstDate: t.date,
-        count: 1,
+        name: key, cardNumber: '',
+        totalAmount: amt, firstDate: t.date, count: 1,
       });
     }
   }
   return [...groups.values()];
 };
 
-const computeGeneratedPosts = ({ monthKey, direction, scope, currentExpenses, currentIncomes }) => {
-  const idx = loadImportedTx();
-  const txs = Object.values(idx).filter(t => t.monthKey === monthKey);
-
-  // Direction filter (amount > 0 → sortie, < 0 → entrée)
-  const outs = txs.filter(t => (Number(t.amount) || 0) > 0);
-  const ins  = txs.filter(t => (Number(t.amount) || 0) < 0);
-
-  let expenses = (direction === 'in')  ? [] : groupTxByDescription(outs);
-  let incomes  = (direction === 'out') ? [] : groupTxByDescription(ins);
-
-  if (scope === 'new') {
-    const matchesExisting = (name, items) => {
-      const n = name.toLowerCase().trim();
-      if (!n) return false;
-      return items.some(item => {
-        const itemName = (item.name || '').toLowerCase().trim();
-        if (!itemName) return false;
-        return itemName.includes(n) || n.includes(itemName);
+const groupTxsForMode = (txs, mode) => {
+  const groups = new Map();
+  for (const t of txs) {
+    const isCardTx = isCardDebit(t.description);
+    const ref = (t.refKey || '').split('|')[0] || '';
+    const useCard = mode === 'card' && isCardTx;
+    const key = useCard ? `card:${ref}` : `desc:${(t.description || '').trim() || '—'}`;
+    const amt = Math.abs(Number(t.amount) || 0);
+    const existing = groups.get(key);
+    if (existing) {
+      existing.totalAmount += amt;
+      existing.count++;
+      if (!existing.firstDate || t.date < existing.firstDate) existing.firstDate = t.date;
+    } else {
+      groups.set(key, {
+        name: useCard ? (t.description || '—') : ((t.description || '').trim() || '—'),
+        cardNumber: useCard ? ref : '',
+        totalAmount: amt, firstDate: t.date, count: 1,
       });
-    };
-    expenses = expenses.filter(g => !matchesExisting(g.name, currentExpenses));
-    incomes  = incomes.filter(g  => !matchesExisting(g.name, currentIncomes));
+    }
   }
-  return { expenses, incomes, sourceCount: txs.length };
+  return [...groups.values()];
 };
 
-const Pill = ({ active, onClick, children }) => (
-  <button onClick={onClick}
-    className={
-      "px-3 py-1.5 text-sm rounded-full ring-1 transition " +
-      (active
-        ? "bg-stone-900 text-white ring-stone-900"
-        : "bg-white text-stone-700 ring-stone-200 hover:bg-stone-50")
-    }>{children}</button>
-);
+const Pill = ({ active, onClick, children, tone }) => {
+  const tones = {
+    sky:    'bg-sky-600 text-white ring-sky-600 hover:bg-sky-700',
+    violet: 'bg-violet-600 text-white ring-violet-600 hover:bg-violet-700',
+    dark:   'bg-stone-900 text-white ring-stone-900',
+  };
+  return (
+    <button onClick={onClick}
+      className={
+        "px-3 py-1.5 text-sm rounded-full ring-1 transition " +
+        (active ? (tones[tone] || tones.dark)
+                : "bg-white text-stone-700 ring-stone-200 hover:bg-stone-50")
+      }>{children}</button>
+  );
+};
 
-const GeneratePostsModal = ({ open, monthKey, monthLabelStr, currentExpenses, currentIncomes, onClose, onGenerate }) => {
-  const [direction, setDirection] = useState('both'); // 'in' | 'out' | 'both'
-  const [scope, setScope] = useState('new');          // 'all' | 'new'
+const ImportedTransactionsModal = ({ open, currentMonthKey, onClose, onCreate }) => {
+  const [allTxs, setAllTxs] = useState({});
+  const [monthFilter, setMonthFilter] = useState(currentMonthKey);
+  const [sourceFilter, setSourceFilter] = useState('all'); // all | bank | card
+  const [dirFilter, setDirFilter] = useState('all');       // all | out | in
+  const [selected, setSelected] = useState(() => new Set());
 
   useEffect(() => {
-    if (open) { setDirection('both'); setScope('new'); }
-  }, [open]);
+    if (!open) return;
+    const txs = loadImportedTx();
+    setAllTxs(txs);
+    const months = [...new Set(Object.values(txs).map(t => t.monthKey).filter(Boolean))].sort().reverse();
+    setMonthFilter(months.includes(currentMonthKey) ? currentMonthKey : (months[0] || currentMonthKey));
+    setSourceFilter('all');
+    setDirFilter('all');
+    setSelected(new Set());
+  }, [open, currentMonthKey]);
 
-  const proposed = useMemo(() => {
-    if (!open) return { expenses: [], incomes: [], sourceCount: 0 };
-    return computeGeneratedPosts({ monthKey, direction, scope, currentExpenses, currentIncomes });
-  }, [open, monthKey, direction, scope, currentExpenses, currentIncomes]);
+  const allTxList = useMemo(() =>
+    Object.entries(allTxs).map(([refKey, t]) => ({ refKey, ...t })),
+    [allTxs]);
+
+  const availableMonths = useMemo(() => {
+    const s = new Set(allTxList.map(t => t.monthKey).filter(Boolean));
+    return [...s].sort().reverse();
+  }, [allTxList]);
+
+  const filtered = useMemo(() => {
+    let list = allTxList.filter(t => t.monthKey === monthFilter);
+    if (sourceFilter === 'bank') list = list.filter(t => !isCardDebit(t.description));
+    if (sourceFilter === 'card') list = list.filter(t =>  isCardDebit(t.description));
+    if (dirFilter === 'out') list = list.filter(t => Number(t.amount) > 0);
+    if (dirFilter === 'in')  list = list.filter(t => Number(t.amount) < 0);
+    list.sort((a, b) => a.date.localeCompare(b.date));
+    return list;
+  }, [allTxList, monthFilter, sourceFilter, dirFilter]);
+
+  const toggleOne = (refKey) => setSelected(prev => {
+    const next = new Set(prev);
+    next.has(refKey) ? next.delete(refKey) : next.add(refKey);
+    return next;
+  });
+  const allSelected = filtered.length > 0 && filtered.every(t => selected.has(t.refKey));
+  const toggleAll = () => setSelected(prev => {
+    const next = new Set(prev);
+    if (allSelected) for (const t of filtered) next.delete(t.refKey);
+    else             for (const t of filtered) next.add(t.refKey);
+    return next;
+  });
+
+  const selectedTxs = filtered.filter(t => selected.has(t.refKey));
+  const selectedTotal = selectedTxs.reduce((s, t) => s + Math.abs(Number(t.amount) || 0), 0);
+
+  const monthIdx = availableMonths.indexOf(monthFilter);
+  const goPrev = () => { if (monthIdx >= 0 && monthIdx < availableMonths.length - 1) {
+    setMonthFilter(availableMonths[monthIdx + 1]); setSelected(new Set()); }};
+  const goNext = () => { if (monthIdx > 0) {
+    setMonthFilter(availableMonths[monthIdx - 1]); setSelected(new Set()); }};
 
   if (!open) return null;
-  const totalToCreate = proposed.expenses.length + proposed.incomes.length;
+  const targetLabel = (() => {
+    if (!monthFilter) return '—';
+    const [y, m] = monthFilter.split('-').map(Number);
+    return monthLabel(y, m);
+  })();
 
   return (
     <div className="fixed inset-0 z-50 bg-stone-900/50 flex items-center justify-center p-4" onClick={onClose}>
-      <div className="bg-white rounded-xl shadow-xl ring-1 ring-stone-200 w-full max-w-xl flex flex-col max-h-[90vh]"
+      <div className="bg-white rounded-xl shadow-xl ring-1 ring-stone-200 w-full max-w-3xl flex flex-col max-h-[90vh]"
            onClick={e => e.stopPropagation()}>
-        <header className="px-5 py-4 border-b border-stone-200">
-          <h3 className="font-semibold text-stone-900 text-lg">Générer des postes depuis les imports</h3>
-          <p className="text-xs text-stone-500 mt-0.5">
-            Mois : <span className="font-medium text-stone-700">{monthLabelStr}</span>
-            {' · '}{proposed.sourceCount} transaction{proposed.sourceCount > 1 ? 's' : ''} bancaire{proposed.sourceCount > 1 ? 's' : ''} indexée{proposed.sourceCount > 1 ? 's' : ''}
-          </p>
-        </header>
-
-        <div className="px-5 py-4 space-y-4 overflow-auto flex-1">
-          <div>
-            <div className="text-xs uppercase tracking-wide text-stone-500 font-medium mb-1.5">Direction</div>
-            <div className="flex gap-2 flex-wrap">
-              <Pill active={direction === 'out'}  onClick={() => setDirection('out')}>Sorties uniquement</Pill>
-              <Pill active={direction === 'in'}   onClick={() => setDirection('in')}>Entrées uniquement</Pill>
-              <Pill active={direction === 'both'} onClick={() => setDirection('both')}>Les deux</Pill>
-            </div>
-          </div>
-
-          <div>
-            <div className="text-xs uppercase tracking-wide text-stone-500 font-medium mb-1.5">Portée</div>
-            <div className="flex gap-2 flex-wrap">
-              <Pill active={scope === 'new'} onClick={() => setScope('new')}>
-                Seulement les nouvelles
-              </Pill>
-              <Pill active={scope === 'all'} onClick={() => setScope('all')}>
-                Toutes les transactions
-              </Pill>
-            </div>
-            <p className="text-xs text-stone-500 mt-1">
-              {scope === 'new'
-                ? "Crée un poste seulement si aucun poste du mois ne correspond déjà au libellé."
-                : "Crée un poste pour chaque libellé distinct, même si un poste similaire existe."}
+        <header className="px-5 py-4 border-b border-stone-200 flex items-center justify-between gap-3 flex-wrap">
+          <div className="min-w-0">
+            <h3 className="font-semibold text-stone-900 text-lg">Transactions bancaires importées</h3>
+            <p className="text-xs text-stone-500 mt-0.5">
+              {availableMonths.length === 0
+                ? "Aucune transaction indexée. Importez d'abord un relevé Hapoalim."
+                : `${availableMonths.length} mois disponible${availableMonths.length > 1 ? 's' : ''} · les postes seront créés dans ${targetLabel}`}
             </p>
           </div>
+          {availableMonths.length > 0 && (
+            <div className="inline-flex items-center bg-white ring-1 ring-stone-200 rounded-lg overflow-hidden">
+              <button onClick={goPrev} disabled={monthIdx === availableMonths.length - 1}
+                className="p-1.5 text-stone-600 hover:bg-stone-50 disabled:text-stone-300 disabled:cursor-not-allowed">
+                <ChevronLeft className="w-4 h-4"/>
+              </button>
+              <select value={monthFilter}
+                onChange={e => { setMonthFilter(e.target.value); setSelected(new Set()); }}
+                className="px-3 py-1 text-sm font-medium text-stone-900 bg-transparent outline-none cursor-pointer">
+                {availableMonths.map(m => {
+                  const [y, mm] = m.split('-').map(Number);
+                  return <option key={m} value={m}>{monthLabel(y, mm)}</option>;
+                })}
+              </select>
+              <button onClick={goNext} disabled={monthIdx <= 0}
+                className="p-1.5 text-stone-600 hover:bg-stone-50 disabled:text-stone-300 disabled:cursor-not-allowed">
+                <ChevronRight className="w-4 h-4"/>
+              </button>
+            </div>
+          )}
+        </header>
 
-          {/* Aperçu */}
-          <div className="rounded-lg ring-1 ring-stone-200 overflow-hidden">
-            <div className="px-3 py-2 bg-stone-50 text-xs font-medium text-stone-600 flex items-center justify-between">
-              <span>Aperçu</span>
-              <span className="tabular-nums text-stone-500">
-                {totalToCreate} poste{totalToCreate > 1 ? 's' : ''} à créer
-              </span>
-            </div>
-            <div className="max-h-72 overflow-auto divide-y divide-stone-100">
-              {totalToCreate === 0 && (
-                <div className="px-3 py-6 text-center text-xs text-stone-400">
-                  {proposed.sourceCount === 0
-                    ? "Aucune transaction bancaire indexée pour ce mois. Importez d'abord un relevé Hapoalim."
-                    : "Rien à créer avec les filtres actuels."}
-                </div>
-              )}
-              {proposed.expenses.length > 0 && (
-                <div className="px-3 py-2 bg-rose-50/50 text-[10px] uppercase tracking-wide text-rose-700 font-medium">
-                  Sorties — {proposed.expenses.length}
-                </div>
-              )}
-              {proposed.expenses.map((g, i) => (
-                <div key={'e' + i} className="px-3 py-1.5 text-xs flex items-center gap-3">
-                  <div className="flex-1 min-w-0">
-                    <div className="truncate text-stone-800" dir="auto" title={g.name}>{g.name}</div>
-                    <div className="text-[10px] text-stone-400">
-                      {g.count} transaction{g.count > 1 ? 's' : ''} · 1<sup>re</sup> le {fmtDayFR(g.firstDate)}
-                    </div>
-                  </div>
-                  <span className="tabular-nums font-medium text-rose-600 w-24 text-right">
-                    {formatNum(g.totalAmount)}
-                  </span>
-                </div>
-              ))}
-              {proposed.incomes.length > 0 && (
-                <div className="px-3 py-2 bg-emerald-50/50 text-[10px] uppercase tracking-wide text-emerald-700 font-medium">
-                  Entrées — {proposed.incomes.length}
-                </div>
-              )}
-              {proposed.incomes.map((g, i) => (
-                <div key={'i' + i} className="px-3 py-1.5 text-xs flex items-center gap-3">
-                  <div className="flex-1 min-w-0">
-                    <div className="truncate text-stone-800" dir="auto" title={g.name}>{g.name}</div>
-                    <div className="text-[10px] text-stone-400">
-                      {g.count} transaction{g.count > 1 ? 's' : ''} · 1<sup>re</sup> le {fmtDayFR(g.firstDate)}
-                    </div>
-                  </div>
-                  <span className="tabular-nums font-medium text-emerald-600 w-24 text-right">
-                    {formatNum(g.totalAmount)}
-                  </span>
-                </div>
-              ))}
-            </div>
+        <div className="px-5 py-3 border-b border-stone-100 flex items-center gap-3 flex-wrap">
+          <div className="flex items-center gap-1.5">
+            <span className="text-xs uppercase tracking-wide text-stone-500 font-medium mr-1">Source</span>
+            <Pill active={sourceFilter === 'all'}  onClick={() => setSourceFilter('all')}>Toutes</Pill>
+            <Pill active={sourceFilter === 'bank'} onClick={() => setSourceFilter('bank')}>Banque</Pill>
+            <Pill active={sourceFilter === 'card'} onClick={() => setSourceFilter('card')}>Cartes</Pill>
+          </div>
+          <div className="flex items-center gap-1.5">
+            <span className="text-xs uppercase tracking-wide text-stone-500 font-medium mr-1">Direction</span>
+            <Pill active={dirFilter === 'all'} onClick={() => setDirFilter('all')}>Toutes</Pill>
+            <Pill active={dirFilter === 'out'} onClick={() => setDirFilter('out')}>Sorties</Pill>
+            <Pill active={dirFilter === 'in'}  onClick={() => setDirFilter('in')}>Entrées</Pill>
           </div>
         </div>
 
-        <footer className="px-5 py-3 border-t border-stone-200 flex items-center justify-end gap-2">
-          <button onClick={onClose}
-            className="px-3 py-1.5 text-sm rounded-lg ring-1 ring-stone-200 hover:bg-stone-50">
-            Annuler
-          </button>
-          <button onClick={() => onGenerate(proposed)} disabled={totalToCreate === 0}
-            className={"px-3 py-1.5 text-sm rounded-lg " +
-              (totalToCreate === 0
-                ? "bg-stone-200 text-stone-400 cursor-not-allowed"
-                : "bg-stone-900 text-white hover:bg-stone-800")}>
-            Générer ({totalToCreate})
-          </button>
+        <div className="flex-1 overflow-auto">
+          <table className="w-full text-sm">
+            <thead className="bg-stone-50 text-stone-500 text-xs uppercase tracking-wide sticky top-0 z-10">
+              <tr>
+                <th className="px-3 py-2 w-10">
+                  <input type="checkbox" checked={allSelected} disabled={filtered.length === 0}
+                    onChange={toggleAll}
+                    className="w-4 h-4 rounded border-stone-300 text-stone-900 focus:ring-stone-400 cursor-pointer disabled:cursor-not-allowed"
+                    aria-label="Tout sélectionner"/>
+                </th>
+                <th className="text-left font-medium px-2 py-2 w-16">Date</th>
+                <th className="text-left font-medium px-2 py-2">Libellé</th>
+                <th className="text-right font-medium px-2 py-2 w-28">Montant</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-stone-100">
+              {filtered.length === 0 ? (
+                <tr><td colSpan="4" className="px-4 py-10 text-center text-sm text-stone-400">
+                  Aucune transaction avec ces filtres.
+                </td></tr>
+              ) : filtered.map(t => {
+                const isOut = Number(t.amount) > 0;
+                const isCard = isCardDebit(t.description);
+                return (
+                  <tr key={t.refKey}
+                      onClick={() => toggleOne(t.refKey)}
+                      className={"hover:bg-stone-50/70 cursor-pointer " + (selected.has(t.refKey) ? "bg-stone-50" : "")}>
+                    <td className="px-3 py-1.5">
+                      <input type="checkbox" checked={selected.has(t.refKey)}
+                        onChange={() => toggleOne(t.refKey)}
+                        onClick={e => e.stopPropagation()}
+                        className="w-4 h-4 rounded border-stone-300 text-stone-900 focus:ring-stone-400 cursor-pointer"/>
+                    </td>
+                    <td className="px-2 py-1.5 tabular-nums text-stone-600 text-xs">{fmtDayFR(t.date)}</td>
+                    <td className="px-2 py-1.5">
+                      <div className="flex items-center gap-1.5 min-w-0">
+                        {isCard && <CreditCard className="w-3 h-3 text-violet-500 flex-none"/>}
+                        <span className="truncate text-stone-800" dir="auto" title={t.description}>{t.description || '—'}</span>
+                      </div>
+                    </td>
+                    <td className={"px-2 py-1.5 text-right tabular-nums font-medium text-xs " +
+                      (isOut ? "text-rose-600" : "text-emerald-600")}>
+                      {isOut ? '−' : '+'} {formatNum(t.amount)}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+
+        <footer className="px-5 py-3 border-t border-stone-200 flex items-center justify-between gap-3 flex-wrap">
+          <div className="text-sm text-stone-600">
+            <span className="font-medium text-stone-900">{selected.size}</span> sélectionnée{selected.size > 1 ? 's' : ''}
+            {selected.size > 0 && (
+              <> · <span className="tabular-nums font-medium text-stone-900">{formatILS(selectedTotal)}</span></>
+            )}
+          </div>
+          <div className="flex items-center gap-2 flex-wrap">
+            <button onClick={onClose}
+              className="px-3 py-1.5 text-sm rounded-lg ring-1 ring-stone-200 hover:bg-stone-50">
+              Fermer
+            </button>
+            <button onClick={() => onCreate(selectedTxs, 'bank', monthFilter)}
+              disabled={selected.size === 0}
+              title="Créer des postes mode Banque"
+              className={"inline-flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-lg " +
+                (selected.size === 0
+                  ? "bg-stone-200 text-stone-400 cursor-not-allowed"
+                  : "bg-sky-600 text-white hover:bg-sky-700")}>
+              <Building className="w-4 h-4"/>Créer en banque ({selected.size})
+            </button>
+            <button onClick={() => onCreate(selectedTxs, 'card', monthFilter)}
+              disabled={selected.size === 0}
+              title="Créer des postes mode Carte"
+              className={"inline-flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-lg " +
+                (selected.size === 0
+                  ? "bg-stone-200 text-stone-400 cursor-not-allowed"
+                  : "bg-violet-600 text-white hover:bg-violet-700")}>
+              <CreditCard className="w-4 h-4"/>Créer en carte ({selected.size})
+            </button>
+          </div>
         </footer>
       </div>
     </div>
@@ -2183,7 +2260,7 @@ const EmptyState = ({ onManual, onCopyPrev, onReportUnpaid, onImportFile, hasPre
       {onGenerateFromImports && (
         <button onClick={onGenerateFromImports}
           className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-white text-stone-700 ring-1 ring-stone-200 hover:bg-stone-50 text-sm">
-          <Sparkles className="w-4 h-4"/>Générer depuis imports
+          <Sparkles className="w-4 h-4"/>Voir transactions importées
         </button>
       )}
     </div>
@@ -2553,37 +2630,57 @@ function App() {
     setPostsImport(null);
   };
 
-  // ---- Générer postes depuis les imports ----
-  const applyGenerated = (proposed) => {
-    const newExpenses = proposed.expenses.map(g => ({
+  // ---- Créer postes depuis transactions sélectionnées ----
+  const applyCreatePostsFromTxs = (selectedTxs, mode, targetMonthKey) => {
+    const target = targetMonthKey || key;
+    const outs = selectedTxs.filter(t => Number(t.amount) > 0);
+    const ins  = selectedTxs.filter(t => Number(t.amount) < 0);
+
+    const outGroups = groupTxsForMode(outs, mode);
+    const inGroups  = groupTxByDescription(ins);
+
+    const newExpenses = outGroups.map(g => ({
       id: uid(),
       name: g.name,
       type: '',
       amount: Math.round(g.totalAmount),
       day: parseInt((g.firstDate || '').slice(8, 10), 10) || 1,
-      mode: 'bank',
-      cardNumber: '',
+      mode,
+      cardNumber: g.cardNumber || '',
       notes: '',
       paid: Math.round(g.totalAmount),
     }));
-    const newIncomes = proposed.incomes.map(g => ({
+    const newIncomes = inGroups.map(g => ({
       id: uid(),
       name: g.name,
       amount: Math.round(g.totalAmount),
       day: parseInt((g.firstDate || '').slice(8, 10), 10) || 1,
       received: Math.round(g.totalAmount),
     }));
-    if (newExpenses.length === 0 && newIncomes.length === 0) {
-      setGenerateOpen(false);
-      return;
+
+    const total = newExpenses.length + newIncomes.length;
+    if (total === 0) { setGenerateOpen(false); return; }
+
+    if (target === key) {
+      // Mois courant : passe par setData → save + history normaux
+      setData(d => ({
+        ...d,
+        expenses: [...newExpenses, ...d.expenses],
+        incomes:  [...newIncomes,  ...d.incomes],
+      }));
+    } else {
+      // Autre mois : écriture directe en localStorage
+      const monthData = loadMonth(target);
+      monthData.expenses = [...newExpenses, ...monthData.expenses];
+      monthData.incomes  = [...newIncomes,  ...monthData.incomes];
+      saveMonth(target, monthData);
     }
-    setData(d => ({
-      ...d,
-      expenses: [...newExpenses, ...d.expenses],
-      incomes:  [...newIncomes,  ...d.incomes],
-    }));
+
     setGenerateOpen(false);
-    setImportToast(`${newExpenses.length} sortie${newExpenses.length > 1 ? 's' : ''} · ${newIncomes.length} entrée${newIncomes.length > 1 ? 's' : ''} générée${(newExpenses.length + newIncomes.length) > 1 ? 's' : ''}`);
+    const [ty, tm] = target.split('-').map(Number);
+    const targetLabel = monthLabel(ty, tm);
+    const modeLabel = mode === 'card' ? 'carte' : 'banque';
+    setImportToast(`${total} poste${total > 1 ? 's' : ''} créé${total > 1 ? 's' : ''} en ${modeLabel} dans ${targetLabel} (${newExpenses.length} sortie${newExpenses.length > 1 ? 's' : ''} · ${newIncomes.length} entrée${newIncomes.length > 1 ? 's' : ''})`);
     setTimeout(() => setImportToast(null), 3000);
   };
 
@@ -2777,14 +2874,11 @@ function App() {
         onReplace={applyPostsReplace}
       />
 
-      <GeneratePostsModal
+      <ImportedTransactionsModal
         open={generateOpen}
-        monthKey={key}
-        monthLabelStr={monthLabel(year, month)}
-        currentExpenses={data.expenses}
-        currentIncomes={data.incomes}
+        currentMonthKey={key}
         onClose={() => setGenerateOpen(false)}
-        onGenerate={applyGenerated}
+        onCreate={applyCreatePostsFromTxs}
       />
 
       <ImportWizard
