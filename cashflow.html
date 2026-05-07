@@ -98,6 +98,114 @@ const ruleMatchesText = (rule, text) => {
   return t.toLowerCase().includes(String(rule.pattern).toLowerCase());
 };
 
+/* ---------- Recurrence rules (monthly/quarterly/etc. auto-generation) ---------- */
+// "recurrenceRules" → [{ id, name, type, amount, day, mode, cardNumber, notes,
+//   frequency: 'monthly'|'bi-monthly'|'quarterly'|'semi-annual'|'annual',
+//   startMonth, startYear, endMonth?, endYear?,
+//   active, createdAt, lastGeneratedFor? }]
+const loadRecurrenceRules = () => {
+  try { return JSON.parse(localStorage.getItem('recurrenceRules') || '[]'); }
+  catch { return []; }
+};
+const saveRecurrenceRules = (rules) => {
+  localStorage.setItem('recurrenceRules', JSON.stringify(rules));
+};
+
+const FREQUENCY_LABELS = {
+  'monthly':     'Mensuel',
+  'bi-monthly':  'Bi-mensuel',
+  'quarterly':   'Trimestriel',
+  'semi-annual': 'Semestriel',
+  'annual':      'Annuel',
+};
+const FREQUENCY_STEP = {
+  'monthly': 1, 'bi-monthly': 2, 'quarterly': 3, 'semi-annual': 6, 'annual': 12,
+};
+const monthIdx = (y, m) => Number(y) * 12 + (Number(m) - 1);
+
+const ruleAppliesTo = (rule, year, month) => {
+  if (!rule || !rule.active) return false;
+  const cur = monthIdx(year, month);
+  const start = monthIdx(rule.startYear, rule.startMonth);
+  if (cur < start) return false;
+  if (rule.endYear && rule.endMonth) {
+    const end = monthIdx(rule.endYear, rule.endMonth);
+    if (cur > end) return false;
+  }
+  const step = FREQUENCY_STEP[rule.frequency];
+  if (!step) return false;
+  return ((cur - start) % step) === 0;
+};
+
+const itemFromRule = (rule) => {
+  if (rule.type === 'expense') {
+    return {
+      id: uid(),
+      name: rule.name || '',
+      type: '',
+      amount: Number(rule.amount) || 0,
+      day: Math.max(1, Math.min(31, Number(rule.day) || 1)),
+      mode: rule.mode || 'bank',
+      cardNumber: rule.cardNumber || '',
+      notes: rule.notes || '',
+      paid: 0,
+      recurrenceRuleId: rule.id,
+    };
+  }
+  return {
+    id: uid(),
+    name: rule.name || '',
+    amount: Number(rule.amount) || 0,
+    day: Math.max(1, Math.min(31, Number(rule.day) || 1)),
+    received: 0,
+    recurrenceRuleId: rule.id,
+  };
+};
+
+// Génère les occurrences manquantes pour le mois donné. Retourne le mois mis à jour.
+const generateRecurrenceForMonth = (year, month) => {
+  const k = monthKey(year, month);
+  const monthData = loadMonth(k);
+  const rules = loadRecurrenceRules();
+  let touchedMonth = false, touchedRules = false;
+  for (const rule of rules) {
+    if (!ruleAppliesTo(rule, year, month)) continue;
+    const arr = rule.type === 'expense' ? monthData.expenses : monthData.incomes;
+    if (arr.some(it => it.recurrenceRuleId === rule.id)) continue;
+    const item = itemFromRule(rule);
+    if (rule.type === 'expense') monthData.expenses = [item, ...monthData.expenses];
+    else                          monthData.incomes  = [item, ...monthData.incomes];
+    rule.lastGeneratedFor = k;
+    touchedMonth = true;
+    touchedRules = true;
+  }
+  if (touchedMonth) saveMonth(k, monthData);
+  if (touchedRules) saveRecurrenceRules(rules);
+  return monthData;
+};
+
+// Supprime les occurrences générées par une règle dans tous les mois enregistrés.
+const deleteAllOccurrencesOfRule = (ruleId) => {
+  let total = 0;
+  for (let i = 0; i < localStorage.length; i++) {
+    const k = localStorage.key(i);
+    if (!k || !k.startsWith('month:')) continue;
+    try {
+      const m = JSON.parse(localStorage.getItem(k));
+      const beforeE = (m.expenses || []).length;
+      const beforeI = (m.incomes  || []).length;
+      m.expenses = (m.expenses || []).filter(it => it.recurrenceRuleId !== ruleId);
+      m.incomes  = (m.incomes  || []).filter(it => it.recurrenceRuleId !== ruleId);
+      const removed = (beforeE - m.expenses.length) + (beforeI - m.incomes.length);
+      if (removed > 0) {
+        localStorage.setItem(k, JSON.stringify(m));
+        total += removed;
+      }
+    } catch {}
+  }
+  return total;
+};
+
 /* ---------- Generic settings (alert threshold, UI state) ---------- */
 const loadSetting = (key, def) => {
   try {
@@ -777,6 +885,16 @@ const ReportedBadge = ({ from }) => {
   );
 };
 
+const RecurringBadge = ({ rule }) => {
+  if (!rule) return null;
+  return (
+    <div className="inline-flex items-center gap-1 mt-0.5 text-[11px] px-1.5 py-0.5 rounded bg-sky-50 text-sky-700 ring-1 ring-sky-200">
+      <Repeat className="w-3 h-3"/>
+      Récurrent · {FREQUENCY_LABELS[rule.frequency] || rule.frequency}
+    </div>
+  );
+};
+
 const SyntheticCardRow = ({ card, colSpan }) => {
   const isPaid = !!card.paidAt;
   return (
@@ -827,7 +945,7 @@ const sortGroupKeys = (keys, by) => {
   return arr.sort((a, b) => String(a).localeCompare(String(b), 'fr', { numeric: true }));
 };
 
-const ExpensesTable = ({ expenses, onAdd, onUpdate, onRemove, onRemoveMany, onReportUnpaid, hasPrevMonth, onExportExcel, onImportExcel, cardsForMonth }) => {
+const ExpensesTable = ({ expenses, onAdd, onUpdate, onRemove, onRemoveMany, onReportUnpaid, hasPrevMonth, onExportExcel, onImportExcel, cardsForMonth, rulesById }) => {
   const [selected, setSelected] = useState(() => new Set());
   const [sort, onSort] = useSort();
   const [groupBy, setGroupBy] = useState(null); // null | 'type' | 'mode' | 'day' | 'status' | 'name'
@@ -943,6 +1061,7 @@ const ExpensesTable = ({ expenses, onAdd, onUpdate, onRemove, onRemoveMany, onRe
         {opts.childOf && <span className="inline-block w-4 text-stone-300 mr-1">↳</span>}
         <WrappingInput value={e.name} onChange={v => onUpdate(e.id, { name: v })} placeholder="Nom du fournisseur"/>
         <ReportedBadge from={e.reportedFrom}/>
+        {e.recurrenceRuleId && rulesById && <RecurringBadge rule={rulesById.get(e.recurrenceRuleId)}/>}
         {opts.childOf && <GroupedUnderCardBadge cardNumber={opts.childOf}/>}
       </td>
       <td className="px-2 py-1">
@@ -1139,7 +1258,7 @@ const ExpensesTable = ({ expenses, onAdd, onUpdate, onRemove, onRemoveMany, onRe
 /* =========================================================
    Incomes table
    ========================================================= */
-const IncomesTable = ({ incomes, onAdd, onUpdate, onRemove, onRemoveMany }) => {
+const IncomesTable = ({ incomes, onAdd, onUpdate, onRemove, onRemoveMany, rulesById }) => {
   const [selected, setSelected] = useState(() => new Set());
   const [sort, onSort] = useSort();
   useEffect(() => {
@@ -1237,6 +1356,7 @@ const IncomesTable = ({ incomes, onAdd, onUpdate, onRemove, onRemoveMany }) => {
                 </td>
                 <td className="px-2 py-1">
                   <WrappingInput value={i.name} onChange={v => onUpdate(i.id, { name: v })} placeholder="Client / description"/>
+                  {i.recurrenceRuleId && rulesById && <RecurringBadge rule={rulesById.get(i.recurrenceRuleId)}/>}
                 </td>
                 <td className="px-2 py-1">
                   <NumInput value={i.amount} onChange={v => onUpdate(i.id, { amount: v })}/>
@@ -1555,6 +1675,7 @@ const X = (p) => <Svg {...p}><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y
 const Download = (p) => <Svg {...p}><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></Svg>;
 const Settings = (p) => <Svg {...p}><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></Svg>;
 const Pencil = (p) => <Svg {...p}><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></Svg>;
+const Repeat = (p) => <Svg {...p}><polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></Svg>;
 const Undo2  = (p) => <Svg {...p}><path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 5.5 5.5v0a5.5 5.5 0 0 1-5.5 5.5H11"/></Svg>;
 const Redo2  = (p) => <Svg {...p}><path d="m15 14 5-5-5-5"/><path d="M20 9H9.5A5.5 5.5 0 0 0 4 14.5v0A5.5 5.5 0 0 0 9.5 20H13"/></Svg>;
 
@@ -2467,6 +2588,520 @@ const CashflowChartSection = ({ year, month, openingBalance, expenses, incomes, 
       )}
     </section>
   );
+};
+
+/* =========================================================
+   Recurrence rules manager
+   ========================================================= */
+const MONTH_NAMES_FR = ['Janv.', 'Févr.', 'Mars', 'Avr.', 'Mai', 'Juin',
+                        'Juill.', 'Août', 'Sept.', 'Oct.', 'Nov.', 'Déc.'];
+
+// Templates pré-remplis pour cabinet israélien
+const RECURRENCE_TEMPLATES = [
+  { name: 'Salaires',                 type: 'expense', amount: 0, day: 9,  mode: 'bank', frequency: 'monthly' },
+  { name: 'Mas Hachnasa nikui',       type: 'expense', amount: 0, day: 24, mode: 'bank', frequency: 'monthly' },
+  { name: 'Bituach Leumi nikui',      type: 'expense', amount: 0, day: 24, mode: 'bank', frequency: 'monthly' },
+  { name: 'Mikdamot Mas Hachnasa',    type: 'expense', amount: 0, day: 24, mode: 'bank', frequency: 'monthly' },
+  { name: "Ma'am",                    type: 'expense', amount: 0, day: 24, mode: 'bank', frequency: 'bi-monthly', startMonthOffset: 'feb' },
+  { name: 'Frais bancaires',          type: 'expense', amount: 0, day: 25, mode: 'bank', frequency: 'monthly' },
+  { name: 'Loyer',                    type: 'expense', amount: 0, day: 1,  mode: 'bank', frequency: 'monthly' },
+  { name: 'Priority',                 type: 'expense', amount: 0, day: 4,  mode: 'bank', frequency: 'quarterly', startMonthOffset: 'mar' },
+];
+
+const RecurrenceForm = ({ initial, defaultYear, defaultMonth, onSubmit, onCancel }) => {
+  const [name, setName]               = useState(initial?.name || '');
+  const [type, setType]               = useState(initial?.type || 'expense');
+  const [amount, setAmount]           = useState(Number(initial?.amount) || 0);
+  const [day, setDay]                 = useState(Number(initial?.day) || 1);
+  const [mode, setMode]               = useState(initial?.mode || 'bank');
+  const [cardNumber, setCardNumber]   = useState(initial?.cardNumber || '');
+  const [notes, setNotes]             = useState(initial?.notes || '');
+  const [frequency, setFrequency]     = useState(initial?.frequency || 'monthly');
+  const [startMonth, setStartMonth]   = useState(initial?.startMonth || defaultMonth || (new Date().getMonth() + 1));
+  const [startYear, setStartYear]     = useState(initial?.startYear  || defaultYear  || new Date().getFullYear());
+  const [hasEnd, setHasEnd]           = useState(!!(initial?.endMonth && initial?.endYear));
+  const [endMonth, setEndMonth]       = useState(initial?.endMonth || (defaultMonth || (new Date().getMonth() + 1)));
+  const [endYear, setEndYear]         = useState(initial?.endYear  || (defaultYear  || new Date().getFullYear()));
+  const [active, setActive]           = useState(initial?.active != null ? !!initial.active : true);
+
+  const yearOpts = (() => {
+    const cy = new Date().getFullYear();
+    const set = new Set();
+    for (let y = cy - 2; y <= cy + 8; y++) set.add(y);
+    if (initial?.startYear) set.add(initial.startYear);
+    if (initial?.endYear)   set.add(initial.endYear);
+    return [...set].sort();
+  })();
+
+  const canSave = name.trim() && day >= 1 && day <= 31 && frequency && startMonth && startYear;
+  const isExp = type === 'expense';
+
+  return (
+    <div className="grid grid-cols-2 gap-3">
+      <label className="col-span-2 text-xs font-medium text-stone-700">
+        Nom
+        <input type="text" dir="auto" value={name}
+          onChange={e => setName(e.target.value)}
+          placeholder={isExp ? "ex. Salaires" : "ex. Honoraires client X"}
+          className="mt-1 w-full px-2 py-1.5 text-sm ring-1 ring-stone-200 rounded outline-none focus:ring-stone-400"/>
+      </label>
+
+      <div className="col-span-2 flex items-center justify-between gap-3">
+        <div className="flex items-center gap-3 text-xs text-stone-700">
+          <label className="inline-flex items-center gap-1 cursor-pointer">
+            <input type="radio" checked={type === 'expense'} onChange={() => setType('expense')}/>
+            Dépense
+          </label>
+          <label className="inline-flex items-center gap-1 cursor-pointer">
+            <input type="radio" checked={type === 'income'} onChange={() => setType('income')}/>
+            Encaissement
+          </label>
+        </div>
+        <label className="inline-flex items-center gap-2 text-xs text-stone-700 cursor-pointer">
+          <input type="checkbox" checked={active} onChange={e => setActive(e.target.checked)}/>
+          Active
+        </label>
+      </div>
+
+      <label className="text-xs font-medium text-stone-700">
+        Montant (ILS)
+        <input type="number" inputMode="decimal" value={amount === 0 ? '' : amount}
+          onChange={e => setAmount(e.target.value === '' ? 0 : Number(e.target.value))}
+          placeholder="0"
+          className="mt-1 w-full px-2 py-1.5 text-sm ring-1 ring-stone-200 rounded outline-none focus:ring-stone-400 tabular-nums text-right"/>
+      </label>
+      <label className="text-xs font-medium text-stone-700">
+        Jour du mois
+        <input type="number" min={1} max={31} value={day}
+          onChange={e => setDay(Math.max(1, Math.min(31, Number(e.target.value) || 1)))}
+          className="mt-1 w-full px-2 py-1.5 text-sm ring-1 ring-stone-200 rounded outline-none focus:ring-stone-400 tabular-nums text-right"/>
+      </label>
+
+      {isExp && (<>
+        <label className="text-xs font-medium text-stone-700">
+          Mode
+          <select value={mode} onChange={e => setMode(e.target.value)}
+            className="mt-1 w-full px-2 py-1.5 text-sm ring-1 ring-stone-200 rounded bg-white outline-none focus:ring-stone-400">
+            <option value="bank">Banque</option>
+            <option value="card">Carte de crédit</option>
+          </select>
+        </label>
+        <label className={"text-xs font-medium text-stone-700 " + (mode === 'card' ? "" : "opacity-50")}>
+          N° de carte
+          <input type="text" value={cardNumber} disabled={mode !== 'card'}
+            onChange={e => setCardNumber(e.target.value)}
+            placeholder="ex. 8821"
+            className="mt-1 w-full px-2 py-1.5 text-sm ring-1 ring-stone-200 rounded outline-none focus:ring-stone-400 tabular-nums"/>
+        </label>
+      </>)}
+
+      <label className="col-span-2 text-xs font-medium text-stone-700">
+        Notes
+        <input type="text" dir="auto" value={notes}
+          onChange={e => setNotes(e.target.value)}
+          placeholder="(optionnel)"
+          className="mt-1 w-full px-2 py-1.5 text-sm ring-1 ring-stone-200 rounded outline-none focus:ring-stone-400"/>
+      </label>
+
+      <label className="col-span-2 text-xs font-medium text-stone-700">
+        Fréquence
+        <select value={frequency} onChange={e => setFrequency(e.target.value)}
+          className="mt-1 w-full px-2 py-1.5 text-sm ring-1 ring-stone-200 rounded bg-white outline-none focus:ring-stone-400">
+          <option value="monthly">Mensuel</option>
+          <option value="bi-monthly">Bi-mensuel (tous les 2 mois)</option>
+          <option value="quarterly">Trimestriel (tous les 3 mois)</option>
+          <option value="semi-annual">Semestriel (tous les 6 mois)</option>
+          <option value="annual">Annuel</option>
+        </select>
+      </label>
+
+      <label className="text-xs font-medium text-stone-700">
+        Premier mois
+        <select value={startMonth} onChange={e => setStartMonth(Number(e.target.value))}
+          className="mt-1 w-full px-2 py-1.5 text-sm ring-1 ring-stone-200 rounded bg-white outline-none focus:ring-stone-400">
+          {MONTH_NAMES_FR.map((m, i) => <option key={i+1} value={i+1}>{m}</option>)}
+        </select>
+      </label>
+      <label className="text-xs font-medium text-stone-700">
+        Année
+        <select value={startYear} onChange={e => setStartYear(Number(e.target.value))}
+          className="mt-1 w-full px-2 py-1.5 text-sm ring-1 ring-stone-200 rounded bg-white outline-none focus:ring-stone-400 tabular-nums">
+          {yearOpts.map(y => <option key={y} value={y}>{y}</option>)}
+        </select>
+      </label>
+
+      <label className="col-span-2 inline-flex items-center gap-2 text-xs text-stone-700 cursor-pointer mt-1">
+        <input type="checkbox" checked={hasEnd} onChange={e => setHasEnd(e.target.checked)}/>
+        Limiter dans le temps
+      </label>
+      {hasEnd && (<>
+        <label className="text-xs font-medium text-stone-700">
+          Dernier mois
+          <select value={endMonth} onChange={e => setEndMonth(Number(e.target.value))}
+            className="mt-1 w-full px-2 py-1.5 text-sm ring-1 ring-stone-200 rounded bg-white outline-none focus:ring-stone-400">
+            {MONTH_NAMES_FR.map((m, i) => <option key={i+1} value={i+1}>{m}</option>)}
+          </select>
+        </label>
+        <label className="text-xs font-medium text-stone-700">
+          Année
+          <select value={endYear} onChange={e => setEndYear(Number(e.target.value))}
+            className="mt-1 w-full px-2 py-1.5 text-sm ring-1 ring-stone-200 rounded bg-white outline-none focus:ring-stone-400 tabular-nums">
+            {yearOpts.map(y => <option key={y} value={y}>{y}</option>)}
+          </select>
+        </label>
+      </>)}
+
+      <div className="col-span-2 flex items-center justify-end gap-2 mt-2">
+        <button onClick={onCancel}
+          className="px-3 py-1.5 text-sm rounded-lg ring-1 ring-stone-200 hover:bg-stone-50">
+          Annuler
+        </button>
+        <button onClick={() => canSave && onSubmit({
+            name: name.trim(), type,
+            amount: Number(amount) || 0,
+            day: Number(day) || 1,
+            mode: isExp ? mode : undefined,
+            cardNumber: isExp && mode === 'card' ? cardNumber.trim() : '',
+            notes: notes.trim(),
+            frequency,
+            startMonth: Number(startMonth), startYear: Number(startYear),
+            endMonth: hasEnd ? Number(endMonth) : null,
+            endYear:  hasEnd ? Number(endYear)  : null,
+            active,
+          })}
+          disabled={!canSave}
+          className={"px-3 py-1.5 text-sm rounded-lg " +
+            (canSave ? "bg-stone-900 text-white hover:bg-stone-800"
+                     : "bg-stone-200 text-stone-400 cursor-not-allowed")}>
+          Enregistrer
+        </button>
+      </div>
+    </div>
+  );
+};
+
+const TemplatesPicker = ({ defaultYear, defaultMonth, onSubmit, onCancel }) => {
+  const [selected, setSelected] = useState(() => new Set());
+  const [overrides, setOverrides] = useState({}); // index → { amount?, day? }
+
+  const toggleAll = () =>
+    setSelected(s => s.size === RECURRENCE_TEMPLATES.length
+      ? new Set()
+      : new Set(RECURRENCE_TEMPLATES.map((_, i) => i)));
+
+  const start = (tpl) => {
+    if (tpl.startMonthOffset === 'feb') return { startYear: defaultYear, startMonth: 2 };
+    if (tpl.startMonthOffset === 'mar') return { startYear: defaultYear, startMonth: 3 };
+    return { startYear: defaultYear, startMonth: defaultMonth };
+  };
+
+  const confirm = () => {
+    const rules = [];
+    for (const i of selected) {
+      const tpl = RECURRENCE_TEMPLATES[i];
+      const ov = overrides[i] || {};
+      const s = start(tpl);
+      rules.push({
+        id: uid(),
+        name: tpl.name, type: tpl.type,
+        amount: Number(ov.amount ?? tpl.amount) || 0,
+        day: Number(ov.day ?? tpl.day) || 1,
+        mode: tpl.mode || 'bank',
+        cardNumber: '',
+        notes: '',
+        frequency: tpl.frequency,
+        startMonth: s.startMonth, startYear: s.startYear,
+        endMonth: null, endYear: null,
+        active: true,
+        createdAt: new Date().toISOString(),
+      });
+    }
+    onSubmit(rules);
+  };
+
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-3">
+        <p className="text-xs text-stone-500">
+          Cochez les règles à créer. Les montants peuvent être ajustés ici ou plus tard.
+        </p>
+        <button onClick={toggleAll}
+          className="text-xs px-2 py-1 rounded ring-1 ring-stone-200 hover:bg-stone-50">
+          {selected.size === RECURRENCE_TEMPLATES.length ? 'Tout décocher' : 'Tout cocher'}
+        </button>
+      </div>
+      <div className="rounded-lg ring-1 ring-stone-200 divide-y divide-stone-100 max-h-80 overflow-auto">
+        {RECURRENCE_TEMPLATES.map((tpl, i) => {
+          const isSel = selected.has(i);
+          const ov = overrides[i] || {};
+          return (
+            <div key={i} className={"px-3 py-2 flex items-center gap-3 " + (isSel ? "bg-stone-50" : "")}>
+              <input type="checkbox" checked={isSel}
+                onChange={() => setSelected(s => {
+                  const n = new Set(s);
+                  n.has(i) ? n.delete(i) : n.add(i);
+                  return n;
+                })}
+                className="w-4 h-4"/>
+              <div className="flex-1 min-w-0">
+                <div className="text-sm text-stone-900" dir="auto">{tpl.name}</div>
+                <div className="text-[11px] text-stone-500">
+                  {FREQUENCY_LABELS[tpl.frequency]} · jour {tpl.day} · {tpl.mode === 'card' ? 'CB' : 'Banque'}
+                </div>
+              </div>
+              <input type="number" placeholder="Montant"
+                value={ov.amount ?? ''}
+                onChange={e => setOverrides(o => ({ ...o, [i]: { ...(o[i]||{}), amount: e.target.value === '' ? 0 : Number(e.target.value) } }))}
+                disabled={!isSel}
+                className="w-28 px-2 py-1 text-xs ring-1 ring-stone-200 rounded outline-none focus:ring-stone-400 tabular-nums text-right disabled:bg-stone-50 disabled:text-stone-400"/>
+            </div>
+          );
+        })}
+      </div>
+      <div className="mt-4 flex items-center justify-end gap-2">
+        <button onClick={onCancel}
+          className="px-3 py-1.5 text-sm rounded-lg ring-1 ring-stone-200 hover:bg-stone-50">
+          Annuler
+        </button>
+        <button onClick={confirm} disabled={selected.size === 0}
+          className={"px-3 py-1.5 text-sm rounded-lg " +
+            (selected.size === 0
+              ? "bg-stone-200 text-stone-400 cursor-not-allowed"
+              : "bg-stone-900 text-white hover:bg-stone-800")}>
+          Créer {selected.size > 0 ? `(${selected.size})` : ''}
+        </button>
+      </div>
+    </div>
+  );
+};
+
+const RecurrencesModal = ({ open, onClose, defaultYear, defaultMonth, onChanged }) => {
+  const [rules, setRules] = useState([]);
+  const [filter, setFilter] = useState('all'); // all | active | inactive | expense | income
+  const [view, setView] = useState('list');    // 'list' | 'edit' | 'create' | 'templates'
+  const [editing, setEditing] = useState(null);
+
+  const reload = () => setRules(loadRecurrenceRules());
+  useEffect(() => { if (open) { reload(); setView('list'); setEditing(null); setFilter('all'); } }, [open]);
+  if (!open) return null;
+
+  const filtered = rules.filter(r => {
+    if (filter === 'active')   return r.active;
+    if (filter === 'inactive') return !r.active;
+    if (filter === 'expense')  return r.type === 'expense';
+    if (filter === 'income')   return r.type === 'income';
+    return true;
+  });
+
+  const handleSave = (data) => {
+    const list = loadRecurrenceRules();
+    if (editing && editing.id) {
+      const idx = list.findIndex(r => r.id === editing.id);
+      if (idx >= 0) list[idx] = { ...list[idx], ...data };
+    } else {
+      list.push({ id: uid(), createdAt: new Date().toISOString(), ...data });
+    }
+    saveRecurrenceRules(list);
+    reload();
+    setView('list'); setEditing(null);
+    onChanged && onChanged();
+  };
+  const handleDelete = (rule) => {
+    const occCount = countRuleOccurrences(rule.id);
+    let alsoDelete = false;
+    if (occCount > 0) {
+      const txt = `Supprimer la règle « ${rule.name} » ?\n\n` +
+                  `${occCount} occurrence${occCount > 1 ? 's' : ''} ` +
+                  `existe${occCount > 1 ? 'nt' : ''} déjà dans vos mois.\n\n` +
+                  `Cliquer sur OK = supprimer la règle ET les ${occCount} occurrence${occCount > 1 ? 's' : ''}.\n` +
+                  `Cliquer sur Annuler = ne rien faire.`;
+      if (!confirm(txt)) {
+        // Offer alternative: delete rule only via second confirm
+        if (!confirm("Supprimer uniquement la règle (et garder les occurrences déjà créées) ?")) return;
+        alsoDelete = false;
+      } else {
+        alsoDelete = true;
+      }
+    } else {
+      if (!confirm(`Supprimer la règle « ${rule.name} » ?`)) return;
+    }
+    const list = loadRecurrenceRules().filter(r => r.id !== rule.id);
+    saveRecurrenceRules(list);
+    if (alsoDelete) deleteAllOccurrencesOfRule(rule.id);
+    reload();
+    onChanged && onChanged();
+  };
+  const toggleActive = (rule) => {
+    const list = loadRecurrenceRules().map(r => r.id === rule.id ? { ...r, active: !r.active } : r);
+    saveRecurrenceRules(list);
+    reload();
+    onChanged && onChanged();
+  };
+
+  const fmtPeriod = (r) => {
+    const start = `${MONTH_NAMES_FR[r.startMonth - 1]} ${r.startYear}`;
+    if (r.endMonth && r.endYear) {
+      return `${start} → ${MONTH_NAMES_FR[r.endMonth - 1]} ${r.endYear}`;
+    }
+    return `Depuis ${start}`;
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 bg-stone-900/50 flex items-center justify-center p-4" onClick={onClose}>
+      <div className="bg-white rounded-xl shadow-xl ring-1 ring-stone-200 w-full max-w-4xl flex flex-col max-h-[90vh]"
+           onClick={e => e.stopPropagation()}>
+        <header className="px-5 py-4 border-b border-stone-200 flex items-center justify-between gap-3 flex-wrap">
+          <div>
+            <h3 className="font-semibold text-stone-900 text-lg">Récurrences</h3>
+            <p className="text-xs text-stone-500 mt-0.5">
+              {rules.length} règle{rules.length > 1 ? 's' : ''} ·
+              {' ' + rules.filter(r => r.active).length} active{rules.filter(r => r.active).length > 1 ? 's' : ''}
+            </p>
+          </div>
+          <div className="flex items-center gap-2">
+            {view === 'list' && (<>
+              <button onClick={() => setView('templates')}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-lg ring-1 ring-stone-200 hover:bg-stone-50">
+                <Sparkles className="w-4 h-4"/>Templates
+              </button>
+              <button onClick={() => { setEditing(null); setView('create'); }}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-lg bg-stone-900 text-white hover:bg-stone-800">
+                <Plus className="w-4 h-4"/>Nouvelle règle
+              </button>
+            </>)}
+            <button onClick={onClose}
+              className="p-1.5 rounded hover:bg-stone-100 text-stone-400 hover:text-stone-700">
+              <X className="w-4 h-4"/>
+            </button>
+          </div>
+        </header>
+
+        {view === 'create' || view === 'edit' ? (
+          <div className="p-5 overflow-auto flex-1">
+            <h4 className="text-sm font-medium text-stone-800 mb-3">
+              {view === 'create' ? 'Nouvelle règle de récurrence' : 'Modifier la règle'}
+            </h4>
+            <RecurrenceForm
+              initial={view === 'edit' ? editing : null}
+              defaultYear={defaultYear} defaultMonth={defaultMonth}
+              onSubmit={handleSave}
+              onCancel={() => { setView('list'); setEditing(null); }}
+            />
+          </div>
+        ) : view === 'templates' ? (
+          <div className="p-5 overflow-auto flex-1">
+            <h4 className="text-sm font-medium text-stone-800 mb-3">Charger des règles types</h4>
+            <TemplatesPicker
+              defaultYear={defaultYear} defaultMonth={defaultMonth}
+              onCancel={() => setView('list')}
+              onSubmit={(newRules) => {
+                const list = loadRecurrenceRules();
+                for (const r of newRules) list.push(r);
+                saveRecurrenceRules(list);
+                reload();
+                setView('list');
+                onChanged && onChanged();
+              }}/>
+          </div>
+        ) : (<>
+          <div className="px-5 py-3 border-b border-stone-100 flex items-center gap-1.5 flex-wrap">
+            <span className="text-xs uppercase tracking-wide text-stone-500 font-medium mr-1">Filtrer</span>
+            <Pill active={filter === 'all'}      onClick={() => setFilter('all')}>Toutes</Pill>
+            <Pill active={filter === 'active'}   onClick={() => setFilter('active')}>Actives</Pill>
+            <Pill active={filter === 'inactive'} onClick={() => setFilter('inactive')}>Inactives</Pill>
+            <Pill active={filter === 'expense'}  onClick={() => setFilter('expense')}>Dépenses</Pill>
+            <Pill active={filter === 'income'}   onClick={() => setFilter('income')}>Encaissements</Pill>
+          </div>
+          <div className="flex-1 overflow-auto">
+            <table className="w-full text-sm">
+              <thead className="bg-stone-50 text-stone-500 text-xs uppercase tracking-wide sticky top-0 z-10">
+                <tr>
+                  <th className="text-left font-medium px-3 py-2">Nom</th>
+                  <th className="text-left font-medium px-3 py-2 w-24">Type</th>
+                  <th className="text-right font-medium px-3 py-2 w-24">Montant</th>
+                  <th className="text-right font-medium px-3 py-2 w-12">Jour</th>
+                  <th className="text-left font-medium px-3 py-2 w-32">Fréquence</th>
+                  <th className="text-left font-medium px-3 py-2 w-44">Période</th>
+                  <th className="text-center font-medium px-3 py-2 w-20">Active</th>
+                  <th className="w-20"></th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-stone-100">
+                {filtered.length === 0 ? (
+                  <tr><td colSpan="8" className="px-3 py-10 text-center text-sm text-stone-400">
+                    {rules.length === 0
+                      ? "Aucune règle. Créez-en une via « Nouvelle règle » ou « Templates »."
+                      : "Aucune règle avec ce filtre."}
+                  </td></tr>
+                ) : filtered.map(r => (
+                  <tr key={r.id} className={"hover:bg-stone-50/70 " + (!r.active ? "opacity-60" : "")}>
+                    <td className="px-3 py-2 align-top">
+                      <div className="text-stone-900" dir="auto">{r.name}</div>
+                      {r.notes && <div className="text-[11px] text-stone-400 truncate max-w-xs" dir="auto">{r.notes}</div>}
+                    </td>
+                    <td className="px-3 py-2 text-xs">
+                      <span className={r.type === 'expense' ? "text-rose-600" : "text-emerald-600"}>
+                        {r.type === 'expense' ? 'Dépense' : 'Encaissement'}
+                      </span>
+                    </td>
+                    <td className="px-3 py-2 text-right tabular-nums text-stone-700">{formatNum(r.amount)}</td>
+                    <td className="px-3 py-2 text-right tabular-nums text-stone-700">{r.day}</td>
+                    <td className="px-3 py-2">
+                      <span className="text-[11px] px-1.5 py-0.5 rounded bg-sky-50 text-sky-700 ring-1 ring-sky-200">
+                        {FREQUENCY_LABELS[r.frequency] || r.frequency}
+                      </span>
+                    </td>
+                    <td className="px-3 py-2 text-xs text-stone-600">{fmtPeriod(r)}</td>
+                    <td className="px-3 py-2 text-center">
+                      <button onClick={() => toggleActive(r)}
+                        title={r.active ? 'Désactiver' : 'Activer'}
+                        className={
+                          "relative inline-flex w-9 h-5 rounded-full transition " +
+                          (r.active ? "bg-stone-900" : "bg-stone-300")
+                        }>
+                        <span className={
+                          "absolute top-0.5 w-4 h-4 bg-white rounded-full transition-transform " +
+                          (r.active ? "translate-x-4" : "translate-x-0.5")
+                        }/>
+                      </button>
+                    </td>
+                    <td className="px-3 py-2">
+                      <div className="flex items-center justify-end gap-1">
+                        <button onClick={() => { setEditing(r); setView('edit'); }}
+                          title="Modifier"
+                          className="p-1.5 text-stone-500 hover:text-stone-900 hover:bg-stone-100 rounded">
+                          <Pencil className="w-3.5 h-3.5"/>
+                        </button>
+                        <button onClick={() => handleDelete(r)}
+                          title="Supprimer"
+                          className="p-1.5 text-stone-400 hover:text-rose-600 hover:bg-rose-50 rounded">
+                          <Trash className="w-3.5 h-3.5"/>
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </>)}
+      </div>
+    </div>
+  );
+};
+
+const countRuleOccurrences = (ruleId) => {
+  let n = 0;
+  for (let i = 0; i < localStorage.length; i++) {
+    const k = localStorage.key(i);
+    if (!k || !k.startsWith('month:')) continue;
+    try {
+      const m = JSON.parse(localStorage.getItem(k));
+      n += (m.expenses || []).filter(it => it.recurrenceRuleId === ruleId).length;
+      n += (m.incomes  || []).filter(it => it.recurrenceRuleId === ruleId).length;
+    } catch {}
+  }
+  return n;
 };
 
 /* =========================================================
@@ -3526,7 +4161,7 @@ const EmptyState = ({ onManual, onCopyPrev, onReportUnpaid, onImportFile, hasPre
 /* =========================================================
    Header
    ========================================================= */
-const Header = ({ year, month, onPrev, onNext, saved, onImportFile, onExportBackup, onRestoreBackup, onOpenImportWizard, onUndo, onRedo, canUndo, canRedo, onGenerateFromImports, onClearImports, onOpenRules }) => (
+const Header = ({ year, month, onPrev, onNext, saved, onImportFile, onExportBackup, onRestoreBackup, onOpenImportWizard, onUndo, onRedo, canUndo, canRedo, onGenerateFromImports, onClearImports, onOpenRules, onOpenRecurrences }) => (
   <header className="flex flex-wrap items-center justify-between gap-4 mb-6">
     <div>
       <h1 className="text-2xl font-bold text-stone-900 tracking-tight">Cashflow</h1>
@@ -3564,6 +4199,12 @@ const Header = ({ year, month, onPrev, onNext, saved, onImportFile, onExportBack
         onGenerateFromImports={onGenerateFromImports}
         onClearImports={onClearImports}
       />
+
+      <button onClick={onOpenRecurrences}
+        title="Récurrences"
+        className="p-2 rounded-lg bg-white text-stone-600 ring-1 ring-stone-200 hover:bg-stone-50">
+        <Repeat className="w-4 h-4"/>
+      </button>
 
       <button onClick={onOpenImportWizard}
         className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-lg bg-stone-900 text-white hover:bg-stone-800">
@@ -3611,6 +4252,14 @@ function App() {
   const [rulesOpen, setRulesOpen] = useState(false);
   const [history, setHistory] = useState({}); // { [monthKey]: { past:[], future:[] } }
   const [cardsSnapshot, setCardsSnapshot] = useState(() => loadCardsSnapshot());
+  const [recurrenceRules, setRecurrenceRules] = useState(() => loadRecurrenceRules());
+  const [recurrencesOpen, setRecurrencesOpen] = useState(false);
+  const refreshRecurrenceRules = () => setRecurrenceRules(loadRecurrenceRules());
+  const rulesById = useMemo(() => {
+    const m = new Map();
+    for (const r of recurrenceRules) m.set(r.id, r);
+    return m;
+  }, [recurrenceRules]);
   const postsFileRef = useRef(null);
   const skipNextSave = useRef(true);
   const prevDataRef = useRef(null);
@@ -3641,10 +4290,12 @@ function App() {
   );
   const refreshCards = () => setCardsSnapshot(loadCardsSnapshot());
 
-  // Recharger les données quand on change de mois
+  // Recharger les données quand on change de mois (et générer les récurrences applicables)
   useEffect(() => {
     skipNextSave.current = true;
-    setData(loadMonth(key));
+    const monthData = generateRecurrenceForMonth(year, month);
+    refreshRecurrenceRules();
+    setData(monthData);
   }, [key]);
 
   // Auto-save (debounce 500ms) + push history au même moment
@@ -4119,7 +4770,8 @@ function App() {
                 canUndo={canUndo} canRedo={canRedo}
                 onGenerateFromImports={() => setGenerateOpen(true)}
                 onClearImports={clearAllImports}
-                onOpenRules={() => setRulesOpen(true)}/>
+                onOpenRules={() => setRulesOpen(true)}
+                onOpenRecurrences={() => setRecurrencesOpen(true)}/>
 
         <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_360px] gap-6">
           <main className="space-y-6 min-w-0">
@@ -4152,6 +4804,7 @@ function App() {
                   onExportExcel={exportPostsExcel}
                   onImportExcel={() => postsFileRef.current?.click()}
                   cardsForMonth={cardsForMonth}
+                  rulesById={rulesById}
                 />
                 <IncomesTable
                   incomes={data.incomes}
@@ -4159,6 +4812,7 @@ function App() {
                   onUpdate={updateIncome}
                   onRemove={removeIncome}
                   onRemoveMany={removeManyIncomes}
+                  rulesById={rulesById}
                 />
               </>
             )}
@@ -4218,6 +4872,19 @@ function App() {
       <RulesModal
         open={rulesOpen}
         onClose={() => setRulesOpen(false)}
+      />
+
+      <RecurrencesModal
+        open={recurrencesOpen}
+        onClose={() => setRecurrencesOpen(false)}
+        defaultYear={year} defaultMonth={month}
+        onChanged={() => {
+          refreshRecurrenceRules();
+          // Régénérer pour le mois courant si une nouvelle règle s'applique
+          skipNextSave.current = true;
+          const md = generateRecurrenceForMonth(year, month);
+          setData(md);
+        }}
       />
 
       <ImportWizard
