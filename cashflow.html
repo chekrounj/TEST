@@ -79,6 +79,25 @@ const saveCardsSnapshot = (obj) => {
   localStorage.setItem('cards:current', JSON.stringify(obj));
 };
 
+/* ---------- Match rules (learned patterns → poste names) ---------- */
+// "matchRules" → [{ id, pattern, patternType, matchTo: { type, postName }, createdAt, hitCount }]
+const loadMatchRules = () => {
+  try { return JSON.parse(localStorage.getItem('matchRules') || '[]'); }
+  catch { return []; }
+};
+const saveMatchRules = (rules) => {
+  localStorage.setItem('matchRules', JSON.stringify(rules));
+};
+const ruleMatchesText = (rule, text) => {
+  const t = String(text || '');
+  if (!rule || !rule.pattern) return false;
+  if (rule.patternType === 'regex') {
+    try { return new RegExp(rule.pattern, 'i').test(t); }
+    catch { return false; }
+  }
+  return t.toLowerCase().includes(String(rule.pattern).toLowerCase());
+};
+
 /* ---------- Statement parsers ---------- */
 // Date Excel → 'YYYY-MM-DD' en local (évite les décalages de timezone que provoquerait toISOString).
 const dateToISO = (d) => {
@@ -156,6 +175,23 @@ const pickBestCandidate = (candidates, targetAmount, targetDay) => {
 const matchBankTransactions = (newTransactions) => {
   const monthCache = {};
   const ensureMonth = (k) => (monthCache[k] = monthCache[k] || loadMonth(k));
+  const rules = loadMatchRules();
+  const ruleHits = {}; // ruleId → count
+  const orphanRuleIds = new Set();
+
+  // tente de matcher via les règles apprises
+  const tryRules = (tx, items, kind) => {
+    for (const rule of rules) {
+      if (!rule || rule.matchTo?.type !== kind) continue;
+      const haystack = (tx.description || '') + ' ' + (tx.details || '');
+      if (!ruleMatchesText(rule, haystack)) continue;
+      const targetName = (rule.matchTo.postName || '').trim();
+      const target = items.find(item => (item.name || '').trim() === targetName);
+      if (target) return { ruleId: rule.id, target };
+      orphanRuleIds.add(rule.id);
+    }
+    return null;
+  };
 
   const matched = [];
   const unmatched = [];
@@ -181,7 +217,17 @@ const matchBankTransactions = (newTransactions) => {
           appliedAmount: tx.debit,
         });
       } else {
-        unmatched.push(enriched);
+        const ruleHit = tryRules(tx, month.expenses, 'expense');
+        if (ruleHit) {
+          ruleHits[ruleHit.ruleId] = (ruleHits[ruleHit.ruleId] || 0) + 1;
+          matched.push({
+            transaction: enriched, monthKey, kind: 'expense',
+            expenseId: ruleHit.target.id, expenseName: ruleHit.target.name,
+            appliedAmount: tx.debit, viaRule: ruleHit.ruleId,
+          });
+        } else {
+          unmatched.push(enriched);
+        }
       }
     } else { // 'in'
       const cands = findMatchCandidates(month.incomes, tx.description, tx.details);
@@ -193,11 +239,21 @@ const matchBankTransactions = (newTransactions) => {
           appliedAmount: tx.credit,
         });
       } else {
-        unmatched.push(enriched);
+        const ruleHit = tryRules(tx, month.incomes, 'income');
+        if (ruleHit) {
+          ruleHits[ruleHit.ruleId] = (ruleHits[ruleHit.ruleId] || 0) + 1;
+          matched.push({
+            transaction: enriched, monthKey, kind: 'income',
+            incomeId: ruleHit.target.id, incomeName: ruleHit.target.name,
+            appliedAmount: tx.credit, viaRule: ruleHit.ruleId,
+          });
+        } else {
+          unmatched.push(enriched);
+        }
       }
     }
   }
-  return { matched, unmatched, cardDebits };
+  return { matched, unmatched, cardDebits, ruleHits, orphanRuleIds: [...orphanRuleIds] };
 };
 
 const parseBankStatement = async (file) => {
@@ -1485,6 +1541,8 @@ const Save = (p) => <Svg {...p}><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h
 const Building2 = (p) => <Svg {...p}><path d="M6 22V4a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v18Z"/><path d="M6 12H4a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h2"/><path d="M18 9h2a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2h-2"/><path d="M10 6h4M10 10h4M10 14h4M10 18h4"/></Svg>;
 const X = (p) => <Svg {...p}><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></Svg>;
 const Download = (p) => <Svg {...p}><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></Svg>;
+const Settings = (p) => <Svg {...p}><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></Svg>;
+const Pencil = (p) => <Svg {...p}><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></Svg>;
 const Undo2  = (p) => <Svg {...p}><path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 5.5 5.5v0a5.5 5.5 0 0 1-5.5 5.5H11"/></Svg>;
 const Redo2  = (p) => <Svg {...p}><path d="m15 14 5-5-5-5"/><path d="M20 9H9.5A5.5 5.5 0 0 0 4 14.5v0A5.5 5.5 0 0 0 9.5 20H13"/></Svg>;
 
@@ -1995,6 +2053,269 @@ const ImportedTransactionsModal = ({ open, currentMonthKey, onClose, onCreate, o
 };
 
 /* =========================================================
+   Match rules manager modal
+   ========================================================= */
+// Détecte si le poste cible d'une règle existe dans au moins un mois enregistré.
+const isRuleOrphan = (rule) => {
+  const targetName = (rule?.matchTo?.postName || '').trim();
+  if (!targetName) return true;
+  const itemsKey = rule.matchTo.type === 'expense' ? 'expenses' : 'incomes';
+  for (let i = 0; i < localStorage.length; i++) {
+    const k = localStorage.key(i);
+    if (!k || !k.startsWith('month:')) continue;
+    try {
+      const m = JSON.parse(localStorage.getItem(k));
+      const arr = (m && m[itemsKey]) || [];
+      if (arr.some(it => (it.name || '').trim() === targetName)) return false;
+    } catch {}
+  }
+  return true;
+};
+
+const RuleForm = ({ initial, onSubmit, onCancel }) => {
+  const [pattern, setPattern] = useState(initial?.pattern || '');
+  const [patternType, setPatternType] = useState(initial?.patternType || 'contains');
+  const [postName, setPostName] = useState(initial?.matchTo?.postName || '');
+  const [type, setType] = useState(initial?.matchTo?.type || 'expense');
+
+  // Suggérer les noms de postes existants (tous mois)
+  const suggestions = useMemo(() => {
+    const set = new Set();
+    const itemsKey = type === 'expense' ? 'expenses' : 'incomes';
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i);
+      if (!k || !k.startsWith('month:')) continue;
+      try {
+        const m = JSON.parse(localStorage.getItem(k));
+        for (const it of (m && m[itemsKey]) || []) {
+          if (it.name) set.add(it.name);
+        }
+      } catch {}
+    }
+    return [...set].sort();
+  }, [type]);
+
+  const canSave = pattern.trim() && postName.trim();
+  return (
+    <div className="grid grid-cols-2 gap-3">
+      <label className="col-span-2 text-xs font-medium text-stone-700">
+        Pattern
+        <input type="text" dir="auto" value={pattern}
+          onChange={e => setPattern(e.target.value)}
+          placeholder="ex. מסלול"
+          className="mt-1 w-full px-2 py-1.5 text-sm ring-1 ring-stone-200 rounded outline-none focus:ring-stone-400"/>
+      </label>
+      <div className="col-span-2 flex items-center gap-3 text-xs text-stone-700">
+        <label className="inline-flex items-center gap-1 cursor-pointer">
+          <input type="radio" checked={patternType === 'contains'}
+            onChange={() => setPatternType('contains')}/>
+          Contient le texte
+        </label>
+        <label className="inline-flex items-center gap-1 cursor-pointer">
+          <input type="radio" checked={patternType === 'regex'}
+            onChange={() => setPatternType('regex')}/>
+          Expression régulière
+        </label>
+      </div>
+      <label className="text-xs font-medium text-stone-700">
+        Direction
+        <select value={type}
+          onChange={e => { setType(e.target.value); setPostName(''); }}
+          className="mt-1 w-full px-2 py-1.5 text-sm ring-1 ring-stone-200 rounded bg-white outline-none focus:ring-stone-400">
+          <option value="expense">Dépense (sortie)</option>
+          <option value="income">Encaissement (entrée)</option>
+        </select>
+      </label>
+      <label className="text-xs font-medium text-stone-700">
+        Poste cible
+        <input type="text" dir="auto" list="rule-post-suggest" value={postName}
+          onChange={e => setPostName(e.target.value)}
+          placeholder="Nom exact du poste"
+          className="mt-1 w-full px-2 py-1.5 text-sm ring-1 ring-stone-200 rounded outline-none focus:ring-stone-400"/>
+        <datalist id="rule-post-suggest">
+          {suggestions.map(s => <option key={s} value={s}/>)}
+        </datalist>
+      </label>
+      <div className="col-span-2 flex items-center justify-end gap-2 mt-2">
+        <button onClick={onCancel}
+          className="px-3 py-1.5 text-sm rounded-lg ring-1 ring-stone-200 hover:bg-stone-50">
+          Annuler
+        </button>
+        <button onClick={() => canSave && onSubmit({ pattern: pattern.trim(), patternType, matchTo: { type, postName: postName.trim() } })}
+          disabled={!canSave}
+          className={"px-3 py-1.5 text-sm rounded-lg " +
+            (canSave
+              ? "bg-stone-900 text-white hover:bg-stone-800"
+              : "bg-stone-200 text-stone-400 cursor-not-allowed")}>
+          Enregistrer
+        </button>
+      </div>
+    </div>
+  );
+};
+
+const RulesModal = ({ open, onClose }) => {
+  const [rules, setRules] = useState([]);
+  const [filter, setFilter] = useState('all'); // all | active | orphan
+  const [editing, setEditing] = useState(null); // null | { id?, ... } | { __new: true }
+
+  const reload = () => setRules(loadMatchRules());
+  useEffect(() => { if (open) { reload(); setEditing(null); setFilter('all'); } }, [open]);
+
+  if (!open) return null;
+
+  const annotated = rules.map(r => ({ ...r, orphan: isRuleOrphan(r) }));
+  const filtered = annotated.filter(r => {
+    if (filter === 'active') return !r.orphan;
+    if (filter === 'orphan') return  r.orphan;
+    return true;
+  });
+
+  const handleSave = (data) => {
+    const list = loadMatchRules();
+    if (editing && editing.id) {
+      const idx = list.findIndex(r => r.id === editing.id);
+      if (idx >= 0) list[idx] = { ...list[idx], ...data };
+    } else {
+      list.push({
+        id: uid(),
+        pattern: data.pattern,
+        patternType: data.patternType,
+        matchTo: data.matchTo,
+        createdAt: new Date().toISOString(),
+        hitCount: 0,
+      });
+    }
+    saveMatchRules(list);
+    reload();
+    setEditing(null);
+  };
+  const handleDelete = (id) => {
+    if (!confirm("Supprimer cette règle ?")) return;
+    const list = loadMatchRules().filter(r => r.id !== id);
+    saveMatchRules(list);
+    reload();
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 bg-stone-900/50 flex items-center justify-center p-4" onClick={onClose}>
+      <div className="bg-white rounded-xl shadow-xl ring-1 ring-stone-200 w-full max-w-3xl flex flex-col max-h-[90vh]"
+           onClick={e => e.stopPropagation()}>
+        <header className="px-5 py-4 border-b border-stone-200 flex items-center justify-between gap-3 flex-wrap">
+          <div>
+            <h3 className="font-semibold text-stone-900 text-lg">Règles de matching</h3>
+            <p className="text-xs text-stone-500 mt-0.5">
+              {rules.length} règle{rules.length > 1 ? 's' : ''} enregistrée{rules.length > 1 ? 's' : ''}
+            </p>
+          </div>
+          <div className="flex items-center gap-2">
+            <button onClick={() => setEditing({ __new: true })}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-lg bg-stone-900 text-white hover:bg-stone-800">
+              <Plus className="w-4 h-4"/>Nouvelle règle
+            </button>
+            <button onClick={onClose}
+              className="p-1.5 rounded hover:bg-stone-100 text-stone-400 hover:text-stone-700">
+              <X className="w-4 h-4"/>
+            </button>
+          </div>
+        </header>
+
+        {editing ? (
+          <div className="p-5 overflow-auto flex-1">
+            <h4 className="text-sm font-medium text-stone-800 mb-3">
+              {editing.__new ? 'Nouvelle règle' : 'Modifier la règle'}
+            </h4>
+            <RuleForm
+              initial={editing.__new ? null : editing}
+              onSubmit={handleSave}
+              onCancel={() => setEditing(null)}
+            />
+          </div>
+        ) : (
+          <>
+            <div className="px-5 py-3 border-b border-stone-100 flex items-center gap-1.5 flex-wrap">
+              <span className="text-xs uppercase tracking-wide text-stone-500 font-medium mr-1">Filtrer</span>
+              <Pill active={filter === 'all'}    onClick={() => setFilter('all')}>Toutes</Pill>
+              <Pill active={filter === 'active'} onClick={() => setFilter('active')}>Actives</Pill>
+              <Pill active={filter === 'orphan'} onClick={() => setFilter('orphan')}>Orphelines</Pill>
+            </div>
+            <div className="flex-1 overflow-auto">
+              <table className="w-full text-sm">
+                <thead className="bg-stone-50 text-stone-500 text-xs uppercase tracking-wide sticky top-0 z-10">
+                  <tr>
+                    <th className="text-left font-medium px-3 py-2">Pattern</th>
+                    <th className="text-left font-medium px-3 py-2 w-24">Type</th>
+                    <th className="text-left font-medium px-3 py-2">Poste cible</th>
+                    <th className="text-right font-medium px-3 py-2 w-16">Hits</th>
+                    <th className="text-left font-medium px-3 py-2 w-24">Créée</th>
+                    <th className="w-20"></th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-stone-100">
+                  {filtered.length === 0 ? (
+                    <tr><td colSpan="6" className="px-3 py-10 text-center text-sm text-stone-400">
+                      {rules.length === 0
+                        ? "Aucune règle. Créez-en une via « Nouvelle règle » ou depuis l'écran d'import bancaire."
+                        : "Aucune règle avec ce filtre."}
+                    </td></tr>
+                  ) : filtered.map(r => (
+                    <tr key={r.id} className="hover:bg-stone-50/70">
+                      <td className="px-3 py-2">
+                        <code className="text-xs font-mono bg-stone-100 px-1.5 py-0.5 rounded" dir="auto">
+                          {r.pattern}
+                        </code>
+                      </td>
+                      <td className="px-3 py-2 text-xs text-stone-600">
+                        {r.patternType === 'regex' ? 'Regex' : 'Contient'}
+                      </td>
+                      <td className="px-3 py-2">
+                        <div className="flex items-center gap-1.5 min-w-0">
+                          <span className={"text-[10px] uppercase tracking-wide " + (r.matchTo.type === 'expense' ? "text-rose-500" : "text-emerald-600")}>
+                            {r.matchTo.type === 'expense' ? 'Dép.' : 'Enc.'}
+                          </span>
+                          <span className="truncate" dir="auto" title={r.matchTo.postName}>
+                            {r.matchTo.postName}
+                          </span>
+                          {r.orphan && (
+                            <span className="inline-flex items-center gap-0.5 text-[10px] px-1.5 py-0.5 rounded bg-amber-50 text-amber-700 ring-1 ring-amber-200">
+                              orphelin
+                            </span>
+                          )}
+                        </div>
+                      </td>
+                      <td className="px-3 py-2 text-right tabular-nums text-stone-700">
+                        {r.hitCount || 0}
+                      </td>
+                      <td className="px-3 py-2 text-xs text-stone-500 tabular-nums">
+                        {r.createdAt ? fmtDateFR(r.createdAt.slice(0, 10)) : '—'}
+                      </td>
+                      <td className="px-3 py-2">
+                        <div className="flex items-center justify-end gap-1">
+                          <button onClick={() => setEditing(r)}
+                            title="Modifier"
+                            className="p-1.5 text-stone-500 hover:text-stone-900 hover:bg-stone-100 rounded">
+                            <Pencil className="w-3.5 h-3.5"/>
+                          </button>
+                          <button onClick={() => handleDelete(r.id)}
+                            title="Supprimer"
+                            className="p-1.5 text-stone-400 hover:text-rose-600 hover:bg-rose-50 rounded">
+                            <Trash className="w-3.5 h-3.5"/>
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+};
+
+/* =========================================================
    Postes import preview modal
    ========================================================= */
 const ImportPostsModal = ({ open, count, currentCount, onCancel, onAppend, onReplace }) => {
@@ -2076,10 +2397,11 @@ const CollapsibleSection = ({ title, count, defaultOpen = false, children }) => 
   );
 };
 
-const UnmatchedRow = ({ tx, onCreate, onIgnore }) => {
+const UnmatchedRow = ({ tx, onCreate, onIgnore, onLearnRule }) => {
   const isExp = tx.direction === 'out';
   const day = parseInt(tx.date.slice(8, 10), 10) || 1;
   const [creating, setCreating] = useState(false);
+  const [learning, setLearning] = useState(false);
   const [draft, setDraft] = useState({
     name: buildPosteName(tx.description, tx.details),
     type: '',
@@ -2088,6 +2410,16 @@ const UnmatchedRow = ({ tx, onCreate, onIgnore }) => {
     mode: 'bank',
     cardNumber: '',
   });
+  const [ruleDraft, setRuleDraft] = useState({
+    pattern: tx.description || '',
+    patternType: 'contains',
+    targetName: '',
+  });
+  const monthItems = useMemo(() => {
+    if (!learning) return [];
+    const m = loadMonth(tx.monthKey);
+    return isExp ? m.expenses : m.incomes;
+  }, [learning, tx.monthKey, isExp]);
 
   return (
     <div className="px-3 py-2 text-xs">
@@ -2106,14 +2438,14 @@ const UnmatchedRow = ({ tx, onCreate, onIgnore }) => {
           {isExp ? '−' : '+'} {formatNum(isExp ? tx.debit : tx.credit)}
         </span>
       </div>
-      {!creating ? (
+      {!creating && !learning && (
         <div className="mt-1.5 flex items-center gap-1.5 justify-end">
           <button onClick={() => setCreating(true)}
             className="px-2 py-1 text-[11px] rounded ring-1 ring-stone-200 hover:bg-stone-50">
             Créer un poste
           </button>
-          <button disabled title="Disponible au prompt 7"
-            className="px-2 py-1 text-[11px] rounded ring-1 ring-stone-200 text-stone-400 cursor-not-allowed">
+          <button onClick={() => setLearning(true)}
+            className="px-2 py-1 text-[11px] rounded ring-1 ring-stone-200 hover:bg-stone-50">
             Apprendre une règle
           </button>
           <button onClick={onIgnore}
@@ -2121,7 +2453,55 @@ const UnmatchedRow = ({ tx, onCreate, onIgnore }) => {
             Ignorer
           </button>
         </div>
-      ) : (
+      )}
+      {learning && (
+        <div className="mt-2 p-2 bg-stone-50 rounded ring-1 ring-stone-200 grid grid-cols-3 gap-1.5">
+          <input type="text" dir="auto" placeholder="Pattern à reconnaître"
+            value={ruleDraft.pattern}
+            onChange={e => setRuleDraft(d => ({ ...d, pattern: e.target.value }))}
+            className="col-span-3 px-2 py-1 text-xs ring-1 ring-stone-200 rounded bg-white outline-none focus:ring-stone-400"/>
+          <div className="col-span-3 flex items-center gap-3 text-[11px] text-stone-700">
+            <label className="inline-flex items-center gap-1 cursor-pointer">
+              <input type="radio" checked={ruleDraft.patternType === 'contains'}
+                onChange={() => setRuleDraft(d => ({ ...d, patternType: 'contains' }))}/>
+              Contient le texte
+            </label>
+            <label className="inline-flex items-center gap-1 cursor-pointer">
+              <input type="radio" checked={ruleDraft.patternType === 'regex'}
+                onChange={() => setRuleDraft(d => ({ ...d, patternType: 'regex' }))}/>
+              Expression régulière
+            </label>
+          </div>
+          <select value={ruleDraft.targetName}
+            onChange={e => {
+              if (e.target.value === '__create__') { setLearning(false); setCreating(true); return; }
+              setRuleDraft(d => ({ ...d, targetName: e.target.value }));
+            }}
+            className="col-span-3 px-2 py-1 text-xs ring-1 ring-stone-200 rounded bg-white outline-none focus:ring-stone-400">
+            <option value="">— Choisir le poste cible —</option>
+            {monthItems.map(it => <option key={it.id} value={it.name || ''}>{it.name || '(sans nom)'}</option>)}
+            <option value="__create__">+ Créer un nouveau poste…</option>
+          </select>
+          <div className="col-span-3 flex items-center justify-end gap-1.5 mt-1">
+            <button onClick={() => setLearning(false)}
+              className="px-2 py-1 text-[11px] rounded text-stone-600 hover:bg-stone-100">
+              Annuler
+            </button>
+            <button
+              onClick={() => {
+                const target = monthItems.find(it => (it.name || '') === ruleDraft.targetName);
+                if (!target || !ruleDraft.pattern.trim()) return;
+                onLearnRule(tx, ruleDraft, target);
+                setLearning(false);
+              }}
+              disabled={!ruleDraft.pattern.trim() || !ruleDraft.targetName}
+              className="px-2 py-1 text-[11px] rounded bg-stone-900 text-white hover:bg-stone-800 disabled:bg-stone-300 disabled:cursor-not-allowed">
+              Sauvegarder et matcher
+            </button>
+          </div>
+        </div>
+      )}
+      {creating && (
         <div className="mt-2 p-2 bg-stone-50 rounded ring-1 ring-stone-200 grid grid-cols-3 gap-1.5">
           <input type="text" dir="auto" placeholder="Nom"
             value={draft.name}
@@ -2184,6 +2564,38 @@ const BankRecap = ({ result, onUpdate }) => {
       ignored: [...(prev.ignored || []), tx],
     }));
   };
+  const onLearnRule = (tx, ruleDraft, target) => {
+    // Persist the rule with hitCount = 1 (this match is the first hit)
+    const rules = loadMatchRules();
+    rules.push({
+      id: uid(),
+      pattern: ruleDraft.pattern.trim(),
+      patternType: ruleDraft.patternType,
+      matchTo: {
+        type: tx.direction === 'out' ? 'expense' : 'income',
+        postName: target.name || '',
+      },
+      createdAt: new Date().toISOString(),
+      hitCount: 1,
+    });
+    saveMatchRules(rules);
+    // Move tx into matched
+    onUpdate(prev => ({
+      ...prev,
+      unmatched: prev.unmatched.filter(t => t.referenceKey !== tx.referenceKey),
+      matched: [...prev.matched, {
+        transaction: tx,
+        monthKey: tx.monthKey,
+        kind: tx.direction === 'out' ? 'expense' : 'income',
+        expenseId: tx.direction === 'out' ? target.id : undefined,
+        incomeId:  tx.direction === 'in'  ? target.id : undefined,
+        expenseName: tx.direction === 'out' ? target.name : undefined,
+        incomeName:  tx.direction === 'in'  ? target.name : undefined,
+        appliedAmount: tx.direction === 'out' ? tx.debit : tx.credit,
+        viaRule: 'just-created',
+      }],
+    }));
+  };
 
   return (
     <div className="space-y-3">
@@ -2239,7 +2651,8 @@ const BankRecap = ({ result, onUpdate }) => {
           ) : unmatched.map(tx => (
             <UnmatchedRow key={tx.referenceKey} tx={tx}
               onCreate={(draft) => onCreatePost(tx, draft)}
-              onIgnore={() => onIgnoreTx(tx)}/>
+              onIgnore={() => onIgnoreTx(tx)}
+              onLearnRule={onLearnRule}/>
           ))}
         </div>
       </CollapsibleSection>
@@ -2696,7 +3109,7 @@ const EmptyState = ({ onManual, onCopyPrev, onReportUnpaid, onImportFile, hasPre
 /* =========================================================
    Header
    ========================================================= */
-const Header = ({ year, month, onPrev, onNext, saved, onImportFile, onExportBackup, onRestoreBackup, onOpenImportWizard, onUndo, onRedo, canUndo, canRedo, onGenerateFromImports, onClearImports }) => (
+const Header = ({ year, month, onPrev, onNext, saved, onImportFile, onExportBackup, onRestoreBackup, onOpenImportWizard, onUndo, onRedo, canUndo, canRedo, onGenerateFromImports, onClearImports, onOpenRules }) => (
   <header className="flex flex-wrap items-center justify-between gap-4 mb-6">
     <div>
       <h1 className="text-2xl font-bold text-stone-900 tracking-tight">Cashflow</h1>
@@ -2740,6 +3153,12 @@ const Header = ({ year, month, onPrev, onNext, saved, onImportFile, onExportBack
         <Upload className="w-4 h-4"/>Importer
       </button>
 
+      <button onClick={onOpenRules}
+        title="Règles de matching"
+        className="p-2 rounded-lg bg-white text-stone-600 ring-1 ring-stone-200 hover:bg-stone-50">
+        <Settings className="w-4 h-4"/>
+      </button>
+
       <div className="inline-flex items-center bg-white ring-1 ring-stone-200 rounded-lg overflow-hidden">
         <button onClick={onPrev} className="p-2 hover:bg-stone-50 text-stone-600" aria-label="Mois précédent">
           <ChevronLeft className="w-4 h-4"/>
@@ -2772,6 +3191,7 @@ function App() {
   const [wizardOpen, setWizardOpen] = useState(false);
   const [postsImport, setPostsImport] = useState(null); // { expenses: [...] }
   const [generateOpen, setGenerateOpen] = useState(false);
+  const [rulesOpen, setRulesOpen] = useState(false);
   const [history, setHistory] = useState({}); // { [monthKey]: { past:[], future:[] } }
   const [cardsSnapshot, setCardsSnapshot] = useState(() => loadCardsSnapshot());
   const postsFileRef = useRef(null);
@@ -3281,7 +3701,8 @@ function App() {
                 onUndo={undo} onRedo={redo}
                 canUndo={canUndo} canRedo={canRedo}
                 onGenerateFromImports={() => setGenerateOpen(true)}
-                onClearImports={clearAllImports}/>
+                onClearImports={clearAllImports}
+                onOpenRules={() => setRulesOpen(true)}/>
 
         <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_360px] gap-6">
           <main className="space-y-6 min-w-0">
@@ -3368,6 +3789,11 @@ function App() {
           setImportToast(`${n} transaction${n > 1 ? 's' : ''} supprimée${n > 1 ? 's' : ''} de l'index`);
           setTimeout(() => setImportToast(null), 3000);
         }}
+      />
+
+      <RulesModal
+        open={rulesOpen}
+        onClose={() => setRulesOpen(false)}
       />
 
       <ImportWizard
@@ -3491,6 +3917,17 @@ function App() {
             if (cardsTouched) {
               saveCardsSnapshot(cardsSnap);
               refreshCards();
+            }
+
+            // Update rule hit counters
+            if (result.ruleHits && Object.keys(result.ruleHits).length > 0) {
+              const rules = loadMatchRules();
+              let touched = false;
+              for (const r of rules) {
+                const h = result.ruleHits[r.id];
+                if (h) { r.hitCount = (Number(r.hitCount) || 0) + h; touched = true; }
+              }
+              if (touched) saveMatchRules(rules);
             }
 
             const total    = allNew.length;
