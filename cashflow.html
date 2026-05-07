@@ -43,6 +43,7 @@ const monthLabel = (y, m) => {
 const emptyMonth = () => ({
   openingBalance: 0,
   targetBalance: 0,
+  unaffectedExpenses: 0,
   expenses: [],
   incomes: [],
 });
@@ -739,10 +740,29 @@ const GroupedUnderCardBadge = ({ cardNumber }) => (
   </div>
 );
 
+// Calcule la clé de regroupement d'une expense pour la dimension choisie.
+const expenseGroupKey = (e, by) => {
+  if (by === 'type')   return (e.type || '').trim() || '— Sans type —';
+  if (by === 'mode')   return e.mode === 'card' ? `Carte ${e.cardNumber || 'CB'}` : 'Banque';
+  if (by === 'day')    return `Jour ${e.day || 1}`;
+  if (by === 'status') return ({ unpaid: 'À payer', partial: 'Partiel', paid: 'Payé' })[expenseStatus(e)];
+  if (by === 'name')   return ((e.name || '').trim() || '—').slice(0, 40);
+  return '';
+};
+const sortGroupKeys = (keys, by) => {
+  const arr = [...keys];
+  if (by === 'day')    return arr.sort((a, b) => parseInt(String(a).replace(/\D/g, ''), 10) - parseInt(String(b).replace(/\D/g, ''), 10));
+  if (by === 'status') { const o = { 'À payer': 0, 'Partiel': 1, 'Payé': 2 };
+                          return arr.sort((a, b) => (o[a] ?? 9) - (o[b] ?? 9)); }
+  if (by === 'mode')   { const o = { 'Banque': 0 };
+                          return arr.sort((a, b) => (a in o ? 0 : 1) - (b in o ? 0 : 1) || String(a).localeCompare(String(b), 'fr')); }
+  return arr.sort((a, b) => String(a).localeCompare(String(b), 'fr', { numeric: true }));
+};
+
 const ExpensesTable = ({ expenses, onAdd, onUpdate, onRemove, onRemoveMany, onReportUnpaid, hasPrevMonth, onExportExcel, onImportExcel, cardsForMonth }) => {
   const [selected, setSelected] = useState(() => new Set());
   const [sort, onSort] = useSort();
-  const [groupByType, setGroupByType] = useState(false);
+  const [groupBy, setGroupBy] = useState(null); // null | 'type' | 'mode' | 'day' | 'status' | 'name'
   const [collapsed, setCollapsed] = useState(() => new Set());
 
   useEffect(() => {
@@ -799,19 +819,33 @@ const ExpensesTable = ({ expenses, onAdd, onUpdate, onRemove, onRemoveMany, onRe
   const sortedExpenses = useMemo(() => sortRows(expensesNotGrouped, sort, valueOf), [expensesNotGrouped, sort]);
 
   const groups = useMemo(() => {
-    if (!groupByType) return null;
+    if (!groupBy) return null;
     const map = new Map();
     for (const e of sortedExpenses) {
-      const t = (e.type || '').trim() || '— Sans type —';
-      if (!map.has(t)) map.set(t, []);
-      map.get(t).push(e);
+      const k = expenseGroupKey(e, groupBy);
+      if (!map.has(k)) map.set(k, []);
+      map.get(k).push(e);
     }
-    return [...map.entries()].map(([type, items]) => ({
-      type, items,
-      planned: items.reduce((s, e) => s + (Number(e.amount) || 0), 0),
-      paid:    items.reduce((s, e) => s + (Number(e.paid)   || 0), 0),
-    }));
-  }, [sortedExpenses, groupByType]);
+    const sortedKeys = sortGroupKeys([...map.keys()], groupBy);
+    return sortedKeys.map(type => {
+      const items = map.get(type);
+      return {
+        type, items,
+        planned: items.reduce((s, e) => s + (Number(e.amount) || 0), 0),
+        paid:    items.reduce((s, e) => s + (Number(e.paid)   || 0), 0),
+      };
+    });
+  }, [sortedExpenses, groupBy]);
+
+  // Quand on change de dimension de regroupement, replier tous les groupes.
+  useEffect(() => {
+    if (groupBy && groups && groups.length > 0) {
+      setCollapsed(new Set(groups.map(g => g.type)));
+    } else if (!groupBy) {
+      setCollapsed(new Set());
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [groupBy]);
 
   // Totaux : exclure les expenses regroupées sous une carte, ajouter les
   // synthétiques cartes (qui remplacent ces individuelles).
@@ -902,14 +936,27 @@ const ExpensesTable = ({ expenses, onAdd, onUpdate, onRemove, onRemoveMany, onRe
               <Upload className="w-4 h-4"/><span className="hidden sm:inline">Importer</span>
             </button>
           )}
-          <button onClick={() => setGroupByType(g => !g)}
-            className={"inline-flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-lg ring-1 " +
-              (groupByType
-                ? "bg-stone-900 text-white ring-stone-900 hover:bg-stone-800"
-                : "bg-white text-stone-700 ring-stone-200 hover:bg-stone-50")}>
-            <Layers className="w-4 h-4"/>{groupByType ? 'Vue groupée' : 'Grouper par type'}
-          </button>
-          {groupByType && groups && groups.length > 0 && (() => {
+          <label className={
+              "inline-flex items-center gap-1.5 px-2 py-1 text-sm rounded-lg ring-1 " +
+              (groupBy
+                ? "bg-stone-900 text-white ring-stone-900"
+                : "bg-white text-stone-700 ring-stone-200")
+            }>
+            <Layers className="w-4 h-4"/>
+            <span className="text-xs opacity-80 hidden sm:inline">Grouper :</span>
+            <select value={groupBy || ''}
+              onChange={e => setGroupBy(e.target.value || null)}
+              className={"text-sm bg-transparent outline-none cursor-pointer pr-1 " +
+                (groupBy ? "text-white" : "text-stone-800")}>
+              <option value="" className="text-stone-800">Aucun</option>
+              <option value="type"   className="text-stone-800">Type</option>
+              <option value="mode"   className="text-stone-800">Mode (Banque/CB)</option>
+              <option value="day"    className="text-stone-800">Jour</option>
+              <option value="status" className="text-stone-800">Statut</option>
+              <option value="name"   className="text-stone-800">Fournisseur</option>
+            </select>
+          </label>
+          {groupBy && groups && groups.length > 0 && (() => {
             const allCollapsed = groups.every(g => collapsed.has(g.type));
             const expandAll = () => setCollapsed(new Set());
             const collapseAll = () => setCollapsed(new Set(groups.map(g => g.type)));
@@ -1259,8 +1306,25 @@ const Sidebar = ({ data, totals, onPatch, prevEndBalance, prevLabel, cardsAll, c
           <Row label="Solde début" value={formatILS(totals.opening)}/>
           <Row label="+ Encaissements reçus" value={formatILS(totals.incReceived)} valueClass="text-emerald-600"/>
           <Row label="− Dépenses payées"     value={formatILS(totals.expPaid)}     valueClass="text-rose-600"/>
+          <EditableRow
+            label="− Dépenses non affectées"
+            value={totals.unaffected}
+            onChange={v => onPatch({ unaffectedExpenses: v })}
+            valueClass="text-rose-500"
+            hint="Sorties cash hors postes (ajuste le solde actuel)"
+          />
           <div className="border-t border-stone-200 my-2"/>
-          <Row label="Solde actuel" value={formatILS(totals.current)} bold/>
+          <EditableRow
+            label="Solde actuel"
+            value={totals.current}
+            onChange={v => {
+              // current = opening + received - paid - unaffected ⇒
+              // unaffected = (opening + received - paid) - current
+              const base = totals.opening + totals.incReceived - totals.expPaid;
+              onPatch({ unaffectedExpenses: Math.round((base - v) * 100) / 100 });
+            }}
+            bold
+          />
           <Row label="+ Encaissements à venir" value={formatILS(totals.incRemaining)} valueClass="text-emerald-500/80"/>
           <Row label="− Dépenses à payer"     value={formatILS(totals.expRemaining)} valueClass="text-rose-500/80"/>
         </dl>
@@ -1372,6 +1436,40 @@ const Row = ({ label, value, valueClass = "", bold = false }) => (
     <dd className={"tabular-nums " + valueClass}>{value}</dd>
   </div>
 );
+
+const EditableRow = ({ label, value, onChange, valueClass = "", bold = false, hint }) => {
+  const [draft, setDraft] = useState(null);
+  const display = draft != null ? draft : (Math.round(Number(value) || 0)).toString();
+  const commit = () => {
+    if (draft == null) return;
+    const v = draft === '' ? 0 : Number(draft);
+    if (!isNaN(v)) onChange(v);
+    setDraft(null);
+  };
+  return (
+    <div>
+      <div className={"flex items-baseline justify-between gap-2 " + (bold ? "font-semibold text-stone-900" : "text-stone-600")}>
+        <dt className="flex-none">{label}</dt>
+        <dd className="flex-1 min-w-0">
+          <input
+            type="number" inputMode="decimal"
+            value={display}
+            onChange={e => setDraft(e.target.value)}
+            onBlur={commit}
+            onKeyDown={e => { if (e.key === 'Enter') e.target.blur(); if (e.key === 'Escape') { setDraft(null); e.target.blur(); } }}
+            placeholder="0"
+            className={
+              "w-full tabular-nums text-right bg-transparent rounded px-1.5 py-0.5 outline-none " +
+              "hover:bg-stone-50 focus:bg-stone-50 focus:ring-1 focus:ring-stone-300 " +
+              valueClass
+            }
+          />
+        </dd>
+      </div>
+      {hint && <div className="text-[10px] text-stone-400 -mt-0.5">{hint}</div>}
+    </div>
+  );
+};
 
 /* =========================================================
    Excel import button + modal
@@ -3147,7 +3245,8 @@ function App() {
     const incReceived  = data.incomes.reduce((s, i) => s + (Number(i.received) || 0), 0);
     const incRemaining = incPlanned - incReceived;
     const opening      = Number(data.openingBalance) || 0;
-    const current      = opening + incReceived - expPaid;
+    const unaffected   = Number(data.unaffectedExpenses) || 0;
+    const current      = opening + incReceived - expPaid - unaffected;
     const projected    = current + incRemaining - expRemaining;
     const target       = Number(data.targetBalance) || 0;
     const additionalNeeded = Math.max(0, target - projected);
@@ -3165,7 +3264,7 @@ function App() {
       if (r > 0) { varInc += (r - a); varIncCount++; }
     }
     return { expPlanned, expPaid, expRemaining, incPlanned, incReceived, incRemaining,
-             opening, current, projected, target, additionalNeeded,
+             opening, unaffected, current, projected, target, additionalNeeded,
              varExp, varExpCount, varInc, varIncCount };
   }, [data, cardsForMonth]);
 
