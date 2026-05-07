@@ -1323,7 +1323,7 @@ const ImportModal = ({ pending, onChoose, onCancel }) => {
 /* =========================================================
    Data menu (Excel import + JSON backup/restore)
    ========================================================= */
-const DataMenu = ({ onImportExcel, onExportBackup, onRestoreBackup, onGenerateFromImports }) => {
+const DataMenu = ({ onImportExcel, onExportBackup, onRestoreBackup, onGenerateFromImports, onClearImports }) => {
   const [open, setOpen] = useState(false);
   const ref = useRef(null);
   const xlsxRef = useRef(null);
@@ -1379,6 +1379,10 @@ const DataMenu = ({ onImportExcel, onExportBackup, onRestoreBackup, onGenerateFr
             <MenuItem icon={<Sparkles className="w-4 h-4"/>} label="Transactions importées"
               sub="Voir et créer des postes" onClick={() => { onGenerateFromImports(); setOpen(false); }}/>
           </>)}
+          {onClearImports && (
+            <MenuItem icon={<Trash className="w-4 h-4"/>} label="Effacer transactions importées"
+              sub="Banque + cartes · réinitialiser" onClick={() => { onClearImports(); setOpen(false); }}/>
+          )}
         </div>
       )}
     </div>
@@ -1461,7 +1465,7 @@ const Pill = ({ active, onClick, children, tone }) => {
   );
 };
 
-const ImportedTransactionsModal = ({ open, currentMonthKey, onClose, onCreate }) => {
+const ImportedTransactionsModal = ({ open, currentMonthKey, onClose, onCreate, onDeleted }) => {
   const [allTxs, setAllTxs] = useState({});
   const [monthFilter, setMonthFilter] = useState(currentMonthKey);
   const [sourceFilter, setSourceFilter] = useState('all'); // all | bank | card
@@ -1524,6 +1528,18 @@ const ImportedTransactionsModal = ({ open, currentMonthKey, onClose, onCreate })
 
   const selectedTxs = filtered.filter(t => selected.has(t.refKey));
   const selectedTotal = selectedTxs.reduce((s, t) => s + Math.abs(Number(t.amount) || 0), 0);
+
+  const handleDelete = () => {
+    if (selected.size === 0) return;
+    const n = selected.size;
+    if (!confirm(`Supprimer ${n} transaction${n > 1 ? 's' : ''} de l'index d'import ?\n\nVous pourrez les réimporter ensuite (elles ne seront plus considérées comme des doublons).`)) return;
+    const idx = loadImportedTx();
+    for (const refKey of selected) delete idx[refKey];
+    saveImportedTx(idx);
+    setAllTxs(idx);
+    setSelected(new Set());
+    onDeleted && onDeleted(n);
+  };
 
   const monthIdx = availableMonths.indexOf(monthFilter);
   const goPrev = () => { if (monthIdx >= 0 && monthIdx < availableMonths.length - 1) {
@@ -1652,6 +1668,14 @@ const ImportedTransactionsModal = ({ open, currentMonthKey, onClose, onCreate })
             )}
           </div>
           <div className="flex items-center gap-2 flex-wrap">
+            <button onClick={handleDelete} disabled={selected.size === 0}
+              title="Supprimer les transactions sélectionnées de l'index (permet de les réimporter)"
+              className={"inline-flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-lg " +
+                (selected.size === 0
+                  ? "bg-stone-200 text-stone-400 cursor-not-allowed"
+                  : "bg-rose-600 text-white hover:bg-rose-700")}>
+              <Trash className="w-4 h-4"/>Supprimer ({selected.size})
+            </button>
             <button onClick={onClose}
               className="px-3 py-1.5 text-sm rounded-lg ring-1 ring-stone-200 hover:bg-stone-50">
               Fermer
@@ -2338,7 +2362,7 @@ const EmptyState = ({ onManual, onCopyPrev, onReportUnpaid, onImportFile, hasPre
 /* =========================================================
    Header
    ========================================================= */
-const Header = ({ year, month, onPrev, onNext, saved, onImportFile, onExportBackup, onRestoreBackup, onOpenImportWizard, onUndo, onRedo, canUndo, canRedo, onGenerateFromImports }) => (
+const Header = ({ year, month, onPrev, onNext, saved, onImportFile, onExportBackup, onRestoreBackup, onOpenImportWizard, onUndo, onRedo, canUndo, canRedo, onGenerateFromImports, onClearImports }) => (
   <header className="flex flex-wrap items-center justify-between gap-4 mb-6">
     <div>
       <h1 className="text-2xl font-bold text-stone-900 tracking-tight">Cashflow</h1>
@@ -2374,6 +2398,7 @@ const Header = ({ year, month, onPrev, onNext, saved, onImportFile, onExportBack
         onExportBackup={onExportBackup}
         onRestoreBackup={onRestoreBackup}
         onGenerateFromImports={onGenerateFromImports}
+        onClearImports={onClearImports}
       />
 
       <button onClick={onOpenImportWizard}
@@ -2698,6 +2723,27 @@ function App() {
     setPostsImport(null);
   };
 
+  // ---- Effacer l'index d'imports (banque + cartes) ----
+  const clearAllImports = () => {
+    const idx = loadImportedTx();
+    const cards = loadCardsSnapshot();
+    const txCount = Object.keys(idx).length;
+    const cardCount = Object.keys(cards).length;
+    if (txCount === 0 && cardCount === 0) {
+      alert("Aucune transaction importée à effacer.");
+      return;
+    }
+    if (!confirm(
+      `Effacer ${txCount} transaction${txCount > 1 ? 's' : ''} et ${cardCount} snapshot${cardCount > 1 ? 's' : ''} de cartes ?\n\n` +
+      `Les postes déjà créés dans vos mois ne sont pas concernés. ` +
+      `Cette action permet de réimporter le même fichier comme s'il n'avait jamais été importé.`
+    )) return;
+    localStorage.removeItem('transactions:imported');
+    localStorage.removeItem('cards:current');
+    setImportToast(`Index effacé (${txCount} transaction${txCount > 1 ? 's' : ''}, ${cardCount} carte${cardCount > 1 ? 's' : ''})`);
+    setTimeout(() => setImportToast(null), 3000);
+  };
+
   // ---- Créer postes depuis transactions sélectionnées ----
   const applyCreatePostsFromTxs = (selectedTxs, mode, targetMonthKey) => {
     const target = targetMonthKey || key;
@@ -2867,7 +2913,8 @@ function App() {
                 onOpenImportWizard={() => setWizardOpen(true)}
                 onUndo={undo} onRedo={redo}
                 canUndo={canUndo} canRedo={canRedo}
-                onGenerateFromImports={() => setGenerateOpen(true)}/>
+                onGenerateFromImports={() => setGenerateOpen(true)}
+                onClearImports={clearAllImports}/>
 
         <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_360px] gap-6">
           <main className="space-y-6 min-w-0">
@@ -2947,6 +2994,10 @@ function App() {
         currentMonthKey={key}
         onClose={() => setGenerateOpen(false)}
         onCreate={applyCreatePostsFromTxs}
+        onDeleted={(n) => {
+          setImportToast(`${n} transaction${n > 1 ? 's' : ''} supprimée${n > 1 ? 's' : ''} de l'index`);
+          setTimeout(() => setImportToast(null), 3000);
+        }}
       />
 
       <ImportWizard
