@@ -170,6 +170,89 @@ const parseCardStatement = async (file) => {
   };
 };
 
+/* ---------- Postes (expenses) Excel export / import ---------- */
+const exportExpensesToExcel = (expenses, monthKeyStr) => {
+  const headers = [
+    'Fournisseur / poste', 'Type', 'Prévu (ILS)', 'Jour',
+    'Mode', 'N° carte', 'Payé (ILS)', 'Notes', 'Reporté de',
+  ];
+  const rows = expenses.map(e => [
+    e.name || '',
+    e.type || '',
+    Number(e.amount) || 0,
+    Number(e.day) || 1,
+    e.mode === 'card' ? 'CB' : 'Banque',
+    e.cardNumber || '',
+    Number(e.paid) || 0,
+    e.notes || '',
+    e.reportedFrom || '',
+  ]);
+  const ws = XLSX.utils.aoa_to_sheet([headers, ...rows]);
+  ws['!cols'] = [
+    { wch: 30 }, { wch: 16 }, { wch: 12 }, { wch: 6 },
+    { wch: 8 },  { wch: 12 }, { wch: 12 }, { wch: 24 }, { wch: 10 },
+  ];
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Postes');
+  XLSX.writeFile(wb, `postes-${monthKeyStr}.xlsx`);
+};
+
+const parseExpensesFromExcel = async (file) => {
+  const buf = await file.arrayBuffer();
+  const wb = XLSX.read(buf, { type: 'array' });
+  const sheet = wb.Sheets[wb.SheetNames[0]];
+  const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
+  if (rows.length === 0) return [];
+
+  const header = (rows[0] || []).map(h => String(h || '').toLowerCase());
+  const findCol = (kws) => {
+    for (let i = 0; i < header.length; i++) {
+      if (kws.some(k => header[i].includes(k))) return i;
+    }
+    return -1;
+  };
+  const colName     = findCol(['fournisseur', 'poste', 'libellé', 'libelle', 'description']);
+  const colType     = findCol(['type', 'catégorie', 'categorie']);
+  const colAmount   = findCol(['prévu', 'prevu', 'montant', 'amount']);
+  const colDay      = findCol(['jour', 'day']);
+  const colMode     = findCol(['mode']);
+  const colCard     = findCol(['n° carte', 'no carte', 'numéro carte', 'numero carte', 'carte', 'card']);
+  const colPaid     = findCol(['payé', 'paye', 'paid']);
+  const colNotes    = findCol(['note', 'remarque']);
+  const colReported = findCol(['reporté', 'reporte', 'reported']);
+
+  if (colName < 0) {
+    throw new Error("Colonne « Fournisseur / poste » introuvable dans la 1re ligne.");
+  }
+
+  const expenses = [];
+  for (let i = 1; i < rows.length; i++) {
+    const row = rows[i];
+    if (!row) continue;
+    const name = String(row[colName] || '').trim();
+    if (!name) continue;
+
+    const modeRaw = String(colMode >= 0 ? row[colMode] : '').trim().toLowerCase();
+    const mode = (modeRaw === 'cb' || modeRaw === 'card' || modeRaw === 'carte' || modeRaw === 'credit')
+      ? 'card' : 'bank';
+
+    const reportedRaw = colReported >= 0 ? String(row[colReported] || '').trim() : '';
+    expenses.push({
+      id: uid(),
+      name,
+      type:       colType   >= 0 ? String(row[colType]   || '').trim() : '',
+      amount:     colAmount >= 0 ? (Number(row[colAmount]) || 0) : 0,
+      day:        colDay    >= 0 ? Math.max(1, Math.min(31, Number(row[colDay]) || 1)) : 1,
+      mode,
+      cardNumber: colCard   >= 0 ? String(row[colCard]   || '').trim() : '',
+      notes:      colNotes  >= 0 ? String(row[colNotes]  || '').trim() : '',
+      paid:       colPaid   >= 0 ? (Number(row[colPaid])  || 0) : 0,
+      ...(reportedRaw ? { reportedFrom: reportedRaw } : {}),
+    });
+  }
+  return expenses;
+};
+
 /* =========================================================
    Excel import helpers
    ========================================================= */
@@ -420,7 +503,7 @@ const ReportedBadge = ({ from }) => {
   );
 };
 
-const ExpensesTable = ({ expenses, onAdd, onUpdate, onRemove, onRemoveMany, onReportUnpaid, hasPrevMonth }) => {
+const ExpensesTable = ({ expenses, onAdd, onUpdate, onRemove, onRemoveMany, onReportUnpaid, hasPrevMonth, onExportExcel, onImportExcel }) => {
   const [selected, setSelected] = useState(() => new Set());
   const [sort, onSort] = useSort();
   const [groupByType, setGroupByType] = useState(false);
@@ -533,6 +616,25 @@ const ExpensesTable = ({ expenses, onAdd, onUpdate, onRemove, onRemoveMany, onRe
             <button onClick={deleteSelected}
               className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-lg bg-rose-600 text-white hover:bg-rose-700">
               <Trash className="w-4 h-4"/>Supprimer ({selected.size})
+            </button>
+          )}
+          {onExportExcel && (
+            <button onClick={onExportExcel} disabled={expenses.length === 0}
+              title="Exporter le mois en Excel (.xlsx)"
+              className={
+                "inline-flex items-center gap-1 px-2.5 py-1.5 text-sm rounded-lg ring-1 ring-stone-200 " +
+                (expenses.length === 0
+                  ? "bg-white text-stone-300 cursor-not-allowed"
+                  : "bg-white text-stone-700 hover:bg-stone-50")
+              }>
+              <Download className="w-4 h-4"/><span className="hidden sm:inline">Exporter</span>
+            </button>
+          )}
+          {onImportExcel && (
+            <button onClick={onImportExcel}
+              title="Importer un fichier Excel de postes"
+              className="inline-flex items-center gap-1 px-2.5 py-1.5 text-sm rounded-lg ring-1 ring-stone-200 bg-white text-stone-700 hover:bg-stone-50">
+              <Upload className="w-4 h-4"/><span className="hidden sm:inline">Importer</span>
             </button>
           )}
           <button onClick={() => setGroupByType(g => !g)}
@@ -947,6 +1049,7 @@ const ChevronDown = (p) => <Svg {...p}><polyline points="6 9 12 15 18 9"/></Svg>
 const Save = (p) => <Svg {...p}><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></Svg>;
 const Building2 = (p) => <Svg {...p}><path d="M6 22V4a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v18Z"/><path d="M6 12H4a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h2"/><path d="M18 9h2a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2h-2"/><path d="M10 6h4M10 10h4M10 14h4M10 18h4"/></Svg>;
 const X = (p) => <Svg {...p}><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></Svg>;
+const Download = (p) => <Svg {...p}><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></Svg>;
 
 /* =========================================================
    Sortable column header helper
@@ -1139,6 +1242,48 @@ const MenuItem = ({ icon, label, sub, onClick }) => (
     </span>
   </button>
 );
+
+/* =========================================================
+   Postes import preview modal
+   ========================================================= */
+const ImportPostsModal = ({ open, count, currentCount, onCancel, onAppend, onReplace }) => {
+  if (!open) return null;
+  return (
+    <div className="fixed inset-0 z-50 bg-stone-900/50 flex items-center justify-center p-4" onClick={onCancel}>
+      <div className="bg-white rounded-xl shadow-xl ring-1 ring-stone-200 max-w-md w-full p-5"
+           onClick={e => e.stopPropagation()}>
+        <h3 className="font-semibold text-stone-900 text-lg">
+          Importer {count} poste{count > 1 ? 's' : ''}
+        </h3>
+        <p className="text-sm text-stone-500 mt-1">
+          Le mois courant contient déjà <span className="font-medium text-stone-800">{currentCount}</span> poste{currentCount > 1 ? 's' : ''}.
+        </p>
+        <div className="mt-4 grid grid-cols-1 gap-2">
+          <button onClick={onAppend}
+            className="px-4 py-3 rounded-lg ring-1 ring-stone-200 hover:bg-stone-50 text-left">
+            <div className="font-medium text-stone-900">Ajouter à la liste</div>
+            <div className="text-xs text-stone-500 mt-0.5">
+              Les {currentCount} postes actuels sont conservés. Les {count} nouveaux apparaissent en tête.
+            </div>
+          </button>
+          <button onClick={onReplace}
+            className="px-4 py-3 rounded-lg ring-1 ring-rose-200 bg-rose-50 hover:bg-rose-100 text-left">
+            <div className="font-medium text-rose-700">Remplacer la liste</div>
+            <div className="text-xs text-rose-600/80 mt-0.5">
+              Les {currentCount} postes actuels sont supprimés.
+            </div>
+          </button>
+        </div>
+        <div className="mt-4 flex justify-end">
+          <button onClick={onCancel}
+            className="px-3 py-1.5 text-sm rounded-lg text-stone-600 hover:bg-stone-100">
+            Annuler
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
 
 /* =========================================================
    Recap views per import kind
@@ -1654,6 +1799,8 @@ function App() {
   const [importToast, setImportToast] = useState(null);
   const [reportModal, setReportModal] = useState(null); // { items, fromKey }
   const [wizardOpen, setWizardOpen] = useState(false);
+  const [postsImport, setPostsImport] = useState(null); // { expenses: [...] }
+  const postsFileRef = useRef(null);
   const skipNextSave = useRef(true);
 
   // Mois précédent
@@ -1816,6 +1963,56 @@ function App() {
     }
   };
 
+  // ---- Postes : export / import Excel (mois courant) ----
+  const exportPostsExcel = () => {
+    if (data.expenses.length === 0) {
+      alert("Aucun poste à exporter pour ce mois.");
+      return;
+    }
+    exportExpensesToExcel(data.expenses, key);
+    setImportToast(`Export : ${data.expenses.length} postes (postes-${key}.xlsx)`);
+    setTimeout(() => setImportToast(null), 3000);
+  };
+
+  const handlePostsFile = async (e) => {
+    const f = e.target.files?.[0];
+    e.target.value = '';
+    if (!f) return;
+    try {
+      const imported = await parseExpensesFromExcel(f);
+      if (imported.length === 0) {
+        alert("Aucun poste détecté dans le fichier.");
+        return;
+      }
+      if (data.expenses.length === 0) {
+        setData(d => ({ ...d, expenses: imported }));
+        setImportToast(`${imported.length} poste${imported.length > 1 ? 's' : ''} importé${imported.length > 1 ? 's' : ''}`);
+        setTimeout(() => setImportToast(null), 3000);
+      } else {
+        setPostsImport({ expenses: imported });
+      }
+    } catch (err) {
+      alert("Erreur d'import : " + err.message);
+    }
+  };
+
+  const applyPostsAppend = () => {
+    if (!postsImport) return;
+    const list = postsImport.expenses;
+    setData(d => ({ ...d, expenses: [...list, ...d.expenses] }));
+    setImportToast(`${list.length} poste${list.length > 1 ? 's' : ''} ajouté${list.length > 1 ? 's' : ''}`);
+    setTimeout(() => setImportToast(null), 3000);
+    setPostsImport(null);
+  };
+  const applyPostsReplace = () => {
+    if (!postsImport) return;
+    const list = postsImport.expenses;
+    setData(d => ({ ...d, expenses: list }));
+    setImportToast(`${list.length} poste${list.length > 1 ? 's' : ''} importé${list.length > 1 ? 's' : ''} (remplacement)`);
+    setTimeout(() => setImportToast(null), 3000);
+    setPostsImport(null);
+  };
+
   // ---- Reporter non-payés ----
   const openReportModal = () => {
     const prev = loadMonth(prevKey);
@@ -1950,6 +2147,8 @@ function App() {
                   onRemoveMany={removeManyExpenses}
                   onReportUnpaid={openReportModal}
                   hasPrevMonth={hasPrevMonth}
+                  onExportExcel={exportPostsExcel}
+                  onImportExcel={() => postsFileRef.current?.click()}
                 />
                 <IncomesTable
                   incomes={data.incomes}
@@ -1986,6 +2185,18 @@ function App() {
         toLabel={monthLabel(year, month)}
         onCancel={() => setReportModal(null)}
         onConfirm={applyReportUnpaid}
+      />
+
+      <input ref={postsFileRef} type="file" accept=".xlsx,.xls,.csv"
+        onChange={handlePostsFile} className="hidden"/>
+
+      <ImportPostsModal
+        open={!!postsImport}
+        count={postsImport?.expenses.length || 0}
+        currentCount={data.expenses.length}
+        onCancel={() => setPostsImport(null)}
+        onAppend={applyPostsAppend}
+        onReplace={applyPostsReplace}
       />
 
       <ImportWizard
