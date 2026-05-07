@@ -208,6 +208,7 @@ const itemFromRule = (rule) => {
       id: uid(),
       name: rule.name || '',
       type: '',
+      category: rule.category || null,
       amount: Number(rule.amount) || 0,
       day: Math.max(1, Math.min(31, Number(rule.day) || 1)),
       mode: rule.mode || 'bank',
@@ -220,6 +221,7 @@ const itemFromRule = (rule) => {
   return {
     id: uid(),
     name: rule.name || '',
+    category: rule.category || null,
     amount: Number(rule.amount) || 0,
     day: Math.max(1, Math.min(31, Number(rule.day) || 1)),
     received: 0,
@@ -269,6 +271,61 @@ const deleteAllOccurrencesOfRule = (ruleId) => {
     } catch {}
   }
   return total;
+};
+
+/* ---------- Categories ---------- */
+const DEFAULT_CATEGORIES = [
+  // Expense categories
+  { id: 'salaires',                name: 'Salaires',                       color: 'violet',  icon: 'Users',     type: 'expense', isDefault: true },
+  { id: 'charges_sociales',        name: 'Charges sociales',               color: 'purple',  icon: 'Shield',    type: 'expense', isDefault: true },
+  { id: 'impots',                  name: "Impôts (Ma'am, IS, Mikdamot)",   color: 'rose',    icon: 'Landmark',  type: 'expense', isDefault: true },
+  { id: 'fournisseurs_recurrents', name: 'Fournisseurs récurrents',        color: 'blue',    icon: 'Package',   type: 'expense', isDefault: true },
+  { id: 'it_software',             name: 'IT / Logiciels',                 color: 'cyan',    icon: 'Monitor',   type: 'expense', isDefault: true },
+  { id: 'immobilier',              name: 'Immobilier (loyer, charges)',    color: 'amber',   icon: 'Home',      type: 'expense', isDefault: true },
+  { id: 'banque',                  name: 'Banque (frais, intérêts)',       color: 'stone',   icon: 'Building2', type: 'expense', isDefault: true },
+  { id: 'honoraires',              name: 'Honoraires (sous-traitants)',    color: 'emerald', icon: 'Briefcase', type: 'expense', isDefault: true },
+  { id: 'telecoms',                name: 'Télécoms / Internet',            color: 'sky',     icon: 'Wifi',      type: 'expense', isDefault: true },
+  { id: 'transport',               name: 'Transport / Carburant',          color: 'orange',  icon: 'Car',       type: 'expense', isDefault: true },
+  { id: 'non_categorise',          name: 'Non catégorisé',                 color: 'gray',    icon: 'HelpCircle',type: 'expense', isDefault: true },
+  // Income categories
+  { id: 'honoraires_clients',      name: 'Honoraires clients',             color: 'emerald', icon: 'Briefcase', type: 'income',  isDefault: true },
+  { id: 'autres_revenus',          name: 'Autres revenus',                 color: 'sky',     icon: 'TrendingUp',type: 'income',  isDefault: true },
+  { id: 'non_categorise_in',       name: 'Non catégorisé',                 color: 'gray',    icon: 'HelpCircle',type: 'income',  isDefault: true },
+];
+
+const loadCategories = () => {
+  try {
+    const raw = localStorage.getItem('categories');
+    if (!raw) {
+      saveCategories(DEFAULT_CATEGORIES);
+      return DEFAULT_CATEGORIES.slice();
+    }
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) && parsed.length > 0 ? parsed : DEFAULT_CATEGORIES.slice();
+  } catch { return DEFAULT_CATEGORIES.slice(); }
+};
+const saveCategories = (cats) => {
+  localStorage.setItem('categories', JSON.stringify(cats));
+};
+
+const KEYWORDS_BY_CATEGORY = {
+  salaires:         ['משכורת', 'salaire', 'salaires', 'paie'],
+  charges_sociales: ['bituach leumi', 'ביטוח לאומי', 'mas hachnasa nikui', 'kopag', 'קופג'],
+  impots:           ['maam', 'מע"מ', 'מעמ', "ma'am", 'mikdamot', 'מקדמות', 'is société', 'impôt', 'mas hachnasa'],
+  it_software:      ['microsoft', 'office 365', 'powens', 'google', 'amazon', 'aws', 'saas', 'logiciel'],
+  immobilier:       ['loyer', 'ארנונה', 'arnona', 'vaad bayit', 'ועד בית'],
+  banque:           ['מסלול', 'frais banc', 'intérêt', 'ribit', 'עמלת', 'עמלה'],
+  telecoms:         ['סלקום', 'cellcom', 'bezeq', 'בזק', 'internet', 'phone', 'mobile'],
+  transport:        ['נתיב המהיר', 'highway', 'essence', 'carburant', 'delek', 'paz'],
+};
+
+const suggestCategory = (name, type = 'expense') => {
+  if (!name) return null;
+  const n = String(name).toLowerCase();
+  for (const [catId, kws] of Object.entries(KEYWORDS_BY_CATEGORY)) {
+    if (kws.some(k => n.includes(k.toLowerCase()))) return catId;
+  }
+  return type === 'income' ? null : null;
 };
 
 /* ---------- Generic settings (alert threshold, UI state) ---------- */
@@ -978,6 +1035,148 @@ const ReportedBadge = ({ from }) => {
   );
 };
 
+const CategoryBadge = ({ category, compact = false }) => {
+  const cat = category || { color: 'gray', name: 'Non catégorisé', icon: 'HelpCircle' };
+  const t = CATEGORY_TONES[cat.color] || CATEGORY_TONES.gray;
+  const Icon = ICONS_BY_NAME[cat.icon] || HelpCircle;
+  return (
+    <span className={"inline-flex items-center gap-1 text-[11px] rounded-full px-1.5 py-0.5 ring-1 " + t.bg + " " + t.text + " " + t.ring}>
+      <Icon className="w-3 h-3 flex-none"/>
+      {!compact && <span className="truncate max-w-[110px]">{cat.name}</span>}
+    </span>
+  );
+};
+
+const CategoryPicker = ({ categories, value, type, onChange, onAddCategory }) => {
+  const [open, setOpen] = useState(false);
+  const [pos, setPos] = useState(null);
+  const [search, setSearch] = useState('');
+  const [creating, setCreating] = useState(false);
+  const btnRef = useRef(null);
+  const popRef = useRef(null);
+  useEffect(() => {
+    if (!open) { setSearch(''); setCreating(false); return; }
+    const h = (e) => {
+      if (popRef.current && !popRef.current.contains(e.target)
+       && btnRef.current && !btnRef.current.contains(e.target)) setOpen(false);
+    };
+    document.addEventListener('mousedown', h);
+    return () => document.removeEventListener('mousedown', h);
+  }, [open]);
+
+  const cur = categories.find(c => c.id === value && c.type === type) || null;
+  const list = categories.filter(c => c.type === type)
+    .filter(c => !search || c.name.toLowerCase().includes(search.toLowerCase()));
+
+  const openPopover = (e) => {
+    const r = e.currentTarget.getBoundingClientRect();
+    setPos({ left: r.left, top: r.bottom + 4, width: Math.max(220, r.width) });
+    setOpen(o => !o);
+  };
+
+  return (
+    <>
+      <button ref={btnRef} type="button" onClick={openPopover}
+        className="text-left bg-transparent rounded px-1 py-1 hover:bg-stone-100 focus:outline-none focus:ring-1 focus:ring-stone-300 inline-flex">
+        <CategoryBadge category={cur}/>
+      </button>
+      {open && pos && (
+        <div ref={popRef}
+          style={{ position: 'fixed', left: pos.left, top: pos.top, width: pos.width, zIndex: 60 }}
+          className="bg-white ring-1 ring-stone-200 rounded-lg shadow-lg overflow-hidden">
+          {creating ? (
+            <CategoryQuickCreate type={type}
+              onSubmit={(cat) => { onAddCategory(cat); onChange(cat.id); setOpen(false); }}
+              onCancel={() => setCreating(false)}/>
+          ) : (<>
+            {categories.filter(c => c.type === type).length > 8 && (
+              <div className="p-1.5 border-b border-stone-100">
+                <input type="text" value={search} onChange={e => setSearch(e.target.value)}
+                  placeholder="Rechercher…" autoFocus
+                  className="w-full px-2 py-1 text-xs ring-1 ring-stone-200 rounded outline-none focus:ring-stone-400"/>
+              </div>
+            )}
+            <div className="max-h-72 overflow-auto py-1">
+              <button onClick={() => { onChange(null); setOpen(false); }}
+                className="w-full text-left px-2 py-1.5 text-xs hover:bg-stone-50 text-stone-500">
+                — Aucune catégorie —
+              </button>
+              {list.map(c => (
+                <button key={c.id} onClick={() => { onChange(c.id); setOpen(false); }}
+                  className={"w-full text-left px-2 py-1.5 hover:bg-stone-50 flex items-center gap-2 " +
+                    (c.id === value ? "bg-stone-50" : "")}>
+                  <CategoryBadge category={c}/>
+                </button>
+              ))}
+              {list.length === 0 && (
+                <div className="px-3 py-3 text-center text-[11px] text-stone-400">Aucune catégorie</div>
+              )}
+            </div>
+            <div className="border-t border-stone-100">
+              <button onClick={() => setCreating(true)}
+                className="w-full text-left px-2 py-1.5 text-xs text-stone-700 hover:bg-stone-50 inline-flex items-center gap-1">
+                <Plus className="w-3 h-3"/>Nouvelle catégorie
+              </button>
+            </div>
+          </>)}
+        </div>
+      )}
+    </>
+  );
+};
+
+const CategoryQuickCreate = ({ type, onSubmit, onCancel }) => {
+  const [name, setName] = useState('');
+  const [color, setColor] = useState('blue');
+  const [icon, setIcon] = useState('Package');
+  const canSave = name.trim().length > 0;
+  return (
+    <div className="p-2 space-y-2">
+      <input type="text" value={name} onChange={e => setName(e.target.value)}
+        placeholder="Nom de la catégorie" autoFocus
+        className="w-full px-2 py-1 text-xs ring-1 ring-stone-200 rounded outline-none focus:ring-stone-400"/>
+      <div>
+        <div className="text-[10px] uppercase tracking-wide text-stone-500 mb-1">Couleur</div>
+        <div className="flex flex-wrap gap-1">
+          {CATEGORY_COLORS_LIST.map(c => (
+            <button key={c} onClick={() => setColor(c)}
+              title={c}
+              className={"w-5 h-5 rounded-full ring-2 " + (color === c ? "ring-stone-900" : "ring-transparent")}
+              style={{ backgroundColor: CATEGORY_TONES[c].bar }}/>
+          ))}
+        </div>
+      </div>
+      <div>
+        <div className="text-[10px] uppercase tracking-wide text-stone-500 mb-1">Icône</div>
+        <div className="grid grid-cols-7 gap-1">
+          {CATEGORY_ICONS_LIST.map(name => {
+            const I = ICONS_BY_NAME[name];
+            return (
+              <button key={name} onClick={() => setIcon(name)}
+                title={name}
+                className={"p-1.5 rounded ring-1 " + (icon === name ? "ring-stone-900 bg-stone-50" : "ring-stone-200 hover:bg-stone-50")}>
+                <I className="w-3.5 h-3.5"/>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+      <div className="flex justify-end gap-1.5 pt-1">
+        <button onClick={onCancel}
+          className="px-2 py-1 text-[11px] rounded text-stone-600 hover:bg-stone-100">
+          Annuler
+        </button>
+        <button disabled={!canSave}
+          onClick={() => onSubmit({ id: uid(), name: name.trim(), color, icon, type, isDefault: false })}
+          className={"px-2 py-1 text-[11px] rounded " +
+            (canSave ? "bg-stone-900 text-white hover:bg-stone-800" : "bg-stone-200 text-stone-400 cursor-not-allowed")}>
+          Créer
+        </button>
+      </div>
+    </div>
+  );
+};
+
 const RecurringBadge = ({ rule }) => {
   if (!rule) return null;
   return (
@@ -1020,12 +1219,16 @@ const GroupedUnderCardBadge = ({ cardNumber }) => (
 );
 
 // Calcule la clé de regroupement d'une expense pour la dimension choisie.
-const expenseGroupKey = (e, by) => {
+const expenseGroupKey = (e, by, categoriesById) => {
   if (by === 'type')   return (e.type || '').trim() || '— Sans type —';
   if (by === 'mode')   return e.mode === 'card' ? `Carte ${e.cardNumber || 'CB'}` : 'Banque';
   if (by === 'day')    return `Jour ${e.day || 1}`;
   if (by === 'status') return ({ unpaid: 'À payer', partial: 'Partiel', paid: 'Payé' })[expenseStatus(e)];
   if (by === 'name')   return ((e.name || '').trim() || '—').slice(0, 40);
+  if (by === 'category') {
+    const cat = e.category && categoriesById ? categoriesById.get(e.category) : null;
+    return cat ? cat.name : 'Non catégorisé';
+  }
   return '';
 };
 const sortGroupKeys = (keys, by) => {
@@ -1038,7 +1241,7 @@ const sortGroupKeys = (keys, by) => {
   return arr.sort((a, b) => String(a).localeCompare(String(b), 'fr', { numeric: true }));
 };
 
-const ExpensesTable = ({ expenses, onAdd, onUpdate, onRemove, onRemoveMany, onReportUnpaid, hasPrevMonth, onExportExcel, onImportExcel, cardsForMonth, rulesById }) => {
+const ExpensesTable = ({ expenses, onAdd, onUpdate, onRemove, onRemoveMany, onReportUnpaid, hasPrevMonth, onExportExcel, onImportExcel, cardsForMonth, rulesById, categories, categoriesById, onAddCategory }) => {
   const [selected, setSelected] = useState(() => new Set());
   const [sort, onSort] = useSort();
   const [groupBy, setGroupBy] = useState(null); // null | 'type' | 'mode' | 'day' | 'status' | 'name'
@@ -1101,7 +1304,7 @@ const ExpensesTable = ({ expenses, onAdd, onUpdate, onRemove, onRemoveMany, onRe
     if (!groupBy) return null;
     const map = new Map();
     for (const e of sortedExpenses) {
-      const k = expenseGroupKey(e, groupBy);
+      const k = expenseGroupKey(e, groupBy, categoriesById);
       if (!map.has(k)) map.set(k, []);
       map.get(k).push(e);
     }
@@ -1170,6 +1373,16 @@ const ExpensesTable = ({ expenses, onAdd, onUpdate, onRemove, onRemoveMany, onRe
           cardNumber={e.cardNumber} onCardChange={v => onUpdate(e.id, { cardNumber: v })}/>
       </td>
       <td className="px-2 py-1">
+        {categories && (
+          <CategoryPicker
+            categories={categories} type="expense"
+            value={e.category}
+            onChange={v => onUpdate(e.id, { category: v })}
+            onAddCategory={onAddCategory}
+          />
+        )}
+      </td>
+      <td className="px-2 py-1">
         <NumInput value={e.paid} onChange={v => onUpdate(e.id, { paid: v })}/>
         <VarianceLabel planned={e.amount} actual={e.paid}/>
       </td>
@@ -1229,6 +1442,7 @@ const ExpensesTable = ({ expenses, onAdd, onUpdate, onRemove, onRemoveMany, onRe
               className={"text-sm bg-transparent outline-none cursor-pointer pr-1 " +
                 (groupBy ? "text-white" : "text-stone-800")}>
               <option value="" className="text-stone-800">Aucun</option>
+              <option value="category" className="text-stone-800">Catégorie</option>
               <option value="type"   className="text-stone-800">Type</option>
               <option value="mode"   className="text-stone-800">Mode (Banque/CB)</option>
               <option value="day"    className="text-stone-800">Jour</option>
@@ -1236,6 +1450,25 @@ const ExpensesTable = ({ expenses, onAdd, onUpdate, onRemove, onRemoveMany, onRe
               <option value="name"   className="text-stone-800">Fournisseur</option>
             </select>
           </label>
+          {categoriesById && (
+            <button
+              onClick={() => {
+                let n = 0;
+                for (const e of expenses) {
+                  if (e.category && e.category !== 'non_categorise') continue;
+                  const sug = suggestCategory(e.name + ' ' + (e.notes || ''), 'expense');
+                  if (sug && categoriesById.has(sug)) {
+                    onUpdate(e.id, { category: sug });
+                    n++;
+                  }
+                }
+                if (n === 0) alert("Aucune catégorisation automatique trouvée. Modifiez manuellement les libellés ou les mots-clés.");
+              }}
+              title="Catégoriser automatiquement les postes non catégorisés"
+              className="inline-flex items-center gap-1 px-2.5 py-1.5 text-sm rounded-lg bg-white text-stone-700 ring-1 ring-stone-200 hover:bg-stone-50">
+              <Sparkles className="w-4 h-4"/><span className="hidden sm:inline">Catégoriser auto</span>
+            </button>
+          )}
           {groupBy && groups && groups.length > 0 && (() => {
             const allCollapsed = groups.every(g => collapsed.has(g.type));
             const expandAll = () => setCollapsed(new Set());
@@ -1282,6 +1515,7 @@ const ExpensesTable = ({ expenses, onAdd, onUpdate, onRemove, onRemoveMany, onRe
               <SortableTh field="amount" label="Prévu"  sort={sort} onSort={onSort} className="text-right w-28"/>
               <SortableTh field="day"    label="Jour"   sort={sort} onSort={onSort} className="text-right w-16"/>
               <th className="text-left font-medium px-2 py-2 w-44">Mode</th>
+              <th className="text-left font-medium px-2 py-2 w-36">Catégorie</th>
               <SortableTh field="paid"   label="Payé"   sort={sort} onSort={onSort} className="text-right w-32"/>
               <SortableTh field="status" label="Statut" sort={sort} onSort={onSort} className="text-left w-28"/>
               <th className="w-10"></th>
@@ -1289,7 +1523,7 @@ const ExpensesTable = ({ expenses, onAdd, onUpdate, onRemove, onRemoveMany, onRe
           </thead>
           <tbody className="divide-y divide-stone-100">
             {expenses.length === 0 && (cardsForMonth || []).length === 0 && (
-              <tr><td colSpan="9" className="px-4 py-6 text-center text-sm text-stone-400">
+              <tr><td colSpan="10" className="px-4 py-6 text-center text-sm text-stone-400">
                 Aucun poste pour ce mois.
               </td></tr>
             )}
@@ -1297,7 +1531,7 @@ const ExpensesTable = ({ expenses, onAdd, onUpdate, onRemove, onRemoveMany, onRe
             {/* Lignes synthétiques cartes + leurs enfants regroupés */}
             {(cardsForMonth || []).map(c => (
               <React.Fragment key={'card-' + c.cardNumber}>
-                <SyntheticCardRow card={c} colSpan={9}/>
+                <SyntheticCardRow card={c} colSpan={10}/>
                 {(childrenByCard.get(String(c.cardNumber)) || []).map(e => renderRow(e, { childOf: c.cardNumber }))}
               </React.Fragment>
             ))}
@@ -1306,7 +1540,7 @@ const ExpensesTable = ({ expenses, onAdd, onUpdate, onRemove, onRemoveMany, onRe
               <React.Fragment key={g.type}>
                 <tr className="bg-stone-50/80 cursor-pointer hover:bg-stone-100/80"
                     onClick={() => toggleGroup(g.type)}>
-                  <td colSpan="9" className="px-3 py-2">
+                  <td colSpan="10" className="px-3 py-2">
                     <div className="flex items-center justify-between gap-3 flex-wrap">
                       <div className="flex items-center gap-2 font-medium text-stone-800">
                         {collapsed.has(g.type)
@@ -1335,7 +1569,7 @@ const ExpensesTable = ({ expenses, onAdd, onUpdate, onRemove, onRemoveMany, onRe
                 <td className="px-2 py-2 text-stone-600">Totaux</td>
                 <td></td>
                 <td className="px-2 py-2 text-right tabular-nums">{formatILS(totalPlanned)}</td>
-                <td></td><td></td>
+                <td></td><td></td><td></td>
                 <td className="px-2 py-2 text-right tabular-nums">{formatILS(totalPaid)}</td>
                 <td className="px-2 py-2 text-rose-700 tabular-nums">Reste {formatILS(totalRemaining)}</td>
                 <td></td>
@@ -1569,7 +1803,60 @@ const BigNumInput = ({ value, onChange, placeholder, className = "" }) => {
   );
 };
 
-const Sidebar = ({ data, totals, onPatch, prevEndBalance, prevLabel, cardsAll, cardsForMonth }) => {
+const CategoryBreakdown = ({ expenses, categoriesById }) => {
+  if (!categoriesById || categoriesById.size === 0) return null;
+  const totals = new Map();
+  for (const e of expenses) {
+    const id = e.category && categoriesById.has(e.category) ? e.category : 'non_categorise';
+    totals.set(id, (totals.get(id) || 0) + (Number(e.amount) || 0));
+  }
+  const all = [...totals.entries()].filter(([, v]) => v > 0);
+  if (all.length === 0) return null;
+  all.sort((a, b) => b[1] - a[1]);
+  const top = all.slice(0, 5);
+  const grand = all.reduce((s, [, v]) => s + v, 0);
+  const topSum = top.reduce((s, [, v]) => s + v, 0);
+  const topPct = grand > 0 ? Math.round((topSum / grand) * 100) : 0;
+  const max = top[0][1];
+  return (
+    <div className="bg-white rounded-xl ring-1 ring-stone-200 p-4">
+      <div className="flex items-center gap-2 text-stone-500 text-xs uppercase tracking-wide font-medium">
+        <Layers className="w-3.5 h-3.5"/> Répartition des dépenses
+      </div>
+      <div className="mt-3 space-y-2">
+        {top.map(([id, val]) => {
+          const cat = categoriesById.get(id);
+          const tone = cat && CATEGORY_TONES[cat.color] ? CATEGORY_TONES[cat.color] : CATEGORY_TONES.gray;
+          const pct = grand > 0 ? Math.round((val / grand) * 100) : 0;
+          const w = max > 0 ? Math.max(2, Math.round((val / max) * 100)) : 0;
+          return (
+            <div key={id}>
+              <div className="flex items-center justify-between gap-2 text-[11px]">
+                <span className="truncate text-stone-700" dir="auto">
+                  {cat ? cat.name : 'Non catégorisé'}
+                </span>
+                <span className="tabular-nums text-stone-500 flex-none">
+                  <span className="text-stone-700 font-medium">{formatNum(val)}</span>
+                  <span className="text-stone-400"> · {pct}%</span>
+                </span>
+              </div>
+              <div className="mt-0.5 h-1.5 rounded-full bg-stone-100 overflow-hidden">
+                <div className="h-full rounded-full" style={{ width: w + '%', backgroundColor: tone.bar }}/>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+      {top.length >= 5 && all.length > 5 && (
+        <div className="mt-3 text-[11px] text-stone-500">
+          Les 5 catégories ci-dessus représentent <span className="font-medium text-stone-700">{topPct}%</span> des dépenses.
+        </div>
+      )}
+    </div>
+  );
+};
+
+const Sidebar = ({ data, totals, onPatch, prevEndBalance, prevLabel, cardsAll, cardsForMonth, categoriesById }) => {
   const projectedPositive = totals.projected >= 0;
   const targetReached = totals.additionalNeeded <= 0;
 
@@ -1692,6 +1979,9 @@ const Sidebar = ({ data, totals, onPatch, prevEndBalance, prevLabel, cardsAll, c
           </div>
         </div>
       </div>
+
+      {/* Répartition par catégorie */}
+      <CategoryBreakdown expenses={data.expenses} categoriesById={categoriesById}/>
 
       {/* Objectif fin de mois */}
       <div className="bg-stone-900 text-white rounded-xl p-4">
@@ -1842,6 +2132,39 @@ const Repeat = (p) => <Svg {...p}><polyline points="17 1 21 5 17 9"/><path d="M3
 const Lock = (p) => <Svg {...p}><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></Svg>;
 const RefreshCw = (p) => <Svg {...p}><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10"/><path d="M20.49 15a9 9 0 0 1-14.85 3.36L1 14"/></Svg>;
 const Info = (p) => <Svg {...p}><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></Svg>;
+const Users = (p) => <Svg {...p}><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></Svg>;
+const Shield = (p) => <Svg {...p}><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></Svg>;
+const Landmark = (p) => <Svg {...p}><line x1="3" y1="22" x2="21" y2="22"/><line x1="6" y1="18" x2="6" y2="11"/><line x1="10" y1="18" x2="10" y2="11"/><line x1="14" y1="18" x2="14" y2="11"/><line x1="18" y1="18" x2="18" y2="11"/><polygon points="12 2 20 7 4 7"/></Svg>;
+const Package = (p) => <Svg {...p}><line x1="16.5" y1="9.4" x2="7.5" y2="4.21"/><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></Svg>;
+const Monitor = (p) => <Svg {...p}><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></Svg>;
+const Home = (p) => <Svg {...p}><path d="M3 12l9-9 9 9"/><path d="M5 10v10a1 1 0 0 0 1 1h3v-6h6v6h3a1 1 0 0 0 1-1V10"/></Svg>;
+const Briefcase = (p) => <Svg {...p}><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/></Svg>;
+const Wifi = (p) => <Svg {...p}><path d="M5 12.55a11 11 0 0 1 14 0"/><path d="M1.42 9a16 16 0 0 1 21.16 0"/><path d="M8.53 16.11a6 6 0 0 1 6.95 0"/><line x1="12" y1="20" x2="12.01" y2="20"/></Svg>;
+const Car = (p) => <Svg {...p}><path d="M16 17h6V9.5l-2-1.5h-3l-1.5-3h-7L7 8H4L2 9.5V17h6"/><circle cx="7.5" cy="17.5" r="2.5"/><circle cx="16.5" cy="17.5" r="2.5"/></Svg>;
+const HelpCircle = (p) => <Svg {...p}><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></Svg>;
+
+const ICONS_BY_NAME = {
+  Users, Shield, Landmark, Package, Monitor, Home, Building2, Briefcase,
+  Wifi, Car, HelpCircle, TrendingUp, CreditCard, Wallet, Repeat,
+};
+
+// Tonalités pour le badge + barre du breakdown
+const CATEGORY_TONES = {
+  violet:  { bg: 'bg-violet-50',  text: 'text-violet-700',  ring: 'ring-violet-200',  bar: '#8b5cf6' },
+  purple:  { bg: 'bg-purple-50',  text: 'text-purple-700',  ring: 'ring-purple-200',  bar: '#a855f7' },
+  rose:    { bg: 'bg-rose-50',    text: 'text-rose-700',    ring: 'ring-rose-200',    bar: '#f43f5e' },
+  blue:    { bg: 'bg-blue-50',    text: 'text-blue-700',    ring: 'ring-blue-200',    bar: '#3b82f6' },
+  cyan:    { bg: 'bg-cyan-50',    text: 'text-cyan-700',    ring: 'ring-cyan-200',    bar: '#06b6d4' },
+  amber:   { bg: 'bg-amber-50',   text: 'text-amber-700',   ring: 'ring-amber-200',   bar: '#f59e0b' },
+  stone:   { bg: 'bg-stone-100',  text: 'text-stone-700',   ring: 'ring-stone-200',   bar: '#78716c' },
+  emerald: { bg: 'bg-emerald-50', text: 'text-emerald-700', ring: 'ring-emerald-200', bar: '#10b981' },
+  sky:     { bg: 'bg-sky-50',     text: 'text-sky-700',     ring: 'ring-sky-200',     bar: '#0ea5e9' },
+  orange:  { bg: 'bg-orange-50',  text: 'text-orange-700',  ring: 'ring-orange-200',  bar: '#f97316' },
+  pink:    { bg: 'bg-pink-50',    text: 'text-pink-700',    ring: 'ring-pink-200',    bar: '#ec4899' },
+  gray:    { bg: 'bg-stone-50',   text: 'text-stone-500',   ring: 'ring-stone-200',   bar: '#a8a29e' },
+};
+const CATEGORY_COLORS_LIST = ['violet','purple','rose','blue','cyan','amber','stone','emerald','sky','orange','pink','gray'];
+const CATEGORY_ICONS_LIST  = ['Users','Shield','Landmark','Package','Monitor','Home','Building2','Briefcase','Wifi','Car','HelpCircle','TrendingUp','CreditCard','Wallet'];
 const Undo2  = (p) => <Svg {...p}><path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 5.5 5.5v0a5.5 5.5 0 0 1-5.5 5.5H11"/></Svg>;
 const Redo2  = (p) => <Svg {...p}><path d="m15 14 5-5-5-5"/><path d="M20 9H9.5A5.5 5.5 0 0 0 4 14.5v0A5.5 5.5 0 0 0 9.5 20H13"/></Svg>;
 
@@ -2773,7 +3096,7 @@ const RECURRENCE_TEMPLATES = [
   { name: 'Priority',                 type: 'expense', amount: 0, day: 4,  mode: 'bank', frequency: 'quarterly', startMonthOffset: 'mar' },
 ];
 
-const RecurrenceForm = ({ initial, defaultYear, defaultMonth, onSubmit, onCancel }) => {
+const RecurrenceForm = ({ initial, defaultYear, defaultMonth, categories = [], onSubmit, onCancel }) => {
   const [name, setName]               = useState(initial?.name || '');
   const [type, setType]               = useState(initial?.type || 'expense');
   const [amount, setAmount]           = useState(Number(initial?.amount) || 0);
@@ -2781,6 +3104,7 @@ const RecurrenceForm = ({ initial, defaultYear, defaultMonth, onSubmit, onCancel
   const [mode, setMode]               = useState(initial?.mode || 'bank');
   const [cardNumber, setCardNumber]   = useState(initial?.cardNumber || '');
   const [notes, setNotes]             = useState(initial?.notes || '');
+  const [category, setCategory]       = useState(initial?.category || '');
   const [frequency, setFrequency]     = useState(initial?.frequency || 'monthly');
   const [startMonth, setStartMonth]   = useState(initial?.startMonth || defaultMonth || (new Date().getMonth() + 1));
   const [startYear, setStartYear]     = useState(initial?.startYear  || defaultYear  || new Date().getFullYear());
@@ -2858,6 +3182,17 @@ const RecurrenceForm = ({ initial, defaultYear, defaultMonth, onSubmit, onCancel
       </>)}
 
       <label className="col-span-2 text-xs font-medium text-stone-700">
+        Catégorie
+        <select value={category} onChange={e => setCategory(e.target.value)}
+          className="mt-1 w-full px-2 py-1.5 text-sm ring-1 ring-stone-200 rounded bg-white outline-none focus:ring-stone-400">
+          <option value="">— Aucune catégorie —</option>
+          {categories.filter(c => c.type === type).map(c => (
+            <option key={c.id} value={c.id}>{c.name}</option>
+          ))}
+        </select>
+      </label>
+
+      <label className="col-span-2 text-xs font-medium text-stone-700">
         Notes
         <input type="text" dir="auto" value={notes}
           onChange={e => setNotes(e.target.value)}
@@ -2925,6 +3260,7 @@ const RecurrenceForm = ({ initial, defaultYear, defaultMonth, onSubmit, onCancel
             mode: isExp ? mode : undefined,
             cardNumber: isExp && mode === 'card' ? cardNumber.trim() : '',
             notes: notes.trim(),
+            category: category || null,
             frequency,
             startMonth: Number(startMonth), startYear: Number(startYear),
             endMonth: hasEnd ? Number(endMonth) : null,
@@ -3041,7 +3377,7 @@ const TemplatesPicker = ({ defaultYear, defaultMonth, onSubmit, onCancel }) => {
   );
 };
 
-const RecurrencesModal = ({ open, onClose, defaultYear, defaultMonth, onChanged }) => {
+const RecurrencesModal = ({ open, onClose, defaultYear, defaultMonth, onChanged, categories = [] }) => {
   const [rules, setRules] = useState([]);
   const [filter, setFilter] = useState('all'); // all | active | inactive | expense | income
   const [view, setView] = useState('list');    // 'list' | 'edit' | 'create' | 'templates'
@@ -3150,6 +3486,7 @@ const RecurrencesModal = ({ open, onClose, defaultYear, defaultMonth, onChanged 
             <RecurrenceForm
               initial={view === 'edit' ? editing : null}
               defaultYear={defaultYear} defaultMonth={defaultMonth}
+              categories={categories}
               onSubmit={handleSave}
               onCancel={() => { setView('list'); setEditing(null); }}
             />
@@ -3684,6 +4021,7 @@ const UnmatchedRow = ({ tx, onCreate, onIgnore, onLearnRule }) => {
   const [draft, setDraft] = useState({
     name: buildPosteName(tx.description, tx.details),
     type: '',
+    category: suggestCategory(buildPosteName(tx.description, tx.details), isExp ? 'expense' : 'income') || null,
     amount: Math.abs(tx.amount),
     day,
     mode: 'bank',
@@ -4484,6 +4822,28 @@ function App() {
   const [history, setHistory] = useState({}); // { [monthKey]: { past:[], future:[] } }
   const [cardsSnapshot, setCardsSnapshot] = useState(() => loadCardsSnapshot());
   const [recurrenceRules, setRecurrenceRules] = useState(() => loadRecurrenceRules());
+  const [categories, setCategories] = useState(() => loadCategories());
+  const refreshCategories = () => setCategories(loadCategories());
+  const addCategory = (cat) => {
+    const list = [...loadCategories(), cat];
+    saveCategories(list);
+    setCategories(list);
+  };
+  const updateCategory = (id, patch) => {
+    const list = loadCategories().map(c => c.id === id ? { ...c, ...patch } : c);
+    saveCategories(list);
+    setCategories(list);
+  };
+  const deleteCategory = (id) => {
+    const list = loadCategories().filter(c => c.id !== id);
+    saveCategories(list);
+    setCategories(list);
+  };
+  const categoriesById = useMemo(() => {
+    const m = new Map();
+    for (const c of categories) m.set(c.id, c);
+    return m;
+  }, [categories]);
   const [recurrencesOpen, setRecurrencesOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const refreshRecurrenceRules = () => setRecurrenceRules(loadRecurrenceRules());
@@ -5041,6 +5401,9 @@ function App() {
                   onImportExcel={() => postsFileRef.current?.click()}
                   cardsForMonth={cardsForMonth}
                   rulesById={rulesById}
+                  categories={categories}
+                  categoriesById={categoriesById}
+                  onAddCategory={addCategory}
                 />
                 <IncomesTable
                   incomes={data.incomes}
@@ -5058,7 +5421,8 @@ function App() {
                    prevEndBalance={prevEndBalance}
                    prevLabel={hasPrevMonth ? prevLabel : null}
                    cardsAll={cardsAll}
-                   cardsForMonth={cardsForMonth}/>
+                   cardsForMonth={cardsForMonth}
+                   categoriesById={categoriesById}/>
         </div>
 
         <footer className="mt-10 pt-6 border-t border-stone-200 text-xs text-stone-400 text-center">
@@ -5120,6 +5484,7 @@ function App() {
         open={recurrencesOpen}
         onClose={() => setRecurrencesOpen(false)}
         defaultYear={year} defaultMonth={month}
+        categories={categories}
         onChanged={() => {
           refreshRecurrenceRules();
           // Régénérer pour le mois courant si une nouvelle règle s'applique
@@ -5163,6 +5528,7 @@ function App() {
                     id: uid(),
                     name: d.name,
                     type: d.type || '',
+                    category: d.category || null,
                     amount: Number(d.amount) || 0,
                     day: Number(d.day) || 1,
                     mode: d.mode || 'bank',
@@ -5185,6 +5551,7 @@ function App() {
                   monthData.incomes = [{
                     id: uid(),
                     name: d.name,
+                    category: d.category || null,
                     amount: Number(d.amount) || 0,
                     day: Number(d.day) || 1,
                     received: applied,
