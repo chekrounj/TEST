@@ -1254,7 +1254,7 @@ const sortGroupKeys = (keys, by) => {
   return arr.sort((a, b) => String(a).localeCompare(String(b), 'fr', { numeric: true }));
 };
 
-const ExpensesTable = ({ expenses, onAdd, onUpdate, onRemove, onRemoveMany, onReportUnpaid, hasPrevMonth, onExportExcel, onImportExcel, cardsForMonth, rulesById, categories, categoriesById, onAddCategory }) => {
+const ExpensesTable = ({ expenses, onAdd, onUpdate, onRemove, onRemoveMany, onReportUnpaid, hasPrevMonth, onExportExcel, onImportExcel, cardsForMonth, rulesById, categories, categoriesById, onAddCategory, onCopyToMonth }) => {
   const [selected, setSelected] = useState(() => new Set());
   const [sort, onSort] = useSort();
   const [groupBy, setGroupBy] = useState(null); // null | 'type' | 'mode' | 'day' | 'status' | 'name'
@@ -1352,10 +1352,6 @@ const ExpensesTable = ({ expenses, onAdd, onUpdate, onRemove, onRemoveMany, onRe
     + (cardsForMonth || []).reduce((s, c) => s + (c.paidAt ? (Number(c.upcomingAmount) || 0) : 0), 0);
   const totalRemaining = totalPlanned - totalPaid;
 
-  const typeSuggestions = useMemo(
-    () => [...new Set(expenses.map(e => (e.type || '').trim()).filter(Boolean))].sort(),
-    [expenses]
-  );
 
   const renderRow = (e, opts = {}) => (
     <tr key={e.id} className={"hover:bg-stone-50/60 align-top " + (selected.has(e.id) ? "bg-stone-50" : "") + (opts.childOf ? " bg-stone-50/40" : "")}>
@@ -1379,12 +1375,6 @@ const ExpensesTable = ({ expenses, onAdd, onUpdate, onRemove, onRemoveMany, onRe
         {e.recurrenceRuleId && rulesById && <RecurringBadge rule={rulesById.get(e.recurrenceRuleId)}/>}
         {opts.childOf && <GroupedUnderCardBadge cardNumber={opts.childOf}/>}
       </td>
-      <td className="px-2 py-1">
-        <input type="text" dir="auto" list="expense-types" value={e.type || ''}
-          onChange={ev => onUpdate(e.id, { type: ev.target.value })}
-          placeholder="—"
-          className="w-full bg-transparent outline-none focus:bg-white focus:ring-1 focus:ring-stone-300 rounded px-2 py-1 text-stone-700"/>
-      </td>
       <td className="px-2 py-1"><NumInput value={e.amount} onChange={v => onUpdate(e.id, { amount: v })}/></td>
       <td className="px-2 py-1"><NumInput value={e.day} onChange={v => onUpdate(e.id, { day: Math.max(1, Math.min(31, v || 1)) })} min={1} max={31}/></td>
       <td className="px-2 py-1.5">
@@ -1402,7 +1392,15 @@ const ExpensesTable = ({ expenses, onAdd, onUpdate, onRemove, onRemoveMany, onRe
         )}
       </td>
       <td className="px-2 py-1">
-        <NumInput value={e.paid} onChange={v => onUpdate(e.id, { paid: v })}/>
+        <div className="flex items-center gap-1">
+          <NumInput value={e.paid} onChange={v => onUpdate(e.id, { paid: v })}/>
+          <button onClick={() => onUpdate(e.id, { paid: Number(e.amount) || 0 })}
+            disabled={!Number(e.amount) || (Number(e.paid) || 0) >= (Number(e.amount) || 0)}
+            title="Marquer payé en totalité"
+            className="p-1 rounded text-stone-300 hover:text-emerald-600 hover:bg-emerald-50 disabled:opacity-30 disabled:cursor-not-allowed">
+            <Check className="w-3.5 h-3.5"/>
+          </button>
+        </div>
         <VarianceLabel planned={e.amount} actual={e.paid}/>
       </td>
       <td className="px-2 py-1.5"><ExpenseBadge status={expenseStatus(e)}/></td>
@@ -1423,10 +1421,48 @@ const ExpensesTable = ({ expenses, onAdd, onUpdate, onRemove, onRemoveMany, onRe
           <p className="text-xs text-stone-500 mt-0.5">{expenses.length} poste{expenses.length > 1 ? 's' : ''}</p>
         </div>
         <div className="flex items-center gap-2 flex-wrap justify-end">
-          {selected.size > 0 && (
+          {selected.size > 0 && (<>
             <button onClick={deleteSelected}
               className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-lg bg-rose-600 text-white hover:bg-rose-700">
               <Trash className="w-4 h-4"/>Supprimer ({selected.size})
+            </button>
+            <button onClick={() => {
+                for (const e of expenses) {
+                  if (!selected.has(e.id)) continue;
+                  const a = Number(e.amount) || 0;
+                  if (a > 0 && (Number(e.paid) || 0) !== a) onUpdate(e.id, { paid: a });
+                }
+              }}
+              title="Marquer chaque ligne sélectionnée comme entièrement payée"
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-lg bg-emerald-600 text-white hover:bg-emerald-700">
+              <Check className="w-4 h-4"/>Marquer payé ({selected.size})
+            </button>
+            <button onClick={() => {
+                for (const e of expenses) {
+                  if (!selected.has(e.id)) continue;
+                  if ((Number(e.paid) || 0) !== 0) onUpdate(e.id, { paid: 0 });
+                }
+              }}
+              title="Remettre à zéro le montant payé des lignes sélectionnées"
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-lg bg-white text-stone-700 ring-1 ring-stone-200 hover:bg-stone-50">
+              <RefreshCw className="w-4 h-4"/>Vider Payé ({selected.size})
+            </button>
+            {onCopyToMonth && (
+              <button onClick={() => {
+                  const sel = expenses.filter(e => selected.has(e.id));
+                  onCopyToMonth(sel);
+                }}
+                title="Copier les lignes sélectionnées vers un autre mois"
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-lg bg-white text-stone-700 ring-1 ring-stone-200 hover:bg-stone-50">
+                <Copy className="w-4 h-4"/>Copier vers… ({selected.size})
+              </button>
+            )}
+          </>)}
+          {selected.size === 0 && onCopyToMonth && expenses.length > 0 && (
+            <button onClick={() => onCopyToMonth(expenses)}
+              title="Copier tous les postes du mois vers un autre mois"
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-lg bg-white text-stone-700 ring-1 ring-stone-200 hover:bg-stone-50">
+              <Copy className="w-4 h-4"/><span className="hidden sm:inline">Copier le mois</span>
             </button>
           )}
           {onExportExcel && (
@@ -1515,10 +1551,6 @@ const ExpensesTable = ({ expenses, onAdd, onUpdate, onRemove, onRemoveMany, onRe
         </div>
       </header>
 
-      <datalist id="expense-types">
-        {typeSuggestions.map(t => <option key={t} value={t}/>)}
-      </datalist>
-
       <div className="overflow-x-auto">
         <table className="w-full text-sm">
           <thead className="bg-stone-50 text-stone-500 text-xs uppercase tracking-wide">
@@ -1547,7 +1579,6 @@ const ExpensesTable = ({ expenses, onAdd, onUpdate, onRemove, onRemoveMany, onRe
                   aria-label="Tout sélectionner"/>
               </th>
               <SortableTh field="name"   label="Fournisseur / poste" sort={sort} onSort={onSort} className="text-left"/>
-              <SortableTh field="type"   label="Type"   sort={sort} onSort={onSort} className="text-left w-32"/>
               <SortableTh field="amount" label="Prévu"  sort={sort} onSort={onSort} className="text-right w-28"/>
               <SortableTh field="day"    label="Jour"   sort={sort} onSort={onSort} className="text-right w-16"/>
               <th className="text-left font-medium px-2 py-2 w-44">Mode</th>
@@ -1559,7 +1590,7 @@ const ExpensesTable = ({ expenses, onAdd, onUpdate, onRemove, onRemoveMany, onRe
           </thead>
           <tbody className="divide-y divide-stone-100">
             {expenses.length === 0 && (cardsForMonth || []).length === 0 && (
-              <tr><td colSpan="11" className="px-4 py-6 text-center text-sm text-stone-400">
+              <tr><td colSpan="10" className="px-4 py-6 text-center text-sm text-stone-400">
                 Aucun poste pour ce mois.
               </td></tr>
             )}
@@ -1567,7 +1598,7 @@ const ExpensesTable = ({ expenses, onAdd, onUpdate, onRemove, onRemoveMany, onRe
             {/* Lignes synthétiques cartes + leurs enfants regroupés */}
             {(cardsForMonth || []).map(c => (
               <React.Fragment key={'card-' + c.cardNumber}>
-                <SyntheticCardRow card={c} colSpan={11}/>
+                <SyntheticCardRow card={c} colSpan={10}/>
                 {(childrenByCard.get(String(c.cardNumber)) || []).map(e => renderRow(e, { childOf: c.cardNumber }))}
               </React.Fragment>
             ))}
@@ -1576,7 +1607,7 @@ const ExpensesTable = ({ expenses, onAdd, onUpdate, onRemove, onRemoveMany, onRe
               <React.Fragment key={g.type}>
                 <tr className="bg-stone-50/80 cursor-pointer hover:bg-stone-100/80"
                     onClick={() => toggleGroup(g.type)}>
-                  <td colSpan="11" className="px-3 py-2">
+                  <td colSpan="10" className="px-3 py-2">
                     <div className="flex items-center justify-between gap-3 flex-wrap">
                       <div className="flex items-center gap-2 font-medium text-stone-800">
                         {collapsed.has(g.type)
@@ -1604,7 +1635,6 @@ const ExpensesTable = ({ expenses, onAdd, onUpdate, onRemove, onRemoveMany, onRe
                 <td></td>
                 <td></td>
                 <td className="px-2 py-2 text-stone-600">Totaux</td>
-                <td></td>
                 <td className="px-2 py-2 text-right tabular-nums">{formatILS(totalPlanned)}</td>
                 <td></td><td></td><td></td>
                 <td className="px-2 py-2 text-right tabular-nums">{formatILS(totalPaid)}</td>
@@ -3727,6 +3757,94 @@ const countRuleOccurrences = (ruleId) => {
 };
 
 /* =========================================================
+   Copy postes to another month
+   ========================================================= */
+const CopyToMonthModal = ({ open, source, postes, onCancel, onConfirm }) => {
+  const today = new Date();
+  const defM = today.getMonth() + 2 > 12 ? 1 : today.getMonth() + 2;
+  const defY = today.getMonth() + 2 > 12 ? today.getFullYear() + 1 : today.getFullYear();
+  const [year, setYear]   = useState(defY);
+  const [month, setMonth] = useState(defM);
+  const [resetPaid, setResetPaid] = useState(true);
+  useEffect(() => { if (open) {
+    setYear(defY); setMonth(defM); setResetPaid(true);
+  } }, [open]);
+  if (!open) return null;
+  const targetKey = monthKey(year, month);
+  const sameAsSource = targetKey === source;
+  const yearOpts = (() => {
+    const cy = today.getFullYear(); const set = new Set();
+    for (let y = cy - 2; y <= cy + 8; y++) set.add(y);
+    return [...set].sort();
+  })();
+  const totalAmount = postes.reduce((s, e) => s + (Number(e.amount) || 0), 0);
+
+  return (
+    <div className="fixed inset-0 z-50 bg-stone-900/50 flex items-center justify-center p-4" onClick={onCancel}>
+      <div className="bg-white rounded-xl shadow-xl ring-1 ring-stone-200 max-w-md w-full p-5"
+           onClick={e => e.stopPropagation()}>
+        <header className="flex items-center justify-between mb-2">
+          <div>
+            <h3 className="font-semibold text-stone-900 text-lg">Copier des postes</h3>
+            <p className="text-xs text-stone-500 mt-0.5">
+              {postes.length} poste{postes.length > 1 ? 's' : ''} · total prévu {formatILS(totalAmount)}
+            </p>
+          </div>
+          <button onClick={onCancel}
+            className="p-1.5 rounded hover:bg-stone-100 text-stone-400 hover:text-stone-700">
+            <X className="w-4 h-4"/>
+          </button>
+        </header>
+
+        <div className="grid grid-cols-2 gap-3 mt-3">
+          <label className="text-xs font-medium text-stone-700">
+            Mois cible
+            <select value={month} onChange={e => setMonth(Number(e.target.value))}
+              className="mt-1 w-full px-2 py-1.5 text-sm ring-1 ring-stone-200 rounded bg-white outline-none focus:ring-stone-400">
+              {MONTH_NAMES_FR.map((m, i) => <option key={i+1} value={i+1}>{m}</option>)}
+            </select>
+          </label>
+          <label className="text-xs font-medium text-stone-700">
+            Année
+            <select value={year} onChange={e => setYear(Number(e.target.value))}
+              className="mt-1 w-full px-2 py-1.5 text-sm ring-1 ring-stone-200 rounded bg-white outline-none focus:ring-stone-400 tabular-nums">
+              {yearOpts.map(y => <option key={y} value={y}>{y}</option>)}
+            </select>
+          </label>
+        </div>
+
+        <label className="mt-3 inline-flex items-center gap-2 text-xs text-stone-700 cursor-pointer">
+          <input type="checkbox" checked={resetPaid}
+            onChange={e => setResetPaid(e.target.checked)}/>
+          Remettre <span className="font-medium">Payé</span> à 0 dans la copie
+        </label>
+
+        {sameAsSource && (
+          <div className="mt-2 text-xs text-rose-700 bg-rose-50 ring-1 ring-rose-200 rounded p-2">
+            Le mois cible est le même que le mois source — choisissez un mois différent.
+          </div>
+        )}
+
+        <div className="mt-5 flex items-center justify-end gap-2">
+          <button onClick={onCancel}
+            className="px-3 py-1.5 text-sm rounded-lg ring-1 ring-stone-200 hover:bg-stone-50">
+            Annuler
+          </button>
+          <button onClick={() => onConfirm({ year, month, resetPaid })}
+            disabled={sameAsSource}
+            className={"px-3 py-1.5 text-sm rounded-lg " +
+              (sameAsSource
+                ? "bg-stone-200 text-stone-400 cursor-not-allowed"
+                : "bg-stone-900 text-white hover:bg-stone-800")}>
+            Copier dans {monthLabel(year, month)}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+/* =========================================================
    Tax breakdown modal (CA HT / Dépenses HT)
    ========================================================= */
 const TaxBreakdownModal = ({ open, kind, data, totals, cardsForMonth, onClose }) => {
@@ -5620,6 +5738,7 @@ function App() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [exportOpen, setExportOpen] = useState(false);
   const [taxBreakdown, setTaxBreakdown] = useState(null); // null | 'income' | 'expense'
+  const [copyToMonth, setCopyToMonth] = useState(null);   // null | { postes }
   const refreshRecurrenceRules = () => setRecurrenceRules(loadRecurrenceRules());
   const rulesById = useMemo(() => {
     const m = new Map();
@@ -6218,6 +6337,7 @@ function App() {
                   categories={categories}
                   categoriesById={categoriesById}
                   onAddCategory={addCategory}
+                  onCopyToMonth={(postes) => setCopyToMonth({ postes })}
                 />
                 <IncomesTable
                   incomes={data.incomes}
@@ -6272,6 +6392,35 @@ function App() {
         onCancel={() => setPostsImport(null)}
         onAppend={applyPostsAppend}
         onReplace={applyPostsReplace}
+      />
+
+      <CopyToMonthModal
+        open={!!copyToMonth}
+        source={key}
+        postes={copyToMonth?.postes || []}
+        onCancel={() => setCopyToMonth(null)}
+        onConfirm={({ year: ty, month: tm, resetPaid }) => {
+          const targetKey = monthKey(ty, tm);
+          const targetData = loadMonth(targetKey);
+          const newExpenses = (copyToMonth.postes || []).map(e => ({
+            id: uid(),
+            name: e.name,
+            type: e.type || '',
+            category: e.category || null,
+            amount: Number(e.amount) || 0,
+            day: Number(e.day) || 1,
+            mode: e.mode || 'bank',
+            cardNumber: e.cardNumber || '',
+            notes: e.notes || '',
+            paid: resetPaid ? 0 : (Number(e.paid) || 0),
+            vatTaxable: !!e.vatTaxable,
+          }));
+          targetData.expenses = [...newExpenses, ...targetData.expenses];
+          saveMonth(targetKey, targetData);
+          setCopyToMonth(null);
+          setImportToast(`${newExpenses.length} poste${newExpenses.length > 1 ? 's' : ''} copié${newExpenses.length > 1 ? 's' : ''} dans ${monthLabel(ty, tm)}`);
+          setTimeout(() => setImportToast(null), 3000);
+        }}
       />
 
       <TaxBreakdownModal
