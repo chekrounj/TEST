@@ -1910,14 +1910,27 @@ const CardsSidebar = ({ cards }) => {
   );
 };
 
+// Formatte un nombre en entier arrondi avec espaces tous les 3 chiffres
+// (Solde début, Solde actuel, Solde cible, etc.). Utilisé en affichage hors focus ;
+// pendant l'édition on bascule sur la valeur brute pour permettre les expressions.
+const formatGroupedInt = (n) => {
+  if (n === 0 || n == null || isNaN(n)) return '';
+  return Math.round(Number(n)).toLocaleString('fr-FR');
+};
+
 const BigNumInput = ({ value, onChange, placeholder, className = "" }) => {
   const [draft, setDraft] = useState(null);
-  const display = draft != null ? draft : (value === 0 || value == null ? '' : String(value));
+  const [focused, setFocused] = useState(false);
+  const display = draft != null
+    ? draft
+    : focused
+      ? (value === 0 || value == null ? '' : String(Math.round(Number(value) || 0)))
+      : formatGroupedInt(value);
   const commit = () => {
     if (draft == null) return;
     if (draft === '') { onChange(0); setDraft(null); return; }
     const v = evalExpr(draft);
-    if (isFinite(v)) onChange(Math.round(v * 100) / 100);
+    if (isFinite(v)) onChange(Math.round(v));
     setDraft(null);
   };
   return (
@@ -1925,8 +1938,8 @@ const BigNumInput = ({ value, onChange, placeholder, className = "" }) => {
       type="text" inputMode="decimal"
       value={display}
       onChange={e => setDraft(e.target.value)}
-      onBlur={commit}
-      onFocus={e => e.target.select()}
+      onFocus={e => { setFocused(true); e.target.select(); }}
+      onBlur={() => { commit(); setFocused(false); }}
       onKeyDown={e => {
         if (e.key === 'Enter') e.target.blur();
         else if (e.key === 'Escape') { setDraft(null); e.target.blur(); }
@@ -2268,12 +2281,18 @@ const Row = ({ label, value, valueClass = "", bold = false }) => (
 
 const EditableRow = ({ label, value, onChange, valueClass = "", bold = false, hint }) => {
   const [draft, setDraft] = useState(null);
-  const display = draft != null ? draft : (Math.round(Number(value) || 0)).toString();
+  const [focused, setFocused] = useState(false);
+  const rounded = Math.round(Number(value) || 0);
+  const display = draft != null
+    ? draft
+    : focused
+      ? (rounded === 0 ? '' : String(rounded))
+      : (rounded === 0 ? '' : rounded.toLocaleString('fr-FR'));
   const commit = () => {
     if (draft == null) return;
     if (draft === '') { onChange(0); setDraft(null); return; }
     const v = evalExpr(draft);
-    if (isFinite(v)) onChange(Math.round(v * 100) / 100);
+    if (isFinite(v)) onChange(Math.round(v));
     setDraft(null);
   };
   return (
@@ -2285,8 +2304,8 @@ const EditableRow = ({ label, value, onChange, valueClass = "", bold = false, hi
             type="text" inputMode="decimal"
             value={display}
             onChange={e => setDraft(e.target.value)}
-            onBlur={commit}
-            onFocus={e => e.target.select()}
+            onFocus={e => { setFocused(true); e.target.select(); }}
+            onBlur={() => { commit(); setFocused(false); }}
             onKeyDown={e => { if (e.key === 'Enter') e.target.blur(); if (e.key === 'Escape') { setDraft(null); e.target.blur(); } }}
             placeholder="0"
             title="Astuce : tapez une expression arithmétique (ex. 1000+500)"
