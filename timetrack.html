@@ -473,6 +473,14 @@ const I18N = {
     importedRows: "lignes importées",
     importErr: "Erreur lors de l'import",
     downloadTemplate: "Télécharger un modèle",
+    importTemplatesTitle: "Modèles d'import",
+    importTemplatesHint: "Personnalisez les colonnes attendues à l'import. Les noms personnalisés sont reconnus en plus des noms par défaut.",
+    selectEntity: "— Sélectionner un menu —",
+    columnInclude: "Inclure",
+    columnField: "Champ",
+    columnHeader: "Nom de colonne",
+    resetTemplate: "Réinitialiser",
+    moveUp: "↑", moveDown: "↓",
     // Auth & roles
     login: "Se connecter", logout: "Se déconnecter",
     pin: "Code PIN", confirmPin: "Confirmer le PIN",
@@ -722,6 +730,14 @@ const I18N = {
     importedRows: "rows imported",
     importErr: "Import error",
     downloadTemplate: "Download template",
+    importTemplatesTitle: "Import templates",
+    importTemplatesHint: "Customize the expected import columns. Custom names are accepted in addition to the default names.",
+    selectEntity: "— Select a menu —",
+    columnInclude: "Include",
+    columnField: "Field",
+    columnHeader: "Column header",
+    resetTemplate: "Reset",
+    moveUp: "↑", moveDown: "↓",
     login: "Sign in", logout: "Sign out",
     pin: "PIN code", confirmPin: "Confirm PIN",
     selectUser: "— Select a user —",
@@ -964,6 +980,14 @@ const I18N = {
     importedRows: "שורות יובאו",
     importErr: "שגיאת ייבוא",
     downloadTemplate: "הורד תבנית",
+    importTemplatesTitle: "תבניות ייבוא",
+    importTemplatesHint: "התאם את העמודות הצפויות בייבוא. שמות מותאמים מתקבלים בנוסף לשמות ברירת המחדל.",
+    selectEntity: "— בחר תפריט —",
+    columnInclude: "כלול",
+    columnField: "שדה",
+    columnHeader: "כותרת עמודה",
+    resetTemplate: "איפוס",
+    moveUp: "↑", moveDown: "↓",
     login: "כניסה", logout: "יציאה",
     pin: "קוד PIN", confirmPin: "אישור PIN",
     selectUser: "— בחר משתמש —",
@@ -2075,10 +2099,40 @@ const ENTITY_IMPORTS = {
 async function downloadTemplate(entity) {
   const tpl = ENTITY_IMPORTS[entity]?.template;
   if (!tpl) return;
-  const ws = XLSX.utils.aoa_to_sheet([tpl.headers, ...tpl.sample]);
+  const custom = await getImportTemplate(entity);
+  let headers, sample;
+  if (custom && Array.isArray(custom.fields)) {
+    const baseSampleRow = tpl.sample[0] || [];
+    const included = custom.fields.filter(f => f.include !== false && f.header);
+    headers = included.map(f => f.header);
+    sample = [included.map(f => {
+      const idx = tpl.headers.indexOf(f.field);
+      return idx >= 0 ? baseSampleRow[idx] : '';
+    })];
+  } else {
+    headers = tpl.headers;
+    sample = tpl.sample;
+  }
+  const ws = XLSX.utils.aoa_to_sheet([headers, ...sample]);
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, entity);
   XLSX.writeFile(wb, `template-${entity}.xlsx`);
+}
+
+async function getImportTemplate(entity) {
+  const all = await DB.getSetting('importTemplates', null);
+  return (all && typeof all === 'object') ? (all[entity] || null) : null;
+}
+async function setImportTemplate(entity, tpl) {
+  const all = (await DB.getSetting('importTemplates', null)) || {};
+  if (tpl == null) delete all[entity];
+  else all[entity] = tpl;
+  return DB.setSetting('importTemplates', all);
+}
+function defaultImportTemplate(entity) {
+  const tpl = ENTITY_IMPORTS[entity]?.template;
+  if (!tpl) return null;
+  return { fields: tpl.headers.map(h => ({ field: h, header: h, include: true })) };
 }
 
 // Merge only empty fields of `existing` from `updates`. Never overwrite
@@ -2101,7 +2155,28 @@ async function importEntityFile(entity, file) {
   const buf = await file.arrayBuffer();
   const wb = XLSX.read(buf, { type: 'array', cellDates: true });
   const sheet = wb.Sheets[wb.SheetNames[0]];
-  const rows = XLSX.utils.sheet_to_json(sheet, { defval: '' });
+  const rawRows = XLSX.utils.sheet_to_json(sheet, { defval: '' });
+  // Build a lower-cased custom header → canonical field map. Custom names
+  // are accepted IN ADDITION to the canonical names (which keep working).
+  const custom = await getImportTemplate(entity);
+  const headerMap = {};
+  if (custom && Array.isArray(custom.fields)) {
+    for (const f of custom.fields) {
+      if (f.include !== false && f.header && f.field) {
+        headerMap[String(f.header).toLowerCase().trim()] = f.field;
+      }
+    }
+  }
+  const rows = Object.keys(headerMap).length === 0
+    ? rawRows
+    : rawRows.map(r => {
+        const out = { ...r };
+        for (const [k, v] of Object.entries(r)) {
+          const canon = headerMap[String(k).toLowerCase().trim()];
+          if (canon && out[canon] === undefined) out[canon] = v;
+        }
+        return out;
+      });
   const ctx = cfg.buildContext ? await cfg.buildContext() : {};
   let imported = 0, ignored = 0, updated = 0;
   for (const row of rows) {
@@ -5467,6 +5542,61 @@ async function renderReports() {
   draw();
 }
 
+/* ----- IMPORT TEMPLATE EDITOR ----- */
+function drawTemplateEditor(entity, tpl) {
+  const fields = tpl.fields;
+  const rows = fields.map((f, i) => `
+    <tr class="border-t border-slate-100">
+      <td class="px-2 py-1 text-center"><input type="checkbox" data-i="${i}" data-k="include" class="te-include w-4 h-4" ${f.include === false ? '' : 'checked'}></td>
+      <td class="px-2 py-1 text-slate-500 text-xs">${escapeHtml(f.field)}</td>
+      <td class="px-2 py-1"><input type="text" data-i="${i}" data-k="header" class="te-header w-full px-2 py-1 border border-slate-300 rounded text-sm" value="${escapeHtml(f.header || '')}"></td>
+      <td class="px-2 py-1 text-end whitespace-nowrap">
+        <button data-i="${i}" data-act="up"   class="te-mv text-slate-500 hover:text-slate-900 text-xs px-1">↑</button>
+        <button data-i="${i}" data-act="down" class="te-mv text-slate-500 hover:text-slate-900 text-xs px-1">↓</button>
+      </td>
+    </tr>`).join('');
+
+  $('#tplEditor').innerHTML = `
+    <div class="border border-slate-200 rounded overflow-hidden">
+      <table class="w-full text-sm">
+        <thead class="bg-slate-50 text-xs uppercase text-slate-500">
+          <tr>
+            <th class="px-2 py-2 text-center">${escapeHtml(t('columnInclude'))}</th>
+            <th class="px-2 py-2 text-start">${escapeHtml(t('columnField'))}</th>
+            <th class="px-2 py-2 text-start">${escapeHtml(t('columnHeader'))}</th>
+            <th class="px-2 py-2 text-end">${escapeHtml(t('actions'))}</th>
+          </tr>
+        </thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>
+    <div class="mt-3 flex gap-2 justify-end">
+      <button id="tplReset" class="px-3 py-2 rounded-lg border border-slate-300 hover:bg-slate-50 text-sm">${escapeHtml(t('resetTemplate'))}</button>
+      <button id="tplSave"  class="px-4 py-2 rounded-lg bg-blue-700 text-white hover:bg-blue-800 text-sm">${escapeHtml(t('save'))}</button>
+    </div>
+  `;
+
+  $$('.te-include').forEach(c => c.onchange = () => { fields[Number(c.dataset.i)].include = c.checked; });
+  $$('.te-header').forEach(c => c.oninput = () => { fields[Number(c.dataset.i)].header = c.value; });
+  $$('.te-mv').forEach(b => b.onclick = () => {
+    const i = Number(b.dataset.i);
+    const dir = b.dataset.act === 'up' ? -1 : 1;
+    const j = i + dir;
+    if (j < 0 || j >= fields.length) return;
+    [fields[i], fields[j]] = [fields[j], fields[i]];
+    drawTemplateEditor(entity, tpl);
+  });
+  $('#tplSave').onclick = async () => {
+    await setImportTemplate(entity, tpl);
+    toast(t('saved'));
+  };
+  $('#tplReset').onclick = async () => {
+    await setImportTemplate(entity, null);
+    toast(t('saved'));
+    drawTemplateEditor(entity, defaultImportTemplate(entity));
+  };
+}
+
 /* ----- SETTINGS ----- */
 async function renderSettings() {
   const types = await getProjectTypes();
@@ -5510,6 +5640,21 @@ async function renderSettings() {
         <option value="en" ${LANG==='en'?'selected':''}>English</option>
         <option value="he" ${LANG==='he'?'selected':''}>עברית</option>
       </select>
+    </div>
+
+    <div class="bg-white rounded-xl border border-slate-200 shadow-sm p-6 mb-6 ${isAdmin ? '' : 'hidden'}">
+      <h2 class="font-semibold text-slate-900 mb-1">📑 ${escapeHtml(t('importTemplatesTitle'))}</h2>
+      <p class="text-xs text-slate-500 mb-4">${escapeHtml(t('importTemplatesHint'))}</p>
+      <select id="tplEntitySel" class="px-3 py-2 border border-slate-300 rounded-lg text-sm mb-4">
+        <option value="">${escapeHtml(t('selectEntity'))}</option>
+        <option value="clients">${escapeHtml(t('navClients'))}</option>
+        <option value="projects">${escapeHtml(t('navProjects'))}</option>
+        <option value="tasks">${escapeHtml(t('navTasks'))}</option>
+        <option value="employees">${escapeHtml(t('navEmployees'))}</option>
+        <option value="timeEntries">${escapeHtml(t('navTime'))}</option>
+        <option value="attendance">${escapeHtml(t('navAttendance'))}</option>
+      </select>
+      <div id="tplEditor"></div>
     </div>
 
     <div class="bg-white rounded-xl border border-slate-200 shadow-sm p-6 mb-6 ${isAdmin ? '' : 'hidden'}">
@@ -5596,6 +5741,22 @@ async function renderSettings() {
     applyI18n();
     navigate(currentPage);
   };
+
+  // ---------- Import templates editor ----------
+  if ($('#tplEntitySel')) {
+    const sel = $('#tplEntitySel');
+    sel.onchange = async () => {
+      const entity = sel.value;
+      if (!entity) { $('#tplEditor').innerHTML = ''; return; }
+      const baseFields = ENTITY_IMPORTS[entity]?.template?.headers || [];
+      let cur = await getImportTemplate(entity);
+      if (!cur) cur = defaultImportTemplate(entity);
+      // Ensure every canonical field is represented (in case ENTITY_IMPORTS evolved)
+      const known = new Set(cur.fields.map(f => f.field));
+      for (const h of baseFields) if (!known.has(h)) cur.fields.push({ field: h, header: h, include: true });
+      drawTemplateEditor(entity, cur);
+    };
+  }
 
   if ($('#genRecBtn')) {
     $('#genRecBtn').onclick = async () => {
