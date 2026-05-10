@@ -481,6 +481,12 @@ const I18N = {
     columnHeader: "Nom de colonne",
     resetTemplate: "Réinitialiser",
     moveUp: "↑", moveDown: "↓",
+    addField: "+ Ajouter un champ",
+    fieldNamePlaceholder: "Nom technique (ex. monChamp)",
+    headerPlaceholder: "Nom dans Excel",
+    deleteSelected: "Supprimer la sélection",
+    fieldExists: "Ce champ existe déjà",
+    autoCreated: "auto-créé(s)",
     // Auth & roles
     login: "Se connecter", logout: "Se déconnecter",
     pin: "Code PIN", confirmPin: "Confirmer le PIN",
@@ -738,6 +744,12 @@ const I18N = {
     columnHeader: "Column header",
     resetTemplate: "Reset",
     moveUp: "↑", moveDown: "↓",
+    addField: "+ Add field",
+    fieldNamePlaceholder: "Technical name (e.g. myField)",
+    headerPlaceholder: "Header in Excel",
+    deleteSelected: "Delete selected",
+    fieldExists: "This field already exists",
+    autoCreated: "auto-created",
     login: "Sign in", logout: "Sign out",
     pin: "PIN code", confirmPin: "Confirm PIN",
     selectUser: "— Select a user —",
@@ -988,6 +1000,12 @@ const I18N = {
     columnHeader: "כותרת עמודה",
     resetTemplate: "איפוס",
     moveUp: "↑", moveDown: "↓",
+    addField: "+ הוסף שדה",
+    fieldNamePlaceholder: "שם טכני (לדוגמה myField)",
+    headerPlaceholder: "כותרת ב-Excel",
+    deleteSelected: "מחק נבחרים",
+    fieldExists: "שדה זה כבר קיים",
+    autoCreated: "נוצרו אוטומטית",
     login: "כניסה", logout: "יציאה",
     pin: "קוד PIN", confirmPin: "אישור PIN",
     selectUser: "— בחר משתמש —",
@@ -1855,11 +1873,13 @@ const ENTITY_IMPORTS = {
         await DB.update('clients', existing.id, merged);
         return 'updated';
       }
+      const extras = extractExtras(row, ['nom','adresse','contact','actif']);
       await DB.add('clients', {
         nom,
         adresse: incoming.adresse,
         contact: incoming.contact,
-        actif: incoming.actif === undefined ? true : incoming.actif
+        actif: incoming.actif === undefined ? true : incoming.actif,
+        ...extras
       });
       ctx.all = await DB.getAll('clients');
       return true;
@@ -1914,6 +1934,7 @@ const ENTITY_IMPORTS = {
         await DB.update('projects', existing.id, merged);
         return 'updated';
       }
+      const extrasP = extractExtras(row, ['clientId','nom','code','tauxHoraire','budgetHeures','actif','typeProjet','statutProjet','prix','typeFacturation']);
       await DB.add('projects', {
         clientId: cid || null,
         nom,
@@ -1924,7 +1945,8 @@ const ENTITY_IMPORTS = {
         typeProjet: type,
         statutProjet: incoming.statutProjet || 'active',
         prix: incoming.prix ?? null,
-        typeFacturation: incoming.typeFacturation
+        typeFacturation: incoming.typeFacturation,
+        ...extrasP
       });
       ctx.existingProjects = await DB.getAll('projects');
       return true;
@@ -1958,7 +1980,8 @@ const ENTITY_IMPORTS = {
         await DB.update('tasks', existing.id, merged);
         return 'updated';
       }
-      await DB.add('tasks', { ...incoming, statut: incoming.statut || 'open' });
+      const extrasT = extractExtras(row, ['nom','description','statut','typeTask']);
+      await DB.add('tasks', { ...incoming, statut: incoming.statut || 'open', ...extrasT });
       ctx.all = await DB.getAll('tasks');
       return true;
     }
@@ -1993,11 +2016,13 @@ const ENTITY_IMPORTS = {
         await DB.update('employees', existing.id, merged);
         return 'updated';
       }
+      const extrasE = extractExtras(row, ['numeroEmploye','nom','email','role','tauxHoraire']);
       await DB.add('employees', {
         numeroEmploye: num, nom, email,
         role: incoming.role || 'employe',
         tauxHoraire: incoming.tauxHoraire ?? null,
-        actif: true
+        actif: true,
+        ...extrasE
       });
       ctx.all = await DB.getAll('employees');
       return true;
@@ -2032,18 +2057,54 @@ const ENTITY_IMPORTS = {
       const date = parseAttDate(row.date);
       const heures = Number(row.heures);
       if (!date || !heures) return false;
+
+      // ---- Employee: auto-create when not found ----
       const empIdent = pickCol(row, 'numeroEmploye', 'matricule', 'email', 'nom', 'employe', 'employee', 'name');
-      const emp = matchEmployee(ctx.employees, empIdent);
-      if (!emp) return false;
+      let emp = matchEmployee(ctx.employees, empIdent);
+      if (!emp) {
+        const nomFromRow = String(row.nom || row.employe || row.employee || row.name || '').trim();
+        const numFromRow = String(row.numeroEmploye || row.matricule || '').trim();
+        const emailFromRow = String(row.email || '').trim();
+        const fallback = nomFromRow || numFromRow || emailFromRow;
+        if (!fallback) return false;
+        const newId = await DB.add('employees', {
+          numeroEmploye: numFromRow,
+          nom: nomFromRow || fallback,
+          email: emailFromRow,
+          role: 'employe', actif: true,
+          tauxHoraire: null, managerId: null, pin: null
+        });
+        emp = await DB.getById('employees', newId);
+        ctx.employees.push(emp);
+      }
+
+      // ---- Client: auto-create when only a name is provided ----
       let cid = Number(row.client);
-      if (!cid && row.client) cid = ctx.clientByName[String(row.client).toLowerCase().trim()] || null;
+      if (!cid && row.client) {
+        const cName = String(row.client).trim();
+        cid = ctx.clientByName[cName.toLowerCase()];
+        if (!cid) {
+          cid = await DB.add('clients', { nom: cName, actif: true });
+          ctx.clientByName[cName.toLowerCase()] = cid;
+        }
+      }
+
+      // ---- Project: auto-create (linked to the resolved client when available) ----
       let pid = Number(row.projet);
       if (!pid && row.projet) {
-        const k = String(row.projet).toLowerCase().trim();
+        const raw = String(row.projet).trim();
+        const k = raw.toLowerCase();
         pid = ctx.projectByCode[k] || ctx.projectByName[k] || null;
+        if (!pid) {
+          pid = await DB.add('projects', { nom: raw, clientId: cid || null, actif: true, statutProjet: 'active' });
+          ctx.projectByName[k] = pid;
+        }
       }
+
+      // Task: keep as-is (don't auto-create — tasks are templates, not freeform)
       let tid = Number(row.tache);
       if (!tid && row.tache) tid = ctx.taskByName[String(row.tache).toLowerCase().trim()] || null;
+
       const incoming = {
         employeId: emp.id,
         clientId: cid || undefined,
@@ -2133,6 +2194,19 @@ function defaultImportTemplate(entity) {
   const tpl = ENTITY_IMPORTS[entity]?.template;
   if (!tpl) return null;
   return { fields: tpl.headers.map(h => ({ field: h, header: h, include: true })) };
+}
+
+// Returns a copy of `row` containing only the keys that are NOT in `canonicalKeys`
+// and have a non-empty value. Used to pass user-added template fields through
+// to the saved record.
+function extractExtras(row, canonicalKeys) {
+  const skip = new Set(canonicalKeys.map(k => k.toLowerCase()));
+  const out = {};
+  for (const [k, v] of Object.entries(row || {})) {
+    if (v == null || v === '') continue;
+    if (!skip.has(String(k).toLowerCase())) out[k] = v;
+  }
+  return out;
 }
 
 // Merge only empty fields of `existing` from `updates`. Never overwrite
@@ -3395,8 +3469,25 @@ async function importAttendanceHandler(e) {
       };
 
       if (!emp) {
-        errors.push({ rowIndex: i + 2, raw: idVal, record });
-        continue;
+        // Try to auto-create the employee from the row context
+        const nomFromRow = String(r.nom || r.employe || r.employee || r.name || '').trim();
+        const numFromRow = String(r.numeroEmploye || r.matricule || '').trim();
+        const emailFromRow = String(r.email || idVal || '').trim();
+        const fallback = nomFromRow || numFromRow || emailFromRow;
+        if (fallback) {
+          const newId = await DB.add('employees', {
+            numeroEmploye: numFromRow,
+            nom: nomFromRow || fallback,
+            email: emailFromRow.includes('@') ? emailFromRow : '',
+            role: 'employe', actif: true,
+            tauxHoraire: null, managerId: null, pin: null
+          });
+          emp = await DB.getById('employees', newId);
+          employees.push(emp);
+        } else {
+          errors.push({ rowIndex: i + 2, raw: idVal, record });
+          continue;
+        }
       }
 
       record.employeId = emp.id;
@@ -5544,15 +5635,31 @@ async function renderReports() {
 
 /* ----- IMPORT TEMPLATE EDITOR ----- */
 function drawTemplateEditor(entity, tpl) {
+  // Dedupe (case-insensitive on field name) — first occurrence wins
+  const seen = new Set();
+  tpl.fields = tpl.fields.filter(f => {
+    const k = String(f.field || '').toLowerCase();
+    if (!k || seen.has(k)) return false;
+    seen.add(k);
+    return true;
+  });
+  const canonical = new Set((ENTITY_IMPORTS[entity]?.template?.headers) || []);
   const fields = tpl.fields;
+
   const rows = fields.map((f, i) => `
     <tr class="border-t border-slate-100">
-      <td class="px-2 py-1 text-center"><input type="checkbox" data-i="${i}" data-k="include" class="te-include w-4 h-4" ${f.include === false ? '' : 'checked'}></td>
-      <td class="px-2 py-1 text-slate-500 text-xs">${escapeHtml(f.field)}</td>
-      <td class="px-2 py-1"><input type="text" data-i="${i}" data-k="header" class="te-header w-full px-2 py-1 border border-slate-300 rounded text-sm" value="${escapeHtml(f.header || '')}"></td>
+      <td class="px-2 py-1 text-center"><input type="checkbox" data-i="${i}" class="te-sel w-4 h-4"></td>
+      <td class="px-2 py-1 text-center"><input type="checkbox" data-i="${i}" class="te-include w-4 h-4" ${f.include === false ? '' : 'checked'}></td>
+      <td class="px-2 py-1 text-slate-700 text-xs">
+        ${canonical.has(f.field)
+          ? `<span class="text-slate-500">${escapeHtml(f.field)} <span title="canonical" class="text-slate-300">🔒</span></span>`
+          : `<input type="text" data-i="${i}" class="te-field w-full px-2 py-1 border border-slate-300 rounded text-xs" value="${escapeHtml(f.field || '')}">`}
+      </td>
+      <td class="px-2 py-1"><input type="text" data-i="${i}" class="te-header w-full px-2 py-1 border border-slate-300 rounded text-sm" value="${escapeHtml(f.header || '')}"></td>
       <td class="px-2 py-1 text-end whitespace-nowrap">
         <button data-i="${i}" data-act="up"   class="te-mv text-slate-500 hover:text-slate-900 text-xs px-1">↑</button>
         <button data-i="${i}" data-act="down" class="te-mv text-slate-500 hover:text-slate-900 text-xs px-1">↓</button>
+        <button data-i="${i}" data-act="del"  class="te-del text-red-600 hover:text-red-800 text-xs px-1 ms-1">✕</button>
       </td>
     </tr>`).join('');
 
@@ -5561,7 +5668,8 @@ function drawTemplateEditor(entity, tpl) {
       <table class="w-full text-sm">
         <thead class="bg-slate-50 text-xs uppercase text-slate-500">
           <tr>
-            <th class="px-2 py-2 text-center">${escapeHtml(t('columnInclude'))}</th>
+            <th class="px-2 py-2 text-center w-10"><input type="checkbox" id="te_selAll" class="w-4 h-4"></th>
+            <th class="px-2 py-2 text-center w-16">${escapeHtml(t('columnInclude'))}</th>
             <th class="px-2 py-2 text-start">${escapeHtml(t('columnField'))}</th>
             <th class="px-2 py-2 text-start">${escapeHtml(t('columnHeader'))}</th>
             <th class="px-2 py-2 text-end">${escapeHtml(t('actions'))}</th>
@@ -5570,14 +5678,21 @@ function drawTemplateEditor(entity, tpl) {
         <tbody>${rows}</tbody>
       </table>
     </div>
-    <div class="mt-3 flex gap-2 justify-end">
-      <button id="tplReset" class="px-3 py-2 rounded-lg border border-slate-300 hover:bg-slate-50 text-sm">${escapeHtml(t('resetTemplate'))}</button>
-      <button id="tplSave"  class="px-4 py-2 rounded-lg bg-blue-700 text-white hover:bg-blue-800 text-sm">${escapeHtml(t('save'))}</button>
+
+    <div class="mt-3 flex flex-wrap items-center gap-2 border-t border-slate-200 pt-3">
+      <input id="newField"  type="text" placeholder="${escapeHtml(t('fieldNamePlaceholder'))}" class="px-2 py-1.5 border border-slate-300 rounded text-sm w-44">
+      <input id="newHeader" type="text" placeholder="${escapeHtml(t('headerPlaceholder'))}" class="px-2 py-1.5 border border-slate-300 rounded text-sm w-44">
+      <button id="tplAdd" class="px-3 py-1.5 rounded-lg bg-slate-700 text-white hover:bg-slate-800 text-sm">${escapeHtml(t('addField'))}</button>
+      <span class="ms-auto"></span>
+      <button id="tplDelSel" class="px-3 py-1.5 rounded-lg border border-red-300 text-red-700 hover:bg-red-50 text-sm">${escapeHtml(t('deleteSelected'))}</button>
+      <button id="tplReset" class="px-3 py-1.5 rounded-lg border border-slate-300 hover:bg-slate-50 text-sm">${escapeHtml(t('resetTemplate'))}</button>
+      <button id="tplSave"  class="px-4 py-1.5 rounded-lg bg-blue-700 text-white hover:bg-blue-800 text-sm">${escapeHtml(t('save'))}</button>
     </div>
   `;
 
   $$('.te-include').forEach(c => c.onchange = () => { fields[Number(c.dataset.i)].include = c.checked; });
-  $$('.te-header').forEach(c => c.oninput = () => { fields[Number(c.dataset.i)].header = c.value; });
+  $$('.te-header').forEach(c => c.oninput  = () => { fields[Number(c.dataset.i)].header = c.value; });
+  $$('.te-field').forEach(c  => c.oninput  = () => { fields[Number(c.dataset.i)].field  = c.value.trim(); });
   $$('.te-mv').forEach(b => b.onclick = () => {
     const i = Number(b.dataset.i);
     const dir = b.dataset.act === 'up' ? -1 : 1;
@@ -5586,6 +5701,32 @@ function drawTemplateEditor(entity, tpl) {
     [fields[i], fields[j]] = [fields[j], fields[i]];
     drawTemplateEditor(entity, tpl);
   });
+  $$('.te-del').forEach(b => b.onclick = () => {
+    const i = Number(b.dataset.i);
+    fields.splice(i, 1);
+    drawTemplateEditor(entity, tpl);
+  });
+  $('#te_selAll').onchange = (e) => {
+    $$('.te-sel').forEach(c => c.checked = e.target.checked);
+  };
+  $('#tplDelSel').onclick = () => {
+    const idxs = Array.from(document.querySelectorAll('.te-sel:checked')).map(c => Number(c.dataset.i)).sort((a,b) => b - a);
+    if (!idxs.length) return;
+    for (const i of idxs) fields.splice(i, 1);
+    drawTemplateEditor(entity, tpl);
+  };
+  $('#tplAdd').onclick = () => {
+    const f = $('#newField').value.trim();
+    const h = $('#newHeader').value.trim() || f;
+    if (!f) return;
+    if (fields.some(x => String(x.field).toLowerCase() === f.toLowerCase())) {
+      toast(t('fieldExists'));
+      return;
+    }
+    fields.push({ field: f, header: h, include: true });
+    $('#newField').value = ''; $('#newHeader').value = '';
+    drawTemplateEditor(entity, tpl);
+  };
   $('#tplSave').onclick = async () => {
     await setImportTemplate(entity, tpl);
     toast(t('saved'));
