@@ -487,6 +487,11 @@ const I18N = {
     deleteSelected: "Supprimer la sélection",
     fieldExists: "Ce champ existe déjà",
     autoCreated: "auto-créé(s)",
+    detectFromFile: "📥 Détecter depuis un fichier",
+    detectedHeaders: "En-têtes détectés — cocher pour ajouter au modèle",
+    noNewHeaders: "Aucun en-tête détecté",
+    alreadyInTemplate: "(déjà présent)",
+    nFieldsAdded: "{n} champ(s) ajouté(s)",
     // Auth & roles
     login: "Se connecter", logout: "Se déconnecter",
     pin: "Code PIN", confirmPin: "Confirmer le PIN",
@@ -750,6 +755,11 @@ const I18N = {
     deleteSelected: "Delete selected",
     fieldExists: "This field already exists",
     autoCreated: "auto-created",
+    detectFromFile: "📥 Detect from file",
+    detectedHeaders: "Detected headers — tick to add to the template",
+    noNewHeaders: "No headers detected",
+    alreadyInTemplate: "(already in template)",
+    nFieldsAdded: "{n} field(s) added",
     login: "Sign in", logout: "Sign out",
     pin: "PIN code", confirmPin: "Confirm PIN",
     selectUser: "— Select a user —",
@@ -1006,6 +1016,11 @@ const I18N = {
     deleteSelected: "מחק נבחרים",
     fieldExists: "שדה זה כבר קיים",
     autoCreated: "נוצרו אוטומטית",
+    detectFromFile: "📥 זהה מקובץ",
+    detectedHeaders: "כותרות שזוהו — סמן כדי להוסיף לתבנית",
+    noNewHeaders: "לא זוהו כותרות",
+    alreadyInTemplate: "(כבר קיים)",
+    nFieldsAdded: "{n} שדות נוספו",
     login: "כניסה", logout: "יציאה",
     pin: "קוד PIN", confirmPin: "אישור PIN",
     selectUser: "— בחר משתמש —",
@@ -5633,6 +5648,92 @@ async function renderReports() {
   draw();
 }
 
+/* ----- IMPORT TEMPLATE — header detection from a file ----- */
+async function readHeadersFromFile(file) {
+  const buf = await file.arrayBuffer();
+  const wb = XLSX.read(buf, { type: 'array' });
+  const sheet = wb.Sheets[wb.SheetNames[0]];
+  const aoa = XLSX.utils.sheet_to_json(sheet, { header: 1, blankrows: false, defval: '' });
+  const first = (aoa && aoa[0]) || [];
+  return first.map(h => String(h == null ? '' : h).trim()).filter(Boolean);
+}
+
+function triggerHeaderDetection(entity, tpl) {
+  const input = document.createElement('input');
+  input.type = 'file';
+  input.accept = '.xlsx,.xls,.csv';
+  input.onchange = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    let detected = [];
+    try { detected = await readHeadersFromFile(file); } catch (err) {
+      console.error(err); toast(t('importErr') + ': ' + err.message); return;
+    }
+    if (!detected.length) { toast(t('noNewHeaders')); return; }
+    showHeaderDetectionModal(entity, tpl, detected);
+  };
+  input.click();
+}
+
+function showHeaderDetectionModal(entity, tpl, detected) {
+  const existingHeaders = new Set(tpl.fields.map(f => String(f.header || '').toLowerCase()));
+  const existingFields  = new Set(tpl.fields.map(f => String(f.field  || '').toLowerCase()));
+  const canonical    = (ENTITY_IMPORTS[entity]?.template?.headers) || [];
+  const canonicalLc  = canonical.map(c => c.toLowerCase());
+
+  // Sanitize a header into a safe JS-style field name suggestion
+  const slugify = (s) => String(s)
+    .normalize('NFD').replace(/[̀-ͯ]/g, '')
+    .replace(/[^a-zA-Z0-9_ ]/g, '')
+    .trim()
+    .split(/\s+/).map((w, i) => i === 0 ? w.toLowerCase() : (w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()))
+    .join('');
+
+  const candidates = detected.map(h => {
+    const lc = h.toLowerCase();
+    const matchIdx = canonicalLc.indexOf(lc);
+    const suggestedField = matchIdx >= 0 ? canonical[matchIdx] : (slugify(h) || h);
+    const dup = existingHeaders.has(lc) || existingFields.has(suggestedField.toLowerCase());
+    return { header: h, suggestedField, alreadyExists: dup };
+  });
+
+  openModal({
+    title: t('detectedHeaders'),
+    bodyHtml: `
+      <div class="space-y-1 max-h-[60vh] overflow-y-auto">
+        ${candidates.map((c, i) => `
+          <label class="flex items-start gap-3 p-2 rounded border ${c.alreadyExists ? 'border-slate-200 bg-slate-50' : 'border-slate-200 hover:bg-slate-50'} cursor-pointer">
+            <input type="checkbox" data-i="${i}" class="dh-pick w-4 h-4 mt-1" ${c.alreadyExists ? '' : 'checked'} ${c.alreadyExists ? 'disabled' : ''}>
+            <div class="flex-1">
+              <div class="text-sm font-medium text-slate-800">${escapeHtml(c.header)}${c.alreadyExists ? ` <span class="text-xs text-slate-500 font-normal">${escapeHtml(t('alreadyInTemplate'))}</span>` : ''}</div>
+              <div class="mt-1 flex items-center gap-2">
+                <span class="text-xs text-slate-500">${escapeHtml(t('columnField'))}:</span>
+                <input type="text" data-i="${i}" class="dh-field text-xs px-2 py-1 border border-slate-300 rounded w-48"
+                  value="${escapeHtml(c.suggestedField)}" placeholder="${escapeHtml(t('fieldNamePlaceholder'))}" ${c.alreadyExists ? 'disabled' : ''}>
+              </div>
+            </div>
+          </label>
+        `).join('')}
+      </div>
+    `,
+    onSave: async () => {
+      const picked = Array.from(document.querySelectorAll('.dh-pick:checked')).map(c => Number(c.dataset.i));
+      let added = 0;
+      for (const idx of picked) {
+        const fInput = document.querySelector(`.dh-field[data-i="${idx}"]`);
+        const field  = (fInput?.value || '').trim() || candidates[idx].suggestedField;
+        if (!field) continue;
+        const lc = field.toLowerCase();
+        if (tpl.fields.some(x => String(x.field).toLowerCase() === lc)) continue;
+        tpl.fields.push({ field, header: candidates[idx].header, include: true });
+        added++;
+      }
+      if (added) toast(fillTpl(t('nFieldsAdded'), { n: added }));
+      drawTemplateEditor(entity, tpl);
+    }
+  });
+}
+
 /* ----- IMPORT TEMPLATE EDITOR ----- */
 function drawTemplateEditor(entity, tpl) {
   // Dedupe (case-insensitive on field name) — first occurrence wins
@@ -5683,6 +5784,7 @@ function drawTemplateEditor(entity, tpl) {
       <input id="newField"  type="text" placeholder="${escapeHtml(t('fieldNamePlaceholder'))}" class="px-2 py-1.5 border border-slate-300 rounded text-sm w-44">
       <input id="newHeader" type="text" placeholder="${escapeHtml(t('headerPlaceholder'))}" class="px-2 py-1.5 border border-slate-300 rounded text-sm w-44">
       <button id="tplAdd" class="px-3 py-1.5 rounded-lg bg-slate-700 text-white hover:bg-slate-800 text-sm">${escapeHtml(t('addField'))}</button>
+      <button id="tplDetect" class="px-3 py-1.5 rounded-lg border border-slate-300 hover:bg-slate-50 text-sm">${escapeHtml(t('detectFromFile'))}</button>
       <span class="ms-auto"></span>
       <button id="tplDelSel" class="px-3 py-1.5 rounded-lg border border-red-300 text-red-700 hover:bg-red-50 text-sm">${escapeHtml(t('deleteSelected'))}</button>
       <button id="tplReset" class="px-3 py-1.5 rounded-lg border border-slate-300 hover:bg-slate-50 text-sm">${escapeHtml(t('resetTemplate'))}</button>
@@ -5727,6 +5829,7 @@ function drawTemplateEditor(entity, tpl) {
     $('#newField').value = ''; $('#newHeader').value = '';
     drawTemplateEditor(entity, tpl);
   };
+  $('#tplDetect').onclick = () => triggerHeaderDetection(entity, tpl);
   $('#tplSave').onclick = async () => {
     await setImportTemplate(entity, tpl);
     toast(t('saved'));
