@@ -11,6 +11,7 @@
 <script src="https://unpkg.com/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+<script src="https://accounts.google.com/gsi/client" async defer></script>
 <style>
   html, body { background: #fafaf9; }
   /* Hide number input spinners */
@@ -2344,6 +2345,9 @@ const RefreshCw = (p) => <Svg {...p}><polyline points="23 4 23 10 17 10"/><polyl
 const Info = (p) => <Svg {...p}><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></Svg>;
 const FileText = (p) => <Svg {...p}><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></Svg>;
 const Printer = (p) => <Svg {...p}><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></Svg>;
+const Cloud = (p) => <Svg {...p}><path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z"/></Svg>;
+const CloudOff = (p) => <Svg {...p}><path d="M22.61 16.95A5 5 0 0 0 18 10h-1.26a8 8 0 0 0-7.05-6M5 5a8 8 0 0 0 4 15h9a5 5 0 0 0 1.7-.3"/><line x1="1" y1="1" x2="23" y2="23"/></Svg>;
+const LogOut = (p) => <Svg {...p}><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></Svg>;
 const Users = (p) => <Svg {...p}><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></Svg>;
 const Shield = (p) => <Svg {...p}><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></Svg>;
 const Landmark = (p) => <Svg {...p}><line x1="3" y1="22" x2="21" y2="22"/><line x1="6" y1="18" x2="6" y2="11"/><line x1="10" y1="18" x2="10" y2="11"/><line x1="14" y1="18" x2="14" y2="11"/><line x1="18" y1="18" x2="18" y2="11"/><polygon points="12 2 20 7 4 7"/></Svg>;
@@ -4468,6 +4472,160 @@ const ExportOptionsModal = ({ open, onClose, onConfirm, monthLabelStr }) => {
 };
 
 /* =========================================================
+   Account / sync (login Google + push/pull manuel)
+   ========================================================= */
+const LoginModal = ({ open, onClose }) => {
+  const btnRef = useRef(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState(null);
+  const [devEmail, setDevEmail] = useState('');
+  const hasGoogle = !!GOOGLE_CLIENT_ID;
+  const allowDev  = !hasGoogle || cloudSync.BACKEND_URL.includes('localhost');
+
+  useEffect(() => {
+    if (!open || !hasGoogle) return;
+    if (!window.google?.accounts?.id) {
+      // GIS pas encore chargé — réessayer dans 200 ms
+      const t = setTimeout(() => setBusy(b => b), 200);
+      return () => clearTimeout(t);
+    }
+    try {
+      window.google.accounts.id.initialize({
+        client_id: GOOGLE_CLIENT_ID,
+        callback: async ({ credential }) => {
+          setBusy(true); setError(null);
+          try {
+            await cloudSync.loginGoogle(credential);
+            await cloudSync.pull();
+            location.reload();
+          } catch (err) {
+            setError(err.message); setBusy(false);
+          }
+        },
+      });
+      if (btnRef.current) {
+        btnRef.current.innerHTML = '';
+        window.google.accounts.id.renderButton(btnRef.current, {
+          theme: 'outline', size: 'large', text: 'signin_with', width: 280,
+        });
+      }
+    } catch (err) { setError(err.message); }
+  }, [open, hasGoogle]);
+
+  const doDevLogin = async () => {
+    setBusy(true); setError(null);
+    try {
+      await cloudSync.loginDev(devEmail || 'dev@example.com');
+      await cloudSync.pull();
+      location.reload();
+    } catch (err) { setError(err.message); setBusy(false); }
+  };
+
+  if (!open) return null;
+  return (
+    <div className="fixed inset-0 z-50 bg-stone-900/50 flex items-center justify-center p-4" onClick={onClose}>
+      <div className="bg-white rounded-xl shadow-xl ring-1 ring-stone-200 max-w-md w-full p-5"
+           onClick={e => e.stopPropagation()}>
+        <header className="flex items-center justify-between mb-3">
+          <h3 className="font-semibold text-stone-900 text-lg">Connexion</h3>
+          <button onClick={onClose}
+            className="p-1.5 rounded hover:bg-stone-100 text-stone-400 hover:text-stone-700">
+            <X className="w-4 h-4"/>
+          </button>
+        </header>
+
+        <p className="text-xs text-stone-500 mb-3">
+          Une fois connecté, vos données sont synchronisées entre vos appareils
+          via le backend ({cloudSync.BACKEND_URL || '—'}).
+        </p>
+
+        {hasGoogle ? (
+          <div className="flex justify-center my-4">
+            <div ref={btnRef}/>
+          </div>
+        ) : (
+          <div className="my-4 p-3 rounded bg-amber-50 ring-1 ring-amber-200 text-xs text-amber-800">
+            <strong>Google SSO non configuré.</strong>
+            <div className="mt-1">
+              Renseigne <code>GOOGLE_CLIENT_ID</code> dans <code>cashflow.html</code> et dans
+              <code> backend/.env</code>, puis recharge la page.
+              Voir <code>backend/README.md</code> pour la procédure (~5 min).
+            </div>
+          </div>
+        )}
+
+        {allowDev && (
+          <div className="border-t border-stone-100 mt-4 pt-3">
+            <div className="text-[10px] uppercase tracking-wide text-stone-500 font-medium mb-1.5">
+              Login de développement
+            </div>
+            <div className="flex items-center gap-2">
+              <input type="email" value={devEmail}
+                onChange={e => setDevEmail(e.target.value)}
+                placeholder="dev@example.com"
+                className="flex-1 px-2 py-1.5 text-sm ring-1 ring-stone-200 rounded outline-none focus:ring-stone-400"/>
+              <button onClick={doDevLogin} disabled={busy}
+                className="px-3 py-1.5 text-sm rounded-lg bg-stone-900 text-white hover:bg-stone-800 disabled:bg-stone-300">
+                Login dev
+              </button>
+            </div>
+            <p className="text-[10px] text-stone-400 mt-1.5">
+              Disponible si <code>ALLOW_DEV_LOGIN=1</code> côté serveur. À désactiver en prod.
+            </p>
+          </div>
+        )}
+
+        {error && (
+          <div className="mt-3 p-2 rounded bg-rose-50 ring-1 ring-rose-200 text-xs text-rose-700">
+            {error}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
+
+const AccountButton = ({ onLogin }) => {
+  const [, force] = useState(0);
+  useEffect(() => cloudSync.subscribe(() => force(n => n + 1)), []);
+  const user = cloudSync.getUser();
+  const last = cloudSync.getLastSeen();
+  const [syncing, setSyncing] = useState(false);
+  if (!user) {
+    return (
+      <button onClick={onLogin}
+        title="Se connecter pour synchroniser entre appareils"
+        className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-lg bg-white text-stone-700 ring-1 ring-stone-200 hover:bg-stone-50">
+        <CloudOff className="w-4 h-4"/>
+        <span className="hidden sm:inline">Se connecter</span>
+      </button>
+    );
+  }
+  const onSync = async () => {
+    setSyncing(true);
+    try { await cloudSync.pushNow(); } catch (e) { console.warn(e); }
+    setSyncing(false);
+  };
+  return (
+    <div className="inline-flex items-center bg-white ring-1 ring-stone-200 rounded-lg overflow-hidden">
+      <button onClick={onSync} disabled={syncing}
+        title={"Synchroniser maintenant" + (last ? ` (dernière ${new Date(last).toLocaleTimeString('fr-FR')})` : '')}
+        className="px-2 py-1.5 hover:bg-stone-50 text-stone-600 disabled:text-stone-300">
+        <Cloud className={"w-4 h-4 " + (syncing ? "animate-pulse" : "")}/>
+      </button>
+      <div className="px-2 py-1 text-xs text-stone-700 max-w-[140px] truncate" title={user.email}>
+        {user.email}
+      </div>
+      <button onClick={() => { cloudSync.logout(); location.reload(); }}
+        title="Se déconnecter"
+        className="p-1.5 hover:bg-stone-50 text-stone-400 hover:text-rose-600">
+        <LogOut className="w-4 h-4"/>
+      </button>
+    </div>
+  );
+};
+
+/* =========================================================
    Settings modal (global app settings)
    ========================================================= */
 const ToggleRow = ({ label, description, value, onChange }) => (
@@ -5679,7 +5837,7 @@ const EmptyState = ({ onManual, onCopyPrev, onReportUnpaid, onImportFile, hasPre
 /* =========================================================
    Header
    ========================================================= */
-const Header = ({ year, month, onPrev, onNext, saved, onImportFile, onExportBackup, onRestoreBackup, onOpenImportWizard, onUndo, onRedo, canUndo, canRedo, onGenerateFromImports, onClearImports, onOpenRules, onOpenRecurrences, onOpenSettings, onOpenExport }) => (
+const Header = ({ year, month, onPrev, onNext, saved, onImportFile, onExportBackup, onRestoreBackup, onOpenImportWizard, onUndo, onRedo, canUndo, canRedo, onGenerateFromImports, onClearImports, onOpenRules, onOpenRecurrences, onOpenSettings, onOpenExport, onOpenLogin }) => (
   <header className="flex flex-wrap items-center justify-between gap-4 mb-6">
     <div>
       <h1 className="text-2xl font-bold text-stone-900 tracking-tight">Cashflow</h1>
@@ -5734,6 +5892,8 @@ const Header = ({ year, month, onPrev, onNext, saved, onImportFile, onExportBack
         className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-lg bg-white text-stone-700 ring-1 ring-stone-200 hover:bg-stone-50">
         <FileText className="w-4 h-4"/>Exporter
       </button>
+
+      <AccountButton onLogin={onOpenLogin}/>
 
       <button onClick={onOpenSettings}
         title="Paramètres"
@@ -5802,6 +5962,7 @@ function App() {
   const [recurrencesOpen, setRecurrencesOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [exportOpen, setExportOpen] = useState(false);
+  const [loginOpen, setLoginOpen] = useState(false);
   const [taxBreakdown, setTaxBreakdown] = useState(null); // null | 'income' | 'expense'
   const [copyToMonth, setCopyToMonth] = useState(null);   // null | { postes }
   const refreshRecurrenceRules = () => setRecurrenceRules(loadRecurrenceRules());
@@ -6365,7 +6526,8 @@ function App() {
                 onOpenRules={() => setRulesOpen(true)}
                 onOpenRecurrences={() => setRecurrencesOpen(true)}
                 onOpenSettings={() => setSettingsOpen(true)}
-                onOpenExport={() => setExportOpen(true)}/>
+                onOpenExport={() => setExportOpen(true)}
+                onOpenLogin={() => setLoginOpen(true)}/>
 
         <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_360px] gap-6">
           <main className="space-y-6 min-w-0">
@@ -6530,6 +6692,11 @@ function App() {
         open={settingsOpen}
         onClose={() => setSettingsOpen(false)}
         onOpenRules={() => setRulesOpen(true)}
+      />
+
+      <LoginModal
+        open={loginOpen}
+        onClose={() => setLoginOpen(false)}
       />
 
       <ExportOptionsModal
@@ -6882,10 +7049,208 @@ const requestPersistentStorage = async () => {
   return false;
 };
 
+/* =========================================================
+   Cloud sync (backend optionnel)
+   - Snapshot localStorage → blob JSON
+   - GET /api/sync au login    : remplace localStorage si serveur a une version
+   - PUT /api/sync (debounce)  : push après chaque modification locale
+   Configure GOOGLE_CLIENT_ID + BACKEND_URL ci-dessous, ou laisse vide
+   pour rester 100 % local (le bouton Compte affichera alors « offline »).
+   ========================================================= */
+const GOOGLE_CLIENT_ID = ''; // <-- mettre votre Client ID Google ici (ex: '12345-abc.apps.googleusercontent.com')
+const BACKEND_URL      = (() => {
+  // Auto-détection : si on est servi depuis le backend lui-même, pas de prefix.
+  // Sinon, par défaut http://localhost:3000.
+  if (location.protocol === 'file:') return 'http://localhost:3000';
+  return location.origin;
+})();
+const SYNC_KEYS_PREFIX_OR_EXACT = [
+  /^month:/, 'transactions:imported', 'cards:current',
+  'matchRules', 'recurrenceRules', 'categories',
+  /^settings:/,
+];
+
+const cloudSync = (() => {
+  const tokenKey = '__cf_token';
+  const userKey  = '__cf_user';
+  const lastSeenKey = '__cf_lastSeen';
+
+  let pushDebounce = null;
+  const listeners = new Set();
+  const emit = () => listeners.forEach(fn => { try { fn(); } catch {} });
+
+  const getToken = () => localStorage.getItem(tokenKey) || null;
+  const setToken = (t) => t ? localStorage.setItem(tokenKey, t) : localStorage.removeItem(tokenKey);
+  const getUser  = () => { try { return JSON.parse(localStorage.getItem(userKey) || 'null'); } catch { return null; } };
+  const setUser  = (u) => u ? localStorage.setItem(userKey, JSON.stringify(u)) : localStorage.removeItem(userKey);
+  const getLastSeen = () => localStorage.getItem(lastSeenKey) || null;
+  const setLastSeen = (v) => v ? localStorage.setItem(lastSeenKey, v) : localStorage.removeItem(lastSeenKey);
+
+  const matchesKey = (k) => {
+    if (!k) return false;
+    if (k.startsWith('__cf_')) return false; // ne pas synchroniser nos métadonnées
+    for (const m of SYNC_KEYS_PREFIX_OR_EXACT) {
+      if (typeof m === 'string' && m === k) return true;
+      if (m instanceof RegExp && m.test(k))  return true;
+    }
+    return false;
+  };
+
+  const snapshot = () => {
+    const out = {};
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i);
+      if (matchesKey(k)) out[k] = localStorage.getItem(k);
+    }
+    return out;
+  };
+
+  const restore = (data) => {
+    if (!data || typeof data !== 'object') return 0;
+    // On efface les clés synchronisables pour partir d'un état net,
+    // puis on réinjecte celles du serveur. Les clés __cf_* sont préservées.
+    const toDelete = [];
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i);
+      if (matchesKey(k)) toDelete.push(k);
+    }
+    for (const k of toDelete) localStorage.removeItem(k);
+    let n = 0;
+    for (const [k, v] of Object.entries(data)) {
+      if (matchesKey(k) && typeof v === 'string') {
+        localStorage.setItem(k, v);
+        n++;
+      }
+    }
+    return n;
+  };
+
+  const apiUrl = (p) => (BACKEND_URL || '') + p;
+
+  const fetchJSON = async (path, opts = {}) => {
+    const headers = { 'Content-Type': 'application/json', ...(opts.headers || {}) };
+    const tok = getToken();
+    if (tok) headers.Authorization = 'Bearer ' + tok;
+    const res = await fetch(apiUrl(path), { ...opts, headers });
+    let body = null;
+    try { body = await res.json(); } catch {}
+    if (!res.ok) {
+      const err = new Error(body?.error || res.statusText);
+      err.status = res.status; err.body = body;
+      throw err;
+    }
+    return body;
+  };
+
+  const isLogged = () => !!getToken();
+
+  const loginGoogle = async (credential) => {
+    const r = await fetchJSON('/api/auth/google', {
+      method: 'POST', body: JSON.stringify({ credential }),
+    });
+    setToken(r.token); setUser(r.user); emit();
+    return r.user;
+  };
+
+  const loginDev = async (email) => {
+    const r = await fetchJSON('/api/auth/dev', {
+      method: 'POST', body: JSON.stringify({ email }),
+    });
+    setToken(r.token); setUser(r.user); emit();
+    return r.user;
+  };
+
+  const logout = () => {
+    setToken(null); setUser(null); setLastSeen(null);
+    if (window.google?.accounts?.id?.disableAutoSelect) {
+      try { window.google.accounts.id.disableAutoSelect(); } catch {}
+    }
+    emit();
+  };
+
+  // Pull initial après login. Si le serveur a quelque chose, on remplace local.
+  // Sinon on push notre état local courant pour amorcer.
+  const pull = async () => {
+    if (!isLogged()) return null;
+    const r = await fetchJSON('/api/sync', { method: 'GET' });
+    if (r.data) {
+      restore(r.data);
+      setLastSeen(r.updatedAt || '');
+      emit();
+      return { restored: true, updatedAt: r.updatedAt };
+    }
+    // Serveur vide → on amorce avec ce qu'on a
+    await pushNow();
+    return { restored: false, updatedAt: getLastSeen() };
+  };
+
+  const pushNow = async () => {
+    if (!isLogged()) return null;
+    const data = snapshot();
+    const r = await fetchJSON('/api/sync', {
+      method: 'PUT',
+      body: JSON.stringify({ data, lastSeenUpdatedAt: getLastSeen() }),
+    });
+    setLastSeen(r.updatedAt || '');
+    emit();
+    return r;
+  };
+
+  const queuePush = () => {
+    if (!isLogged()) return;
+    clearTimeout(pushDebounce);
+    pushDebounce = setTimeout(() => {
+      pushNow().catch(err => {
+        if (err.status === 409) {
+          console.warn('[cloudSync] Conflit serveur — version distante ré-appliquée');
+          if (err.body?.serverData) {
+            restore(err.body.serverData);
+            setLastSeen(err.body.serverUpdatedAt || '');
+            location.reload();
+          }
+        } else if (err.status === 401) {
+          console.warn('[cloudSync] Token expiré, déconnexion');
+          logout();
+        } else {
+          console.warn('[cloudSync] push échec :', err.message);
+        }
+      });
+    }, 1500);
+  };
+
+  const subscribe = (fn) => { listeners.add(fn); return () => listeners.delete(fn); };
+
+  return {
+    BACKEND_URL, GOOGLE_CLIENT_ID,
+    isLogged, getToken, getUser, getLastSeen,
+    loginGoogle, loginDev, logout,
+    pull, pushNow, queuePush, snapshot, restore,
+    subscribe,
+  };
+})();
+
+// Branche cloudSync.queuePush() sur le mirror localStorage existant (qui réplique
+// déjà chaque écriture vers IndexedDB). On enfile aussi un push serveur debouncé.
+(() => {
+  const orig = installLocalStorageMirror;
+  // installLocalStorageMirror est idempotent (drapeau __cashflowMirror) ;
+  // ici on enrichit setItem/removeItem/clear pour chaîner cloudSync.queuePush().
+  const oset = localStorage.setItem.bind(localStorage);
+  const orem = localStorage.removeItem.bind(localStorage);
+  const oclr = localStorage.clear.bind(localStorage);
+  localStorage.setItem = (k, v) => { oset(k, v); cloudSync.queuePush(); };
+  localStorage.removeItem = (k) => { orem(k); cloudSync.queuePush(); };
+  localStorage.clear = () => { oclr(); cloudSync.queuePush(); };
+})();
+
 (async () => {
   await hydrateLocalStorageFromIDB();
   installLocalStorageMirror();
   requestPersistentStorage();
+  // Si déjà loggé, pull silencieux au boot pour récupérer la version la plus à jour.
+  if (cloudSync.isLogged()) {
+    try { await cloudSync.pull(); } catch (e) { console.warn('[cloudSync] pull initial échec', e); }
+  }
   ReactDOM.createRoot(document.getElementById('root')).render(<App />);
 })();
 </script>
