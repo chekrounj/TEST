@@ -2808,19 +2808,23 @@ async function renderClients() {
     readOnly: true
   });
   const draw = async () => {
-    const all = await DB.getAll('clients');
+    const [all, entries] = await Promise.all([DB.getAll('clients'), DB.getAll('timeEntries')]);
+    const activeClientIds = new Set(entries.filter(e => e.clientId).map(e => Number(e.clientId)));
     const q = $('#searchInput').value.trim().toLowerCase();
     const filtered = all.filter(c => !q || (c.nom||'').toLowerCase().includes(q) || (c.contact||'').toLowerCase().includes(q) || (c.numeroClient||'').toLowerCase().includes(q));
-    const rows = filtered.map(c => `
+    const rows = filtered.map(c => {
+      const isActive = activeClientIds.has(Number(c.id));
+      return `
       <tr class="hover:bg-slate-50">
         <td class="px-4 py-3 text-slate-600 text-xs">${escapeHtml(c.numeroClient || '')}</td>
         <td class="px-4 py-3">${escapeHtml(c.nom)}</td>
         <td class="px-4 py-3 text-slate-600">${escapeHtml(c.adresse || '')}</td>
         <td class="px-4 py-3 text-slate-600">${escapeHtml(c.contact || '')}</td>
-        <td class="px-4 py-3">${c.actif ? '<span class="px-2 py-0.5 rounded-full bg-green-100 text-green-700 text-xs">●</span>' : '<span class="px-2 py-0.5 rounded-full bg-slate-100 text-slate-500 text-xs">—</span>'}</td>
-      </tr>`).join('');
+        <td class="px-4 py-3">${isActive ? '<span class="px-2 py-0.5 rounded-full bg-green-100 text-green-700 text-xs">●</span>' : '<span class="px-2 py-0.5 rounded-full bg-slate-100 text-slate-500 text-xs">—</span>'}</td>
+      </tr>`;
+    }).join('');
     $('#listBody').innerHTML = tableEl(
-      [t('clientNumber'), t('clientName'), t('clientAddress'), t('clientContact'), t('clientActive')],
+      ["מס. לקוח", "שם לקוח", t('clientAddress'), t('clientContact'), t('clientActive')],
       rows
     );
     await applyTemplateToList('clients', { numeroClient: 0, nom: 1, adresse: 2, contact: 3, actif: 4 }, filtered, '#listBody', true);
@@ -2870,32 +2874,50 @@ async function renderProjects() {
     refreshFn: renderProjects,
     readOnly: true
   });
-  const clients = await DB.getAll('clients');
+  const [clients, entries] = await Promise.all([DB.getAll('clients'), DB.getAll('timeEntries')]);
   const clientById = Object.fromEntries(clients.map(c => [c.id, c]));
+  // Build per-project lookup of the latest projectTypeDescription / projectManager
+  // (and typeProjet fallback) found in time-entries. Imports stamp those on the
+  // saisie record but not on the project itself, so we resolve via time-entries.
+  const projectExtras = {};
+  for (const en of entries) {
+    if (!en.projectId) continue;
+    const pid = Number(en.projectId);
+    const slot = projectExtras[pid] || (projectExtras[pid] = {});
+    if (en.projectTypeDescription && !slot.projectTypeDescription) slot.projectTypeDescription = String(en.projectTypeDescription);
+    if (en.projectManager        && !slot.projectManager)        slot.projectManager        = String(en.projectManager);
+    if (en.projectType           && !slot.projectType)           slot.projectType           = String(en.projectType);
+  }
   const draw = async () => {
     const all = await DB.getAll('projects');
     const q = $('#searchInput').value.trim().toLowerCase();
     const filtered = all.filter(p => !q || (p.nom||'').toLowerCase().includes(q) || (p.code||'').toLowerCase().includes(q));
-    const rows = filtered.map(p => `
+    const rows = filtered.map(p => {
+      const ex = projectExtras[p.id] || {};
+      const typeProjet = p.typeProjet || ex.projectType || '';
+      return `
       <tr class="hover:bg-slate-50">
         <td class="px-4 py-3">${escapeHtml(p.nom)}</td>
         <td class="px-4 py-3 text-slate-600">${escapeHtml(p.code || '')}</td>
         <td class="px-4 py-3 text-slate-600">${escapeHtml(clientById[p.clientId]?.nom || '')}</td>
-        <td class="px-4 py-3 text-slate-600">${escapeHtml(p.typeProjet || '')}</td>
+        <td class="px-4 py-3 text-slate-600">${escapeHtml(typeProjet)}</td>
+        <td class="px-4 py-3 text-slate-600">${escapeHtml(ex.projectTypeDescription || '')}</td>
+        <td class="px-4 py-3 text-slate-600">${escapeHtml(ex.projectManager || '')}</td>
         <td class="px-4 py-3 text-slate-600">${escapeHtml(projectStatusLabel(p.statutProjet))}</td>
         <td class="px-4 py-3 text-slate-600">${p.prix ?? ''}</td>
         <td class="px-4 py-3 text-slate-600">${escapeHtml(p.typeFacturation || '')}</td>
         <td class="px-4 py-3 text-slate-600">${p.tauxHoraire ?? ''}</td>
         <td class="px-4 py-3 text-slate-600">${p.budgetHeures ?? ''}</td>
         <td class="px-4 py-3">${p.actif ? '<span class="px-2 py-0.5 rounded-full bg-green-100 text-green-700 text-xs">●</span>' : '<span class="px-2 py-0.5 rounded-full bg-slate-100 text-slate-500 text-xs">—</span>'}</td>
-      </tr>`).join('');
+      </tr>`;
+    }).join('');
     $('#listBody').innerHTML = tableEl(
-      [t('projectName'), t('projectCode'), t('projectClient'), t('projectType'), t('projectStatus'),
-       t('projectPrice'), t('projectBillingType'), t('projectRate'), t('projectBudget'), t('projectActive')],
+      [t('projectName'), t('projectCode'), 'שם לקוח', 'סוג פרויקט', 'תיאור סוג פרויקט', 'מנהל פרויקט',
+       t('projectStatus'), t('projectPrice'), t('projectBillingType'), t('projectRate'), t('projectBudget'), t('projectActive')],
       rows
     );
     await applyTemplateToList('projects',
-      { nom: 0, code: 1, clientId: 2, typeProjet: 3, statutProjet: 4, prix: 5, typeFacturation: 6, tauxHoraire: 7, budgetHeures: 8, actif: 9 },
+      { nom: 0, code: 1, clientId: 2, typeProjet: 3, statutProjet: 6, prix: 7, typeFacturation: 8, tauxHoraire: 9, budgetHeures: 10, actif: 11 },
       filtered, '#listBody', true);
   };
   $('#searchInput').oninput = draw;
