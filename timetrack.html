@@ -5734,6 +5734,7 @@ const REPORT_COLUMNS = [
   { key: 'projectType',            label: 'סוג פרויקט',         num: false },
   { key: 'projectTypeDescription', label: 'תיאור פרויקט',       num: false },
   { key: 'projectManager',         label: 'מנהל פרויקט',        num: false },
+  { key: 'subAgent',               label: 'סוכן משנה',          num: false },
   { key: 'invoice',                label: 'חשבונית',            num: false },
   { key: 'reportNumber',           label: "מס' דווח",           num: false },
   { key: 'activityNumber',         label: 'מספר פעילות',        num: false },
@@ -5742,7 +5743,9 @@ const REPORT_COLUMNS = [
   { key: 'description',            label: 'תאור מוצר',          num: false },
   { key: 'hours',                  label: "סה'כ דווח",          num: true },
   { key: 'rate',                   label: 'מחיר לשעה',          num: true },
-  { key: 'cost',                   label: 'עלות',               num: true }
+  { key: 'cost',                   label: 'עלות',               num: true },
+  { key: 'facturationMensuelle',   label: 'Facturation Mensuelle', num: true },
+  { key: 'facturationAnnuelle',    label: 'Facturation Annuelle',  num: true }
 ];
 
 async function renderReports() {
@@ -5782,16 +5785,41 @@ async function renderReports() {
       projectType:  en.projectType    || proj.typeProjet  || '',
       projectTypeDescription: en.projectTypeDescription || '',
       projectManager: en.projectManager || '',
+      subAgent: en.subAgent || en['סוכן משנה'] || '',
       invoice: en.invoice || '',
       reportNumber: en.reportNumber || '',
       activityNumber: en.activityNumber || tsk.numeroTache || '',
       activityName:   en.activityName   || tsk.nom         || '',
       sku,
       description: en.description || '',
-      hours, rate, cost: hours * rate
+      hours, rate, cost: hours * rate,
+      facturationMensuelle: null,
+      facturationAnnuelle:  null
     };
   });
   const allRows = enrichAll();
+
+  // Per-project facturation aggregates computed on the FULL dataset
+  // (not filtered) so that monthly average / annual sum stay stable
+  // regardless of the period the user is looking at.
+  //   - סוג פרויקט "01" → facturation annuelle = Σ cost on the project
+  //   - סוג פרויקט "02" → facturation mensuelle = Σ cost ÷ distinct months
+  const projectAgg = {};
+  for (const r of allRows) {
+    const pid = String(r._en?.projectId ?? r.projectCode ?? r.projectName ?? '');
+    if (!pid) continue;
+    if (!projectAgg[pid]) projectAgg[pid] = { type: r.projectType, cost: 0, months: new Set() };
+    projectAgg[pid].cost += r.cost || 0;
+    if (r.date) projectAgg[pid].months.add(String(r.date).slice(0, 7));
+  }
+  for (const r of allRows) {
+    const pid = String(r._en?.projectId ?? r.projectCode ?? r.projectName ?? '');
+    const a = projectAgg[pid];
+    if (!a) continue;
+    const code = parseInt(String(a.type || '').trim(), 10);
+    if (code === 1)      r.facturationAnnuelle  = a.cost;
+    else if (code === 2) r.facturationMensuelle = a.months.size ? a.cost / a.months.size : 0;
+  }
   const distinct = (key) => Array.from(new Set(allRows.map(r => r[key]).filter(v => v))).sort((a, b) => String(a).localeCompare(String(b)));
   const clientNames = distinct('clientName');
   const ptDescs     = distinct('projectTypeDescription');
@@ -5844,6 +5872,8 @@ async function renderReports() {
             <option value="projectType">סוג פרויקט</option>
             <option value="projectName">פרויקט</option>
             <option value="employee">עובד</option>
+            <option value="subAgent">סוכן משנה</option>
+            <option value="projectManager">מנהל פרויקט</option>
           </select>
         </div>
         <div>
@@ -5853,6 +5883,8 @@ async function renderReports() {
             <option value="employee">עובד</option>
             <option value="clientName">שם לקוח</option>
             <option value="projectName">פרויקט</option>
+            <option value="subAgent">סוכן משנה</option>
+            <option value="projectManager">מנהל פרויקט</option>
             <option value="hours">${escapeHtml(t('colHours'))}</option>
             <option value="cost">${escapeHtml(t('colCost'))}</option>
           </select>
