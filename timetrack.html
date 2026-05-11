@@ -2333,7 +2333,7 @@ const nextProjectCode  = (extra) => nextNumberFor('projects','code',         'PR
 //    columns just before the last (actions) column
 // `columnMap` : { canonicalField: zero-based-column-index }
 // `records`   : the rows currently displayed, in table order
-async function applyTemplateToList(entity, columnMap, records, container = '#listBody') {
+async function applyTemplateToList(entity, columnMap, records, container = '#listBody', appendAtEnd = false) {
   const tpl = await getImportTemplate(entity);
   if (!tpl || !Array.isArray(tpl.fields)) return;
   const canonical = new Set((ENTITY_IMPORTS[entity]?.template?.headers || []).map(s => s.toLowerCase()));
@@ -2357,7 +2357,8 @@ async function applyTemplateToList(entity, columnMap, records, container = '#lis
     const th = document.createElement('th');
     th.className = 'px-4 py-3 text-start font-medium';
     th.textContent = f.header || f.field;
-    if (lastTh) headRow.insertBefore(th, lastTh); else headRow.appendChild(th);
+    if (appendAtEnd || !lastTh) headRow.appendChild(th);
+    else headRow.insertBefore(th, lastTh);
   }
   const bodyRows = table.querySelectorAll('tbody tr');
   bodyRows.forEach((tr, i) => {
@@ -2369,7 +2370,8 @@ async function applyTemplateToList(entity, columnMap, records, container = '#lis
       td.className = 'px-4 py-3 text-slate-600 text-sm';
       const v = rec[f.field];
       td.textContent = v == null ? '' : String(v);
-      if (lastTd) tr.insertBefore(td, lastTd); else tr.appendChild(td);
+      if (appendAtEnd || !lastTd) tr.appendChild(td);
+      else tr.insertBefore(td, lastTd);
     }
   });
 }
@@ -2614,13 +2616,13 @@ function wireImportBar(refreshFn) {
 }
 
 /* ----- Generic list renderer ----- */
-function renderListShell({ title, addLabel, onAdd, searchPlaceholder, entity, refreshFn }) {
+function renderListShell({ title, addLabel, onAdd, searchPlaceholder, entity, refreshFn, readOnly = false }) {
   PAGE.innerHTML = `
     <div class="flex flex-wrap items-center justify-between gap-3 mb-6">
       <h1 class="text-2xl font-bold text-slate-900">${escapeHtml(title)}</h1>
       <div class="flex flex-wrap gap-2">
         ${entity ? importBarHtml(entity) : ''}
-        <button id="addBtn" class="px-4 py-2 rounded-lg bg-blue-700 text-white hover:bg-blue-800 text-sm font-medium">+ ${escapeHtml(addLabel)}</button>
+        ${readOnly ? '' : `<button id="addBtn" class="px-4 py-2 rounded-lg bg-blue-700 text-white hover:bg-blue-800 text-sm font-medium">+ ${escapeHtml(addLabel)}</button>`}
       </div>
     </div>
     <div class="bg-white rounded-xl border border-slate-200 shadow-sm">
@@ -2630,7 +2632,7 @@ function renderListShell({ title, addLabel, onAdd, searchPlaceholder, entity, re
       <div id="listBody"></div>
     </div>
   `;
-  $('#addBtn').onclick = onAdd;
+  if (!readOnly && $('#addBtn')) $('#addBtn').onclick = onAdd;
   if (entity) wireImportBar(refreshFn);
 }
 
@@ -2654,13 +2656,15 @@ function tableEl(headers, rowsHtml) {
 
 /* ----- CLIENTS ----- */
 async function renderClients() {
+  // Read-only view: data is presented but not edited from this page.
+  // Imports / exports remain available to feed the table.
   renderListShell({
     title: t('clientsTitle'),
     addLabel: t('add'),
     searchPlaceholder: t('search'),
-    onAdd: () => clientForm(),
     entity: 'clients',
-    refreshFn: renderClients
+    refreshFn: renderClients,
+    readOnly: true
   });
   const draw = async () => {
     const all = await DB.getAll('clients');
@@ -2673,26 +2677,12 @@ async function renderClients() {
         <td class="px-4 py-3 text-slate-600">${escapeHtml(c.adresse || '')}</td>
         <td class="px-4 py-3 text-slate-600">${escapeHtml(c.contact || '')}</td>
         <td class="px-4 py-3">${c.actif ? '<span class="px-2 py-0.5 rounded-full bg-green-100 text-green-700 text-xs">●</span>' : '<span class="px-2 py-0.5 rounded-full bg-slate-100 text-slate-500 text-xs">—</span>'}</td>
-        <td class="px-4 py-3">${rowActions(c.id)}</td>
       </tr>`).join('');
     $('#listBody').innerHTML = tableEl(
-      [t('clientNumber'), t('clientName'), t('clientAddress'), t('clientContact'), t('clientActive'), t('actions')],
+      [t('clientNumber'), t('clientName'), t('clientAddress'), t('clientContact'), t('clientActive')],
       rows
     );
-    await applyTemplateToList('clients', { numeroClient: 0, nom: 1, adresse: 2, contact: 3, actif: 4 }, filtered);
-    $$('#listBody [data-act]').forEach(b => b.onclick = async () => {
-      const id = Number(b.dataset.id);
-      if (b.dataset.act === 'edit') {
-        const rec = await DB.getById('clients', id);
-        clientForm(rec);
-      } else if (b.dataset.act === 'delete') {
-        if (await confirmModal(t('confirmDelete'))) {
-          await DB.remove('clients', id);
-          toast(t('deleted'));
-          draw();
-        }
-      }
-    });
+    await applyTemplateToList('clients', { numeroClient: 0, nom: 1, adresse: 2, contact: 3, actif: 4 }, filtered, '#listBody', true);
   };
   $('#searchInput').oninput = draw;
   await draw();
@@ -2730,13 +2720,14 @@ function clientForm(rec) {
 
 /* ----- PROJECTS ----- */
 async function renderProjects() {
+  // Read-only view: imports/exports remain available; no add/edit/delete.
   renderListShell({
     title: t('projectsTitle'),
     addLabel: t('add'),
     searchPlaceholder: t('search'),
-    onAdd: () => projectForm(),
     entity: 'projects',
-    refreshFn: renderProjects
+    refreshFn: renderProjects,
+    readOnly: true
   });
   const clients = await DB.getAll('clients');
   const clientById = Object.fromEntries(clients.map(c => [c.id, c]));
@@ -2756,28 +2747,15 @@ async function renderProjects() {
         <td class="px-4 py-3 text-slate-600">${p.tauxHoraire ?? ''}</td>
         <td class="px-4 py-3 text-slate-600">${p.budgetHeures ?? ''}</td>
         <td class="px-4 py-3">${p.actif ? '<span class="px-2 py-0.5 rounded-full bg-green-100 text-green-700 text-xs">●</span>' : '<span class="px-2 py-0.5 rounded-full bg-slate-100 text-slate-500 text-xs">—</span>'}</td>
-        <td class="px-4 py-3">${rowActions(p.id)}</td>
       </tr>`).join('');
     $('#listBody').innerHTML = tableEl(
       [t('projectName'), t('projectCode'), t('projectClient'), t('projectType'), t('projectStatus'),
-       t('projectPrice'), t('projectBillingType'), t('projectRate'), t('projectBudget'), t('projectActive'), t('actions')],
+       t('projectPrice'), t('projectBillingType'), t('projectRate'), t('projectBudget'), t('projectActive')],
       rows
     );
     await applyTemplateToList('projects',
       { nom: 0, code: 1, clientId: 2, typeProjet: 3, statutProjet: 4, prix: 5, typeFacturation: 6, tauxHoraire: 7, budgetHeures: 8, actif: 9 },
-      filtered);
-    $$('#listBody [data-act]').forEach(b => b.onclick = async () => {
-      const id = Number(b.dataset.id);
-      if (b.dataset.act === 'edit') {
-        projectForm(await DB.getById('projects', id));
-      } else if (b.dataset.act === 'delete') {
-        if (await confirmModal(t('confirmDelete'))) {
-          await DB.remove('projects', id);
-          toast(t('deleted'));
-          draw();
-        }
-      }
-    });
+      filtered, '#listBody', true);
   };
   $('#searchInput').oninput = draw;
   await draw();
@@ -2835,13 +2813,14 @@ async function projectForm(rec) {
 
 /* ----- TASKS ----- */
 async function renderTasks() {
+  // Read-only view: imports/exports remain available; no add/edit/delete.
   renderListShell({
     title: t('tasksTitle'),
     addLabel: t('add'),
     searchPlaceholder: t('search'),
-    onAdd: () => taskForm(),
     entity: 'tasks',
-    refreshFn: renderTasks
+    refreshFn: renderTasks,
+    readOnly: true
   });
   const draw = async () => {
     const all = await DB.getAll('tasks');
@@ -2854,24 +2833,12 @@ async function renderTasks() {
         <td class="px-4 py-3 text-slate-600">${escapeHtml(x.typeTask || '')}</td>
         <td class="px-4 py-3 text-slate-600">${escapeHtml(x.statut || '')}</td>
         <td class="px-4 py-3 text-slate-600">${escapeHtml(x.description || '')}</td>
-        <td class="px-4 py-3">${rowActions(x.id)}</td>
       </tr>`).join('');
     $('#listBody').innerHTML = tableEl(
-      [t('taskNumber'), t('taskName'), t('taskType'), t('taskStatus'), t('taskDesc'), t('actions')],
+      [t('taskNumber'), t('taskName'), t('taskType'), t('taskStatus'), t('taskDesc')],
       rows
     );
-    await applyTemplateToList('tasks', { numeroTache: 0, nom: 1, typeTask: 2, statut: 3, description: 4 }, filtered);
-    $$('#listBody [data-act]').forEach(b => b.onclick = async () => {
-      const id = Number(b.dataset.id);
-      if (b.dataset.act === 'edit') taskForm(await DB.getById('tasks', id));
-      else if (b.dataset.act === 'delete') {
-        if (await confirmModal(t('confirmDelete'))) {
-          await DB.remove('tasks', id);
-          toast(t('deleted'));
-          draw();
-        }
-      }
-    });
+    await applyTemplateToList('tasks', { numeroTache: 0, nom: 1, typeTask: 2, statut: 3, description: 4 }, filtered, '#listBody', true);
   };
   $('#searchInput').oninput = draw;
   await draw();
@@ -2909,54 +2876,21 @@ async function taskForm(rec) {
 
 /* ----- BILLING TYPES ----- */
 async function renderBillingTypes() {
+  // Read-only view: the list is shown as data only. No add/delete inputs.
   const list = await getBillingTypes();
   PAGE.innerHTML = `
     <div class="flex items-center justify-between mb-6">
       <h1 class="text-2xl font-bold text-slate-900">💲 ${escapeHtml(t('billingTypesTitle'))}</h1>
     </div>
     <div class="bg-white rounded-xl border border-slate-200 shadow-sm p-6 max-w-2xl">
-      <div class="flex gap-2 mb-4">
-        <input id="newBtInput" type="text" placeholder="${escapeHtml(t('billingTypeName'))}" class="flex-1 px-3 py-2 border border-slate-300 rounded-lg text-sm">
-        <button id="addBtBtn" class="px-4 py-2 rounded-lg bg-blue-700 text-white hover:bg-blue-800 text-sm">+ ${escapeHtml(t('addBillingType'))}</button>
-      </div>
-      <div id="btList">
-        ${list.length === 0
-          ? `<p class="text-sm text-slate-500">${escapeHtml(t('noBillingTypes'))}</p>`
-          : `<ul class="divide-y divide-slate-100 border border-slate-200 rounded-lg">
-              ${list.map((tp, i) => `
-                <li class="flex items-center justify-between px-3 py-2 text-sm">
-                  <span>${escapeHtml(tp)}</span>
-                  <button data-idx="${i}" class="del-bt text-red-600 hover:underline text-xs">${escapeHtml(t('delete'))}</button>
-                </li>`).join('')}
-            </ul>`}
-      </div>
+      ${list.length === 0
+        ? `<p class="text-sm text-slate-500">${escapeHtml(t('noBillingTypes'))}</p>`
+        : `<ul class="divide-y divide-slate-100 border border-slate-200 rounded-lg">
+            ${list.map(tp => `
+              <li class="px-3 py-2 text-sm">${escapeHtml(tp)}</li>`).join('')}
+          </ul>`}
     </div>
   `;
-
-  $('#addBtBtn').onclick = async () => {
-    const input = $('#newBtInput');
-    const v = input.value.trim();
-    if (!v) return;
-    const cur = await getBillingTypes();
-    if (cur.some(x => x.toLowerCase() === v.toLowerCase())) {
-      toast(t('typeAlreadyExists'));
-      return;
-    }
-    cur.push(v);
-    await setBillingTypes(cur);
-    input.value = '';
-    toast(t('saved'));
-    renderBillingTypes();
-  };
-  $('#newBtInput').onkeydown = (e) => { if (e.key === 'Enter') $('#addBtBtn').click(); };
-  $$('#btList .del-bt').forEach(b => b.onclick = async () => {
-    const idx = Number(b.dataset.idx);
-    const cur = await getBillingTypes();
-    cur.splice(idx, 1);
-    await setBillingTypes(cur);
-    toast(t('deleted'));
-    renderBillingTypes();
-  });
 }
 
 /* ----- EMPLOYEES ----- */
