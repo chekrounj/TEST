@@ -2030,11 +2030,12 @@ const ENTITY_IMPORTS = {
         const found = ctx.all.find(e => lc(e.nom) === lc(mgrRaw) || lc(e.email) === lc(mgrRaw) || lc(e.numeroEmploye) === lc(mgrRaw));
         if (found) managerId = found.id;
         else {
+          const mgrNum = await nextEmployeeNumber();
           managerId = await DB.add('employees', {
             nom: mgrRaw, role: 'manager', actif: true,
-            managerId: null, pin: null, email: '', numeroEmploye: '', tauxHoraire: null
+            managerId: null, pin: null, email: '', numeroEmploye: mgrNum, tauxHoraire: null
           });
-          ctx.all.push({ id: managerId, nom: mgrRaw, role: 'manager', actif: true });
+          ctx.all.push({ id: managerId, nom: mgrRaw, numeroEmploye: mgrNum, role: 'manager', actif: true });
         }
       }
 
@@ -2059,8 +2060,9 @@ const ENTITY_IMPORTS = {
         return 'updated';
       }
       const extrasE = extractExtras(row, ['numeroEmploye','nom','email','role','tauxHoraire','manager','managerId']);
+      const finalNum = num || await nextEmployeeNumber();
       await DB.add('employees', {
-        numeroEmploye: num, nom, email,
+        numeroEmploye: finalNum, nom, email,
         role: incoming.role || 'employe',
         tauxHoraire: incoming.tauxHoraire ?? null,
         managerId: managerId,
@@ -2110,8 +2112,9 @@ const ENTITY_IMPORTS = {
         const emailFromRow = String(row.email || '').trim();
         const fallback = nomFromRow || numFromRow || emailFromRow;
         if (!fallback) return false;
+        const finalNum = numFromRow || await nextEmployeeNumber();
         const newId = await DB.add('employees', {
-          numeroEmploye: numFromRow,
+          numeroEmploye: finalNum,
           nom: nomFromRow || fallback,
           email: emailFromRow,
           role: 'employe', actif: true,
@@ -2252,6 +2255,24 @@ function extractExtras(row, canonicalKeys) {
     if (!skip.has(String(k).toLowerCase())) out[k] = v;
   }
   return out;
+}
+
+// Compute the next "EMPxxx" employee number, padded to at least 3 digits.
+// Looks at existing employees' numeroEmploye matching /^EMP(\d+)$/i and
+// returns the next free one (e.g. EMP001, then EMP002, …). Honours an
+// optional `extra` array of already-allocated numeros within the same
+// in-memory batch (useful in import loops where the DB isn't refreshed
+// between rows).
+async function nextEmployeeNumber(extra = []) {
+  const all = await DB.getAll('employees');
+  let max = 0;
+  const consider = (s) => {
+    const m = String(s || '').match(/^EMP(\d+)$/i);
+    if (m) max = Math.max(max, Number(m[1]));
+  };
+  for (const e of all) consider(e.numeroEmploye);
+  for (const n of extra) consider(n);
+  return `EMP${String(max + 1).padStart(3, '0')}`;
 }
 
 // Mutates the rendered list table according to the import template:
@@ -3030,6 +3051,7 @@ async function employeeForm(rec) {
         if (!p1 || p1.length < 4) { toast(t('pinRequired')); return false; }
         if (p1 !== p2) { toast(t('pinMismatch')); return false; }
         data.pin = await Auth.hashPin(p1);
+        if (!data.numeroEmploye) data.numeroEmploye = await nextEmployeeNumber();
         await DB.add('employees', data);
       } else {
         await DB.update('employees', rec.id, data);
@@ -3583,8 +3605,9 @@ async function importAttendanceHandler(e) {
         const emailFromRow = String(r.email || idVal || '').trim();
         const fallback = nomFromRow || numFromRow || emailFromRow;
         if (fallback) {
+          const finalNum = numFromRow || await nextEmployeeNumber();
           const newId = await DB.add('employees', {
-            numeroEmploye: numFromRow,
+            numeroEmploye: finalNum,
             nom: nomFromRow || fallback,
             email: emailFromRow.includes('@') ? emailFromRow : '',
             role: 'employe', actif: true,
@@ -6417,7 +6440,7 @@ async function renderAdminInit() {
       pin: await Auth.hashPin(pin),
       managerId: null,
       actif: true,
-      numeroEmploye: '',
+      numeroEmploye: await nextEmployeeNumber(),
       tauxHoraire: null,
       role_legacy: ''
     });
