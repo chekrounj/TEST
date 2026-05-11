@@ -276,6 +276,9 @@
       <button data-page="dashboard" data-roles="admin,manager,employe" class="nav-item flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-slate-100 text-slate-700 text-start">
         <span class="nav-ico text-slate-500">📊</span><span data-i18n="navDashboard">Tableau de bord</span>
       </button>
+      <button data-page="clients" data-roles="admin,manager" class="nav-item flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-slate-100 text-slate-700 text-start">
+        <span class="nav-ico text-slate-500">👥</span><span data-i18n="navClients">Clients</span>
+      </button>
 
       <div class="nav-group" data-group="projmgmt" data-roles="admin,manager">
         <button class="nav-group-toggle w-full flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-slate-100 text-slate-700 text-start">
@@ -2795,8 +2798,10 @@ function tableEl(headers, rowsHtml) {
 
 /* ----- CLIENTS ----- */
 async function renderClients() {
-  // Read-only view: data is presented but not edited from this page.
-  // Imports / exports remain available to feed the table.
+  // Read-only view derived from time-entries. Only two columns are shown:
+  //   מס. לקוח (numeroClient)  -  שם לקוח (nom).
+  // A client appears here as soon as it is referenced by at least one
+  // imported time-entry.
   renderListShell({
     title: t('clientsTitle'),
     addLabel: t('add'),
@@ -2806,26 +2811,29 @@ async function renderClients() {
     readOnly: true
   });
   const draw = async () => {
-    const [all, entries] = await Promise.all([DB.getAll('clients'), DB.getAll('timeEntries')]);
-    const activeClientIds = new Set(entries.filter(e => e.clientId).map(e => Number(e.clientId)));
+    const [allClients, entries] = await Promise.all([DB.getAll('clients'), DB.getAll('timeEntries')]);
+    const clientById = Object.fromEntries(allClients.map(c => [c.id, c]));
+    // Distinct clientIds referenced by time-entries
+    const seen = new Set();
+    const referenced = [];
+    for (const en of entries) {
+      const cid = Number(en.clientId);
+      if (!cid || seen.has(cid)) continue;
+      const c = clientById[cid];
+      if (!c) continue;
+      seen.add(cid);
+      referenced.push(c);
+    }
+    referenced.sort((a, b) => String(a.numeroClient || '').localeCompare(String(b.numeroClient || '')));
     const q = $('#searchInput').value.trim().toLowerCase();
-    const filtered = all.filter(c => !q || (c.nom||'').toLowerCase().includes(q) || (c.contact||'').toLowerCase().includes(q) || (c.numeroClient||'').toLowerCase().includes(q));
-    const rows = filtered.map(c => {
-      const isActive = activeClientIds.has(Number(c.id));
-      return `
+    const filtered = referenced.filter(c => !q || (c.nom||'').toLowerCase().includes(q) || (c.numeroClient||'').toLowerCase().includes(q));
+    const rows = filtered.map(c => `
       <tr class="hover:bg-slate-50">
-        <td class="px-4 py-3 text-slate-600 text-xs">${escapeHtml(c.numeroClient || '')}</td>
-        <td class="px-4 py-3">${escapeHtml(c.nom)}</td>
-        <td class="px-4 py-3 text-slate-600">${escapeHtml(c.adresse || '')}</td>
-        <td class="px-4 py-3 text-slate-600">${escapeHtml(c.contact || '')}</td>
-        <td class="px-4 py-3">${isActive ? '<span class="px-2 py-0.5 rounded-full bg-green-100 text-green-700 text-xs">●</span>' : '<span class="px-2 py-0.5 rounded-full bg-slate-100 text-slate-500 text-xs">—</span>'}</td>
-      </tr>`;
-    }).join('');
-    $('#listBody').innerHTML = tableEl(
-      ["מס. לקוח", "שם לקוח", t('clientAddress'), t('clientContact'), t('clientActive')],
-      rows
-    );
-    await applyTemplateToList('clients', { numeroClient: 0, nom: 1, adresse: 2, contact: 3, actif: 4 }, filtered, '#listBody', true);
+        <td class="px-4 py-3 text-slate-700">${escapeHtml(c.numeroClient || '')}</td>
+        <td class="px-4 py-3">${escapeHtml(c.nom || '')}</td>
+      </tr>`).join('');
+    $('#listBody').innerHTML = tableEl(["מס. לקוח", "שם לקוח"], rows);
+    await applyTemplateToList('clients', { numeroClient: 0, nom: 1 }, filtered, '#listBody', true);
   };
   $('#searchInput').oninput = draw;
   await draw();
