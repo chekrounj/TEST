@@ -4375,7 +4375,7 @@ async function drawTypePies(employees, timeEntries) {
   const lastMonthEntries = timeEntries.filter(en => (en.date || '') >= startIso && (en.date || '') <= endIso);
   const byType = {};
   for (const en of lastMonthEntries) {
-    const type = pById[en.projectId]?.typeProjet || t('untyped');
+    const type = (en.projectType && String(en.projectType).trim()) || pById[en.projectId]?.typeProjet || t('untyped');
     const hours = Number(en.heures) || 0;
     const rate  = Number(eFull[en.employeId]?.tauxHoraire) || 0;
     if (!byType[type]) byType[type] = { hours: 0, cost: 0 };
@@ -5662,10 +5662,14 @@ async function renderReports() {
 
     <div class="bg-white rounded-xl border border-slate-200 shadow-sm p-5 mb-4 no-print">
       <h2 class="font-semibold text-slate-900 mb-3">${escapeHtml(t('reportFilters'))}</h2>
-      <div class="grid grid-cols-1 md:grid-cols-4 gap-3 mb-3">
+      <div class="grid grid-cols-1 md:grid-cols-5 gap-3 mb-3">
         <div>
-          <label class="block text-xs text-slate-500 mb-1">${escapeHtml(t('reportMonth'))}</label>
-          <input id="rp_month" type="month" value="${defaultMonth}" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm">
+          <label class="block text-xs text-slate-500 mb-1">${escapeHtml(t('reportMonth'))} (${escapeHtml(t('attFromDate'))})</label>
+          <input id="rp_monthFrom" type="month" value="${defaultMonth}" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm">
+        </div>
+        <div>
+          <label class="block text-xs text-slate-500 mb-1">${escapeHtml(t('reportMonth'))} (${escapeHtml(t('attToDate'))})</label>
+          <input id="rp_monthTo" type="month" value="${defaultMonth}" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm">
         </div>
         <div>
           <label class="block text-xs text-slate-500 mb-1">שם לקוח</label>
@@ -5739,15 +5743,21 @@ async function renderReports() {
   `;
 
   const computeRows = () => {
-    const fMonth   = $('#rp_month').value;
-    const fClient  = $('#rp_client').value;
-    const fPtDesc  = $('#rp_ptdesc').value;
-    const fEmp     = $('#rp_emp').value;
-    const groupBy  = $('#rp_group').value;
-    const sortBy   = $('#rp_sort').value;
+    const fFrom   = $('#rp_monthFrom').value;
+    const fTo     = $('#rp_monthTo').value;
+    const fClient = $('#rp_client').value;
+    const fPtDesc = $('#rp_ptdesc').value;
+    const fEmp    = $('#rp_emp').value;
+    const groupBy = $('#rp_group').value;
+    const sortBy  = $('#rp_sort').value;
+
+    // Normalise range so swapped inputs still work.
+    let fromM = fFrom, toM = fTo;
+    if (fromM && toM && fromM > toM) { const t = fromM; fromM = toM; toM = t; }
 
     let list = allRows.slice();
-    if (fMonth)  list = list.filter(r => (r.date || '').startsWith(fMonth));
+    if (fromM)   list = list.filter(r => (r.date || '').slice(0, 7) >= fromM);
+    if (toM)     list = list.filter(r => (r.date || '').slice(0, 7) <= toM);
     if (fClient) list = list.filter(r => r.clientName === fClient);
     if (fPtDesc) list = list.filter(r => r.projectTypeDescription === fPtDesc);
     if (fEmp)    list = list.filter(r => r.employee === fEmp);
@@ -5759,11 +5769,11 @@ async function renderReports() {
     };
     list.sort(cmp);
 
-    return { rows: list, groupBy, fMonth };
+    return { rows: list, groupBy, fromM, toM };
   };
 
   const draw = () => {
-    const { rows, groupBy, fMonth } = computeRows();
+    const { rows, groupBy, fromM, toM } = computeRows();
     const cols = REPORT_COLUMNS.filter(c => document.querySelector(`[data-col="${c.key}"]`)?.checked);
     const totalHours = rows.reduce((s, r) => s + r.hours, 0);
     const totalCost  = rows.reduce((s, r) => s + r.cost, 0);
@@ -5815,7 +5825,7 @@ async function renderReports() {
         ${cols.find(c => c.key === 'cost')  ? `<td class="px-3 py-2 text-end">${fmt(totalCost)}</td>` : ''}
       </tr>`;
 
-    $('#rp_meta').textContent = `${t('reportMonth')}: ${fMonth || '—'} · ${rows.length} ${t('linesImported')}`;
+    $('#rp_meta').textContent = `${t('reportMonth')}: ${fromM || '—'} → ${toM || '—'} · ${rows.length} ${t('linesImported')}`;
     $('#rp_body').innerHTML = rows.length
       ? `<div class="overflow-x-auto"><table class="w-full text-sm border border-slate-200 rounded">
           <thead>${headerRow}</thead>
@@ -5835,7 +5845,7 @@ async function renderReports() {
     draw();
   });
   // Auto-apply on any filter / group / sort / column toggle change.
-  ['rp_month','rp_client','rp_ptdesc','rp_emp','rp_group','rp_sort'].forEach(id => {
+  ['rp_monthFrom','rp_monthTo','rp_client','rp_ptdesc','rp_emp','rp_group','rp_sort'].forEach(id => {
     const el = $('#' + id);
     if (!el) return;
     el.onchange = () => { renderReports._expanded = new Set(); draw(); };
