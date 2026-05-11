@@ -2137,7 +2137,9 @@ const ENTITY_IMPORTS = {
         projectByCode: Object.fromEntries(projects.filter(p => p.code).map(p => [norm(p.code), p.id])),
         projectByName: Object.fromEntries(projects.map(p => [norm(p.nom), p.id])),
         taskByName: Object.fromEntries(tasks.map(x => [norm(x.nom), x.id])),
-        taskByCode: Object.fromEntries(tasks.filter(x => x.numeroTache).map(x => [norm(x.numeroTache), x.id]))
+        taskByCode: Object.fromEntries(tasks.filter(x => x.numeroTache).map(x => [norm(x.numeroTache), x.id])),
+        knownProjectTypes: new Set((await getProjectTypes()).map(s => s.toLowerCase())),
+        newProjectTypes: []
       };
     },
     importRow: async (row, ctx) => {
@@ -2183,6 +2185,13 @@ const ENTITY_IMPORTS = {
       }
 
       // ---- Project: lookup by (code, nom), auto-create with both ----
+      const rawProjectType = String(row.projectType || '').trim();
+      // Collect new project-type values so we can sync them with the
+      // managed project-types list at the end of the import.
+      if (rawProjectType && !ctx.knownProjectTypes.has(rawProjectType.toLowerCase())) {
+        ctx.knownProjectTypes.add(rawProjectType.toLowerCase());
+        ctx.newProjectTypes.push(rawProjectType);
+      }
       let pid = Number(row.projet);
       if (!pid) {
         const pCode = String(row.projet || '').trim();
@@ -2191,7 +2200,14 @@ const ENTITY_IMPORTS = {
         if (!pid && pName) pid = ctx.projectByName[lc(pName)];
         if (!pid && (pCode || pName)) {
           const code = pCode || await nextProjectCode();
-          pid = await DB.add('projects', { nom: pName || pCode, code, clientId: cid || null, actif: true, statutProjet: 'active' });
+          pid = await DB.add('projects', {
+            nom: pName || pCode,
+            code,
+            clientId: cid || null,
+            actif: true,
+            statutProjet: 'active',
+            typeProjet: rawProjectType
+          });
           ctx.projectByCode[lc(code)] = pid;
           if (pName) ctx.projectByName[lc(pName)] = pid;
         }
@@ -2247,6 +2263,13 @@ const ENTITY_IMPORTS = {
       });
       ctx.existingEntries = await DB.getAll('timeEntries');
       return true;
+    },
+    finalize: async (ctx) => {
+      // Persist any new project-type values discovered during the import
+      if (ctx.newProjectTypes && ctx.newProjectTypes.length) {
+        const cur = await getProjectTypes();
+        await setProjectTypes([...cur, ...ctx.newProjectTypes]);
+      }
     }
   },
   attendance: {
