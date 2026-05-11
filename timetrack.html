@@ -6342,9 +6342,8 @@ async function renderProfitability() {
     return '';
   };
 
-  // -- Aggregate facturation per (client + project) — same grouping as the
-  //    Synthèse facturation report so the "Total facturé" column matches
-  //    exactly column 4 of that report. --
+  // -- Aggregate facturation per (client + project) — keep the raw rows so we
+  //    can re-filter by period and let the user drill-down on a click. --
   const facByKey = {};
   for (const f of facturationRecords) {
     const project = String(pickField(f, 'project')).trim();
@@ -6352,19 +6351,15 @@ async function renderProfitability() {
     const amt     = parseAmount(pickField(f, 'amount'));
     const ym      = extractYM(pickField(f, 'date'));
     const k = norm(cName) + '|' + norm(project);
-    if (!facByKey[k]) facByKey[k] = {
-      project, clientName: cName, total: 0, months: new Set(), rowCount: 0
-    };
+    if (!facByKey[k]) facByKey[k] = { project, clientName: cName, rows: [] };
     const slot = facByKey[k];
     if (!slot.project && project) slot.project = project;
     if (!slot.clientName && cName) slot.clientName = cName;
-    slot.total += amt;
-    slot.rowCount += 1;
-    if (ym) slot.months.add(ym);
+    slot.rows.push({ rec: f, amt, ym });
   }
 
-  // -- Aggregate time-entries per (client + project) so the hours/cost row up
-  //    against the same key as the facturation aggregate. --
+  // -- Aggregate time-entries per (client + project), again keeping the raw
+  //    entries for the same period filter / drill-down. --
   const teByKey = {};
   for (const en of entries) {
     const proj = pById[en.projectId] || {};
@@ -6377,56 +6372,218 @@ async function renderProfitability() {
     const sku = String(en.sku || '').trim();
     const rate = (sku && tarifs[sku] != null) ? Number(tarifs[sku]) : (Number(emp.tauxHoraire) || 0);
     const hours = Number(en.heures) || 0;
-    if (!teByKey[k]) teByKey[k] = {
-      project: code || name,
-      clientName: cName,
-      hours: 0, cost: 0
-    };
+    if (!teByKey[k]) teByKey[k] = { project: code || name, clientName: cName, rows: [] };
     const slot = teByKey[k];
     if (!slot.clientName && cName) slot.clientName = cName;
-    slot.hours += hours;
-    slot.cost  += hours * rate;
+    const ym = (en.date || '').slice(0, 7);
+    slot.rows.push({ rec: en, hours, cost: hours * rate, ym, employee: emp.nom || '' });
   }
 
-  // -- Merge — union of keys from facturation and time-entries --
-  const keys = new Set([...Object.keys(facByKey), ...Object.keys(teByKey)]);
-  const rows = [];
-  for (const k of keys) {
-    const fac = facByKey[k] || { project: '', clientName: '', total: 0, months: new Set(), rowCount: 0 };
-    const te  = teByKey[k]  || { project: '', clientName: '', hours: 0, cost: 0 };
-    const project    = fac.project   || te.project;
-    const clientName = fac.clientName || te.clientName;
-    const monthCount = fac.months.size > 0 ? fac.months.size : fac.rowCount;
-    rows.push({
-      project,
-      clientName,
-      hours: te.hours,
-      cost: te.cost,
-      facture: fac.total,
-      monthCount,
-      rentabilite: fac.total - te.cost
-    });
-  }
-  rows.sort((a, b) => String(a.clientName || '').localeCompare(String(b.clientName || ''))
-                  || String(a.project || '').localeCompare(String(b.project || '')));
+  // Default month range = all-time (no filter)
+  const inRange = (ym, fromM, toM) => {
+    if (!ym) return !fromM && !toM; // rows without a date only appear when no filter
+    if (fromM && ym < fromM) return false;
+    if (toM   && ym > toM)   return false;
+    return true;
+  };
 
-  const totalHours   = rows.reduce((s, r) => s + r.hours, 0);
-  const totalCost    = rows.reduce((s, r) => s + r.cost, 0);
-  const totalFacture = rows.reduce((s, r) => s + r.facture, 0);
-  const totalMonths  = rows.reduce((s, r) => s + r.monthCount, 0);
-  const totalRent    = totalFacture - totalCost;
+  const buildRows = () => {
+    const fromM = $('#prf_from')?.value || '';
+    const toM   = $('#prf_to')?.value   || '';
+    const keys = new Set([...Object.keys(facByKey), ...Object.keys(teByKey)]);
+    const out = [];
+    for (const k of keys) {
+      const fac = facByKey[k] || { project: '', clientName: '', rows: [] };
+      const te  = teByKey[k]  || { project: '', clientName: '', rows: [] };
+      const facHits = fac.rows.filter(r => inRange(r.ym, fromM, toM));
+      const teHits  = te.rows .filter(r => inRange(r.ym, fromM, toM));
+      const hours   = teHits.reduce((s, r) => s + r.hours, 0);
+      const cost    = teHits.reduce((s, r) => s + r.cost,  0);
+      const facture = facHits.reduce((s, r) => s + r.amt,  0);
+      const months  = new Set(facHits.map(r => r.ym).filter(Boolean)).size;
+      if (hours === 0 && facture === 0) continue;
+      out.push({
+        key: k,
+        project:    fac.project   || te.project,
+        clientName: fac.clientName || te.clientName,
+        hours, cost, facture, monthCount: months,
+        rentabilite: facture - cost,
+        facHits, teHits
+      });
+    }
+    out.sort((a, b) => String(a.clientName || '').localeCompare(String(b.clientName || ''))
+                   || String(a.project || '').localeCompare(String(b.project || '')));
+    return out;
+  };
 
+  // Default to no period filter (all time)
   PAGE.innerHTML = `
     <div class="flex items-center justify-between mb-6">
       <h1 class="text-2xl font-bold text-slate-900">📈 ${escapeHtml(t('navProfitability'))}</h1>
     </div>
 
+    <div class="bg-white rounded-xl border border-slate-200 shadow-sm p-5 mb-4 no-print">
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+        <div>
+          <label class="block text-xs text-slate-500 mb-1">${escapeHtml(t('reportMonth'))} (${escapeHtml(t('attFromDate'))})</label>
+          <input id="prf_from" type="month" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm">
+        </div>
+        <div>
+          <label class="block text-xs text-slate-500 mb-1">${escapeHtml(t('reportMonth'))} (${escapeHtml(t('attToDate'))})</label>
+          <input id="prf_to" type="month" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm">
+        </div>
+        <div>
+          <label class="block text-xs text-slate-500 mb-1">${escapeHtml(t('reportGroupBy'))}</label>
+          <select id="prf_group" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm">
+            <option value="">${escapeHtml(t('reportNoGroup'))}</option>
+            <option value="client">לקוח</option>
+            <option value="status">Rentable / Non rentable</option>
+          </select>
+        </div>
+      </div>
+    </div>
+
     <div id="printArea" class="bg-white rounded-xl border border-slate-200 shadow-sm p-5">
       <h2 class="text-lg font-bold text-slate-900 mb-1">📈 ${escapeHtml(t('navProfitability'))}</h2>
-      <div class="text-xs text-slate-500 mb-3">${rows.length} ${escapeHtml(t('linesImported'))}</div>
-      ${rows.length === 0
-        ? `<p class="text-sm text-slate-500">${escapeHtml(t('noResults'))}</p>`
-        : `<div class="overflow-x-auto"><table class="w-full text-sm border border-slate-200 rounded">
+      <div id="prf_meta" class="text-xs text-slate-500 mb-3"></div>
+      <div id="prf_body"></div>
+    </div>
+
+    <div class="mt-4 flex flex-wrap gap-2 justify-end no-print">
+      <button id="pr_export" class="px-4 py-2 rounded-lg border border-slate-300 hover:bg-slate-50 text-sm">📊 ${escapeHtml(t('exportExcel'))}</button>
+      <button id="pr_print"  class="px-4 py-2 rounded-lg border border-slate-300 hover:bg-slate-50 text-sm">🖨 ${escapeHtml(t('reportPrint'))}</button>
+    </div>
+  `;
+
+  // ---- Drill-down modals ----
+  // Map of row.key → row (current view) so click handlers can resolve their
+  // source records.
+  let currentRows = [];
+  const rowByKey = () => Object.fromEntries(currentRows.map(r => [r.key, r]));
+
+  const openHoursDetails = (r) => {
+    const headers = ['תאריך', 'עובד', "מס' פרויקט", 'שם הפרויקט', "סה'כ שעות", 'עלות'];
+    const lines = r.teHits.map(h => {
+      const en = h.rec;
+      return `<tr>
+        <td class="px-3 py-2">${escapeHtml(formatDate(en.date || ''))}</td>
+        <td class="px-3 py-2">${escapeHtml(h.employee || en.employeNom || '')}</td>
+        <td class="px-3 py-2">${escapeHtml(en.projectCode || '')}</td>
+        <td class="px-3 py-2">${escapeHtml(en.projectName || '')}</td>
+        <td class="px-3 py-2 text-end">${fmt(h.hours)}</td>
+        <td class="px-3 py-2 text-end">${fmt(h.cost)}</td>
+      </tr>`;
+    });
+    showListModal(`${r.clientName || ''} — ${r.project || ''} · ${t('reportTotalHours')}`, headers, lines);
+  };
+
+  const openFactureDetails = (r) => {
+    // Collect every key found on the underlying facturation rows so the
+    // modal preserves the user's original column layout.
+    const headerSet = new Set();
+    for (const h of r.facHits) for (const k of Object.keys(h.rec || {})) {
+      if (k !== 'id') headerSet.add(k);
+    }
+    const headers = [...headerSet];
+    const lines = r.facHits.map(h =>
+      `<tr>${headers.map(k => `<td class="px-3 py-2">${escapeHtml(String(h.rec[k] ?? ''))}</td>`).join('')}</tr>`
+    );
+    showListModal(`${r.clientName || ''} — ${r.project || ''} · Total facturé`, headers, lines);
+  };
+
+  const draw = () => {
+    currentRows = buildRows();
+    const groupBy = $('#prf_group').value;
+
+    const totalHours   = currentRows.reduce((s, r) => s + r.hours, 0);
+    const totalCost    = currentRows.reduce((s, r) => s + r.cost, 0);
+    const totalFacture = currentRows.reduce((s, r) => s + r.facture, 0);
+    const totalMonths  = currentRows.reduce((s, r) => s + r.monthCount, 0);
+    const totalRent    = totalFacture - totalCost;
+
+    const fromM = $('#prf_from').value || '—';
+    const toM   = $('#prf_to').value   || '—';
+    $('#prf_meta').textContent = `${t('reportMonth')}: ${fromM} → ${toM} · ${currentRows.length} ${t('linesImported')}`;
+
+    if (currentRows.length === 0) {
+      $('#prf_body').innerHTML = `<p class="text-sm text-slate-500">${escapeHtml(t('noResults'))}</p>`;
+      return;
+    }
+
+    const dataRow = (r) => `
+      <tr class="border-t border-slate-100">
+        <td class="px-3 py-2 text-slate-700 font-medium">${escapeHtml(r.project)}</td>
+        <td class="px-3 py-2 text-slate-700">${escapeHtml(r.clientName)}</td>
+        <td class="px-3 py-2 text-end">
+          <button type="button" data-act="hours" data-key="${escapeHtml(r.key)}" class="text-blue-700 hover:underline font-medium">${fmt(r.hours)}</button>
+        </td>
+        <td class="px-3 py-2 text-end">${fmt(r.cost)}</td>
+        <td class="px-3 py-2 text-end">
+          <button type="button" data-act="facture" data-key="${escapeHtml(r.key)}" class="text-blue-700 hover:underline font-medium">${fmt(r.facture)}</button>
+        </td>
+        <td class="px-3 py-2 text-end">${r.monthCount}</td>
+        <td class="px-3 py-2 text-end font-semibold ${r.rentabilite >= 0 ? 'text-emerald-700' : 'text-rose-700'}">${fmt(r.rentabilite)}</td>
+      </tr>`;
+
+    let bodyHtml = '';
+    if (groupBy === 'client') {
+      const groups = {};
+      for (const r of currentRows) {
+        const gk = r.clientName || '—';
+        (groups[gk] = groups[gk] || []).push(r);
+      }
+      bodyHtml = Object.keys(groups).sort().map(gk => {
+        const g = groups[gk];
+        const gH = g.reduce((s, r) => s + r.hours, 0);
+        const gC = g.reduce((s, r) => s + r.cost, 0);
+        const gF = g.reduce((s, r) => s + r.facture, 0);
+        const gM = g.reduce((s, r) => s + r.monthCount, 0);
+        const gR = gF - gC;
+        return `
+          <tr class="bg-slate-50">
+            <td colspan="2" class="px-3 py-2 font-semibold text-slate-800">${escapeHtml(gk)} <span class="text-slate-500 text-xs">(${g.length})</span></td>
+            <td class="px-3 py-2 text-end font-semibold">${fmt(gH)}</td>
+            <td class="px-3 py-2 text-end font-semibold">${fmt(gC)}</td>
+            <td class="px-3 py-2 text-end font-semibold">${fmt(gF)}</td>
+            <td class="px-3 py-2 text-end font-semibold">${gM}</td>
+            <td class="px-3 py-2 text-end font-bold ${gR >= 0 ? 'text-emerald-700' : 'text-rose-700'}">${fmt(gR)}</td>
+          </tr>
+          ${g.map(dataRow).join('')}
+        `;
+      }).join('');
+    } else if (groupBy === 'status') {
+      const groups = { rentable: [], nonRentable: [] };
+      for (const r of currentRows) (r.rentabilite >= 0 ? groups.rentable : groups.nonRentable).push(r);
+      const order = [
+        ['rentable',    'Rentable',     'bg-emerald-50 text-emerald-800', 'text-emerald-700'],
+        ['nonRentable', 'Non rentable', 'bg-rose-50 text-rose-800',       'text-rose-700']
+      ];
+      bodyHtml = order.map(([gk, label, gcls, gtxt]) => {
+        const g = groups[gk];
+        if (!g.length) return '';
+        const gH = g.reduce((s, r) => s + r.hours, 0);
+        const gC = g.reduce((s, r) => s + r.cost, 0);
+        const gF = g.reduce((s, r) => s + r.facture, 0);
+        const gM = g.reduce((s, r) => s + r.monthCount, 0);
+        const gR = gF - gC;
+        return `
+          <tr class="${gcls}">
+            <td colspan="2" class="px-3 py-2 font-semibold">${escapeHtml(label)} <span class="opacity-70 text-xs">(${g.length})</span></td>
+            <td class="px-3 py-2 text-end font-semibold">${fmt(gH)}</td>
+            <td class="px-3 py-2 text-end font-semibold">${fmt(gC)}</td>
+            <td class="px-3 py-2 text-end font-semibold">${fmt(gF)}</td>
+            <td class="px-3 py-2 text-end font-semibold">${gM}</td>
+            <td class="px-3 py-2 text-end font-bold ${gtxt}">${fmt(gR)}</td>
+          </tr>
+          ${g.map(dataRow).join('')}
+        `;
+      }).join('');
+    } else {
+      bodyHtml = currentRows.map(dataRow).join('');
+    }
+
+    $('#prf_body').innerHTML = `
+      <div class="overflow-x-auto"><table class="w-full text-sm border border-slate-200 rounded">
         <thead>
           <tr class="bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
             <th class="px-3 py-2 text-start font-medium">פרויקט</th>
@@ -6438,19 +6595,7 @@ async function renderProfitability() {
             <th class="px-3 py-2 text-end font-medium">Rentabilité</th>
           </tr>
         </thead>
-        <tbody>
-          ${rows.map(r => `
-            <tr class="border-t border-slate-100">
-              <td class="px-3 py-2 text-slate-700 font-medium">${escapeHtml(r.project)}</td>
-              <td class="px-3 py-2 text-slate-700">${escapeHtml(r.clientName)}</td>
-              <td class="px-3 py-2 text-end">${fmt(r.hours)}</td>
-              <td class="px-3 py-2 text-end">${fmt(r.cost)}</td>
-              <td class="px-3 py-2 text-end">${fmt(r.facture)}</td>
-              <td class="px-3 py-2 text-end">${r.monthCount}</td>
-              <td class="px-3 py-2 text-end font-semibold ${r.rentabilite >= 0 ? 'text-emerald-700' : 'text-rose-700'}">${fmt(r.rentabilite)}</td>
-            </tr>
-          `).join('')}
-        </tbody>
+        <tbody>${bodyHtml}</tbody>
         <tfoot>
           <tr class="bg-slate-100 font-semibold border-t-2 border-slate-300">
             <td colspan="2" class="px-3 py-2 text-end">Total</td>
@@ -6461,24 +6606,41 @@ async function renderProfitability() {
             <td class="px-3 py-2 text-end ${totalRent >= 0 ? 'text-emerald-700' : 'text-rose-700'}">${fmt(totalRent)}</td>
           </tr>
         </tfoot>
-      </table></div>`}
-    </div>
+      </table></div>`;
 
-    <div class="mt-4 flex flex-wrap gap-2 justify-end no-print">
-      <button id="pr_export" class="px-4 py-2 rounded-lg border border-slate-300 hover:bg-slate-50 text-sm">📊 ${escapeHtml(t('exportExcel'))}</button>
-      <button id="pr_print"  class="px-4 py-2 rounded-lg border border-slate-300 hover:bg-slate-50 text-sm">🖨 ${escapeHtml(t('reportPrint'))}</button>
-    </div>
-  `;
+    // Wire up drill-down clicks
+    const idx = rowByKey();
+    document.querySelectorAll('#prf_body [data-act="hours"]').forEach(btn => {
+      btn.onclick = () => { const r = idx[btn.dataset.key]; if (r) openHoursDetails(r); };
+    });
+    document.querySelectorAll('#prf_body [data-act="facture"]').forEach(btn => {
+      btn.onclick = () => { const r = idx[btn.dataset.key]; if (r) openFactureDetails(r); };
+    });
+  };
+
+  ['prf_from','prf_to','prf_group'].forEach(id => {
+    const el = $('#' + id);
+    if (!el) return;
+    el.onchange = draw;
+    el.oninput  = draw;
+  });
 
   $('#pr_export').onclick = () => {
     const headers = ['פרויקט', 'שם לקוח', 'Total heures', 'Total coût', 'Total facturé', 'Mois facturés', 'Rentabilité'];
-    const data = rows.map(r => [r.project, r.clientName, +r.hours.toFixed(2), +r.cost.toFixed(2), +r.facture.toFixed(2), r.monthCount, +r.rentabilite.toFixed(2)]);
+    const data = currentRows.map(r => [r.project, r.clientName, +r.hours.toFixed(2), +r.cost.toFixed(2), +r.facture.toFixed(2), r.monthCount, +r.rentabilite.toFixed(2)]);
+    const totalHours   = currentRows.reduce((s, r) => s + r.hours, 0);
+    const totalCost    = currentRows.reduce((s, r) => s + r.cost, 0);
+    const totalFacture = currentRows.reduce((s, r) => s + r.facture, 0);
+    const totalMonths  = currentRows.reduce((s, r) => s + r.monthCount, 0);
+    const totalRent    = totalFacture - totalCost;
     data.push([]);
     data.push(['Total', '', +totalHours.toFixed(2), +totalCost.toFixed(2), +totalFacture.toFixed(2), totalMonths, +totalRent.toFixed(2)]);
     exportListToExcel(`rentabilite-${new Date().toISOString().slice(0,10)}`, 'Rentabilité', headers, data);
     toast(t('exported'));
   };
   $('#pr_print').onclick = () => window.print();
+
+  draw();
 }
 
 /* ----- REPORT: Synthèse projets ----- */
