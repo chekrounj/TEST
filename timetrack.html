@@ -4059,11 +4059,12 @@ async function renderDashboard() {
   const session = Auth.getSession();
   if (!session) { showAuthShell(); return; }
   const role = session.role;
-  const [employees, submissions, timeEntries, missions, recurrences, clients, facturation] = await Promise.all([
+  const [employees, submissions, timeEntries, missions, recurrences, clients, facturationCtx] = await Promise.all([
     DB.getAll('employees'), DB.getAll('submissions'), DB.getAll('timeEntries'),
     DB.getAll('missions'), DB.getAll('recurrences'), DB.getAll('clients'),
-    DB.getAll('facturation')
+    loadDedupedFacturation()
   ]);
+  const facturation = facturationCtx.records;
   const monthStart = new Date(); monthStart.setDate(1);
   const monthStartIso = monthStart.toISOString().slice(0,10);
   const today = new Date().toISOString().slice(0,10);
@@ -4383,25 +4384,10 @@ async function renderEmployeeMissions(employeId, clients, allMissions) {
 // Yearly revenue = Σ סכום (or any "amount"-like column) from facturation
 // for the current calendar year. Rows without a parseable date count too,
 // since the facturation Excel may not always carry a date column.
+// Yearly revenue = Σ סכום of facturation rows (already deduped by חשבונית)
+// whose date falls in the current calendar year. Rows without a parseable
+// date count toward the total.
 function computeRevenueYear(facturationRecords) {
-  const norm = (s) => String(s ?? '')
-    .normalize('NFD')
-    .replace(/[̀-ͯ]/g, '')
-    .replace(/[׳״‘’“”'"`.,()\[\]\s\-_]/g, '')
-    .toLowerCase();
-  const AMOUNT_ALIASES  = ['סכום', 'amount', 'montant', 'sum', 'total'].map(norm);
-  const DATE_ALIASES    = ['ת. דווח', 'תאריך', 'חודש', 'date', 'month', 'mois'].map(norm);
-  const pick = (rec, aliases) => {
-    const keys = Object.keys(rec).map(k => ({ k, n: norm(k) }));
-    for (const a of aliases) for (const k of keys) if (k.n === a) { const v = rec[k.k]; if (v !== '' && v != null) return v; }
-    for (const a of aliases) for (const k of keys) if (a && k.n.startsWith(a)) { const v = rec[k.k]; if (v !== '' && v != null) return v; }
-    return '';
-  };
-  const parseAmount = (v) => {
-    if (v == null || v === '') return 0;
-    const n = Number(String(v).replace(/[^\d.\-]/g, ''));
-    return Number.isFinite(n) ? n : 0;
-  };
   const yearOf = (v) => {
     const s = String(v ?? '').trim();
     const m = s.match(/(\d{4})/);
@@ -4410,10 +4396,10 @@ function computeRevenueYear(facturationRecords) {
   const thisYear = String(new Date().getFullYear());
   let total = 0;
   for (const f of facturationRecords) {
-    const dateRaw = pick(f, DATE_ALIASES);
+    const dateRaw = facturationPickField(f, 'date');
     const y = yearOf(dateRaw);
     if (y && y !== thisYear) continue;
-    total += parseAmount(pick(f, AMOUNT_ALIASES));
+    total += facturationParseAmount(facturationPickField(f, 'amount'));
   }
   return total;
 }
@@ -5764,6 +5750,94 @@ async function recurrenceForm(rec) {
 /* ----- REPORTS ----- */
 // Report columns are described with their Hebrew header (the display
 // label) and the property to read from each enriched row.
+
+/* ----- Shared facturation helpers -----
+ * Centralises three things every facturation-driven view needs:
+ *   1. dedup by invoice number (חשבונית) — same row counted once across
+ *      the whole facturation table;
+ *   2. tolerant column lookup that handles header variants like
+ *      "סכום (ש\"ח)" / "מספר חשבונית" / "חודש";
+ *   3. helpers for amounts and month extraction.
+ * Every report and the dashboard goes through loadFacturation() so they
+ * stay consistent.
+ */
+function facturationNorm(s) {
+  return String(s ?? '')
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '')
+    .replace(/[׳״‘’“”'"`.,()\[\]\s\-_]/g, '')
+    .toLowerCase();
+}
+function facturationParseAmount(v) {
+  if (v == null || v === '') return 0;
+  const n = Number(String(v).replace(/[^\d.\-]/g, ''));
+  return Number.isFinite(n) ? n : 0;
+}
+function facturationExtractYM(v) {
+  const s = String(v ?? '').trim();
+  if (!s) return '';
+  let m = s.match(/^(\d{4})[-\/.](\d{1,2})/);
+  if (m) return `${m[1]}-${String(m[2]).padStart(2, '0')}`;
+  m = s.match(/^(\d{1,2})[-\/.](\d{1,2})[-\/.](\d{4})/);
+  if (m) return `${m[3]}-${String(m[2]).padStart(2, '0')}`;
+  m = s.match(/^(\d{1,2})[-\/.](\d{4})/);
+  if (m) return `${m[2]}-${String(m[1]).padStart(2, '0')}`;
+  return '';
+}
+const FACTURATION_ALIASES = {
+  project:    ['פרויקט', "מס' פרויקט", 'מס פרויקט', 'מספר פרויקט', 'projectCode', 'projet', 'project'],
+  projectName:['שם הפרויקט', 'projectName'],
+  clientName: ['שם לקוח', 'clientName', 'client', 'nomClient'],
+  projectTypeDesc: ['תיאור סוג פרויקט', 'תאור סוג פרויקט', 'projectTypeDescription'],
+  projectType:     ['סוג פרויקט', 'projectType'],
+  amount:          ['סכום', 'סכוםשח', 'amount', 'montant', 'sum', 'total'],
+  date:            ['ת. דווח', 'תאריך', 'חודש', 'date', 'month', 'mois']
+};
+const FACTURATION_INVOICE_NEEDLES = ['חשבונית', 'invoice', 'facture'];
+function facturationPickField(rec, kind) {
+  const aliases = FACTURATION_ALIASES[kind];
+  if (!aliases) return '';
+  const norm = facturationNorm;
+  const wanted = aliases.map(norm);
+  const recKeys = Object.keys(rec).map(k => ({ k, n: norm(k) }));
+  for (const w of wanted) for (const rk of recKeys) if (rk.n === w) {
+    const v = rec[rk.k]; if (v !== '' && v != null) return v;
+  }
+  for (const w of wanted) if (w) for (const rk of recKeys) if (rk.n.startsWith(w)) {
+    const v = rec[rk.k]; if (v !== '' && v != null) return v;
+  }
+  return '';
+}
+function facturationFindInvoice(rec) {
+  const norm = facturationNorm;
+  const recKeys = Object.keys(rec).map(k => ({ k, n: norm(k) }));
+  for (const need of FACTURATION_INVOICE_NEEDLES.map(norm)) {
+    for (const rk of recKeys) if (rk.n.includes(need)) {
+      const v = rec[rk.k]; if (v !== '' && v != null) return String(v).trim();
+    }
+  }
+  return '';
+}
+// Loads facturation from the DB and returns { records, duplicatesDropped }.
+// Rows whose חשבונית value already appeared are dropped; rows with no
+// invoice number pass through.
+async function loadDedupedFacturation() {
+  const all = await DB.getAll('facturation');
+  const seen = new Set();
+  const records = [];
+  let duplicatesDropped = 0;
+  for (const f of all) {
+    const inv = facturationFindInvoice(f);
+    if (inv) {
+      const k = facturationNorm(inv);
+      if (seen.has(k)) { duplicatesDropped++; continue; }
+      seen.add(k);
+    }
+    records.push(f);
+  }
+  return { records, duplicatesDropped, originalCount: all.length };
+}
+
 /* ----- FACTURATION ----- */
 async function renderFacturation() {
   PAGE.innerHTML = `
@@ -5903,24 +5977,22 @@ async function renderReports() {
   //     annual figure of every project that belongs to that client/year.
   //   - Facturation Mensuelle: ONLY for סוג פרויקט "02" — Σ סכום ÷ number
   //     of facturation rows for that project (one row ≈ one month).
-  const facturationRecords = await DB.getAll('facturation');
-  const lcKey = (s) => String(s ?? '').toLowerCase().trim();
-  const parseAmount = (v) => {
-    if (v == null || v === '') return 0;
-    const n = Number(String(v).replace(/[^\d.\-]/g, ''));
-    return Number.isFinite(n) ? n : 0;
-  };
+  const facturationCtx = await loadDedupedFacturation();
+  const facturationRecords = facturationCtx.records;
+  const lcKey = (s) => facturationNorm(s);
   const facByProjectCode = {};
   const facByProjectName = {};
   const facByClientYear  = {};
   for (const f of facturationRecords) {
-    const pCode = String(f.projet ?? f.projectCode ?? f["מס' פרויקט"] ?? f["מספר פרויקט"] ?? '').trim();
-    const pName = String(f.projectName ?? f["שם הפרויקט"] ?? '').trim();
+    const pCode = String(facturationPickField(f, 'project')).trim();
+    const pName = String(facturationPickField(f, 'projectName')).trim();
+    // Client number isn't in the shared alias table but the existing
+    // (cCode, year) fallback used to bucket amounts; keep the local lookup.
     const cCode = String(f.client ?? f.clientNumber ?? f["מס. לקוח"] ?? f["מס לקוח"] ?? '').trim();
-    const cName = String(f.clientName ?? f["שם לקוח"] ?? '').trim();
-    const dateS = String(f.date ?? f["ת. דווח"] ?? f["תאריך"] ?? '').trim();
+    const cName = String(facturationPickField(f, 'clientName')).trim();
+    const dateS = String(facturationPickField(f, 'date')).trim();
     const year  = (dateS.match(/\d{4}/) || [''])[0];
-    const amt   = parseAmount(f["סכום"] ?? f.amount ?? f.montant ?? f.sum);
+    const amt   = facturationParseAmount(facturationPickField(f, 'amount'));
     if (pCode || pName) {
       if (pCode) {
         const k = lcKey(pCode);
@@ -6197,29 +6269,26 @@ async function renderReports() {
 
 /* ----- REPORT: Projets non facturés ----- */
 async function renderUnbilledProjects() {
-  const [entries, projects, clients, employees, facturationRecords, tarifs] = await Promise.all([
+  const [entries, projects, clients, employees, facturationCtx, tarifs] = await Promise.all([
     DB.getAll('timeEntries'), DB.getAll('projects'),
     DB.getAll('clients'), DB.getAll('employees'),
-    DB.getAll('facturation'), getTarifsHoraires()
+    loadDedupedFacturation(), getTarifsHoraires()
   ]);
+  const facturationRecords = facturationCtx.records;
   const cById = Object.fromEntries(clients.map(c => [c.id, c]));
   const pById = Object.fromEntries(projects.map(p => [p.id, p]));
   const eById = Object.fromEntries(employees.map(e => [e.id, e]));
 
-  const lcKey = (s) => String(s ?? '').toLowerCase().trim();
-  const parseAmount = (v) => {
-    if (v == null || v === '') return 0;
-    const n = Number(String(v).replace(/[^\d.\-]/g, ''));
-    return Number.isFinite(n) ? n : 0;
-  };
+  const lcKey = (s) => facturationNorm(s);
 
-  // Σ facturation per project (matched by code OR by name)
+  // Σ facturation per project (matched by code OR by name) — uses the shared
+  // tolerant column lookup and the חשבונית-deduped record set.
   const facByCode = {};
   const facByName = {};
   for (const f of facturationRecords) {
-    const pCode = String(f.projet ?? f.projectCode ?? f["מס' פרויקט"] ?? f["מספר פרויקט"] ?? '').trim();
-    const pName = String(f.projectName ?? f["שם הפרויקט"] ?? '').trim();
-    const amt   = parseAmount(f["סכום"] ?? f.amount ?? f.montant ?? f.sum);
+    const pCode = String(facturationPickField(f, 'project')).trim();
+    const pName = String(facturationPickField(f, 'projectName')).trim();
+    const amt   = facturationParseAmount(facturationPickField(f, 'amount'));
     if (pCode) facByCode[lcKey(pCode)] = (facByCode[lcKey(pCode)] || 0) + amt;
     if (pName) facByName[lcKey(pName)] = (facByName[lcKey(pName)] || 0) + amt;
   }
@@ -6322,72 +6391,21 @@ async function renderUnbilledProjects() {
 
 /* ----- REPORT: Rentabilité (Profitability) ----- */
 async function renderProfitability() {
-  const [entries, projects, employees, facturationRecords, tarifs] = await Promise.all([
+  const [entries, projects, employees, facturationCtx, tarifs] = await Promise.all([
     DB.getAll('timeEntries'),
     DB.getAll('projects'),
     DB.getAll('employees'),
-    DB.getAll('facturation'),
+    loadDedupedFacturation(),
     getTarifsHoraires()
   ]);
+  const facturationRecords = facturationCtx.records;
   const pById = Object.fromEntries(projects.map(p => [p.id, p]));
   const eById = Object.fromEntries(employees.map(e => [e.id, e]));
 
-  const parseAmount = (v) => {
-    if (v == null || v === '') return 0;
-    const n = Number(String(v).replace(/[^\d.\-]/g, ''));
-    return Number.isFinite(n) ? n : 0;
-  };
-  const extractYM = (v) => {
-    const s = String(v ?? '').trim();
-    if (!s) return '';
-    let m = s.match(/^(\d{4})[-\/.](\d{1,2})/);
-    if (m) return `${m[1]}-${String(m[2]).padStart(2, '0')}`;
-    m = s.match(/^(\d{1,2})[-\/.](\d{1,2})[-\/.](\d{4})/);
-    if (m) return `${m[3]}-${String(m[2]).padStart(2, '0')}`;
-    m = s.match(/^(\d{1,2})[-\/.](\d{4})/);
-    if (m) return `${m[2]}-${String(m[1]).padStart(2, '0')}`;
-    return '';
-  };
-  // Tolerant key normalisation (apostrophes/geresh/quotes/dots/spaces removed)
-  const norm = (s) => String(s ?? '')
-    .normalize('NFD')
-    .replace(/[̀-ͯ]/g, '')
-    .replace(/[׳״‘’“”'"`.,()\[\]\s\-_]/g, '')
-    .toLowerCase();
-  const ALIASES = {
-    project:    ['פרויקט', "מס' פרויקט", 'מס פרויקט', 'מספר פרויקט', 'projectCode', 'projet', 'project'],
-    clientName: ['שם לקוח', 'clientName', 'client', 'nomClient'],
-    amount:     ['סכום', 'amount', 'montant', 'sum', 'total'],
-    date:       ['ת. דווח', 'תאריך', 'חודש', 'date', 'month', 'mois']
-  };
-  const aliasNorm = Object.fromEntries(
-    Object.entries(ALIASES).map(([k, arr]) => [k, arr.map(norm)])
-  );
-  const pickField = (rec, kind) => {
-    const wanted = aliasNorm[kind] || [];
-    const recKeys = Object.keys(rec).map(k => ({ k, n: norm(k) }));
-    // 1) exact normalised match
-    for (const w of wanted) {
-      for (const rk of recKeys) {
-        if (rk.n === w) {
-          const v = rec[rk.k];
-          if (v !== '' && v != null) return v;
-        }
-      }
-    }
-    // 2) startsWith fallback — handles "סכום (ש\"ח)" → norm "סכוםשח" vs alias
-    //    "סכום". Only startsWith, so "פרויקט" still won't match "סוגפרויקט".
-    for (const w of wanted) {
-      if (!w) continue;
-      for (const rk of recKeys) {
-        if (rk.n.startsWith(w)) {
-          const v = rec[rk.k];
-          if (v !== '' && v != null) return v;
-        }
-      }
-    }
-    return '';
-  };
+  const parseAmount = facturationParseAmount;
+  const extractYM   = facturationExtractYM;
+  const norm        = facturationNorm;
+  const pickField   = facturationPickField;
 
   // -- Aggregate facturation per (client + project) — keep the raw rows so we
   //    can re-filter by period and let the user drill-down on a click. --
@@ -6793,102 +6811,15 @@ async function renderProjectSynthesis() {
 
 /* ----- REPORT: Synthèse facturation ----- */
 async function renderBillingSynthesis() {
-  const facturationRecords = await DB.getAll('facturation');
+  const facturationCtx = await loadDedupedFacturation();
+  const dedupedRecords = facturationCtx.records;
+  const facturationRecords = dedupedRecords; // backwards-compat for templates below
+  const duplicatesDropped = facturationCtx.duplicatesDropped;
 
-  const parseAmount = (v) => {
-    if (v == null || v === '') return 0;
-    const n = Number(String(v).replace(/[^\d.\-]/g, ''));
-    return Number.isFinite(n) ? n : 0;
-  };
-  const extractYM = (v) => {
-    const s = String(v ?? '').trim();
-    if (!s) return '';
-    let m = s.match(/^(\d{4})[-\/.](\d{1,2})/);
-    if (m) return `${m[1]}-${String(m[2]).padStart(2, '0')}`;
-    m = s.match(/^(\d{1,2})[-\/.](\d{1,2})[-\/.](\d{4})/);
-    if (m) return `${m[3]}-${String(m[2]).padStart(2, '0')}`;
-    m = s.match(/^(\d{1,2})[-\/.](\d{4})/);
-    if (m) return `${m[2]}-${String(m[1]).padStart(2, '0')}`;
-    return '';
-  };
-
-  // Normalised key — strip apostrophes / geresh / quotes / dots / brackets /
-  // whitespace, drop combining diacritics, lowercase.
-  const norm = (s) => String(s ?? '')
-    .normalize('NFD')
-    .replace(/[̀-ͯ]/g, '')
-    .replace(/[׳״‘’“”'"`.,()\[\]\s\-_]/g, '')
-    .toLowerCase();
-
-  // Exact-match alias table. Order = priority. Each alias is normalised, then
-  // each record key is normalised and compared with ===.
-  const ALIASES = {
-    project:    ['פרויקט', "מס' פרויקט", 'מס פרויקט', 'מספר פרויקט', 'projectCode', 'projet', 'project'],
-    clientName: ['שם לקוח', 'clientName', 'client', 'nomClient'],
-    projectTypeDesc: ['תיאור סוג פרויקט', 'תאור סוג פרויקט', 'projectTypeDescription'],
-    projectType:     ['סוג פרויקט', 'projectType'],
-    amount:          ['סכום', 'סכוםשח', 'amount', 'montant', 'sum', 'total'],
-    date:            ['ת. דווח', 'תאריך', 'חודש', 'date', 'month', 'mois'],
-    invoice:         ['חשבונית', 'invoice', 'numeroFacture', 'noFacture']
-  };
-  const aliasNorm = Object.fromEntries(
-    Object.entries(ALIASES).map(([k, arr]) => [k, arr.map(norm)])
-  );
-  const pickField = (rec, kind) => {
-    const wanted = aliasNorm[kind];
-    if (!wanted) return '';
-    const recKeys = Object.keys(rec).map(k => ({ k, n: norm(k) }));
-    // 1) exact normalised match
-    for (const w of wanted) {
-      for (const rk of recKeys) {
-        if (rk.n === w) {
-          const v = rec[rk.k];
-          if (v !== '' && v != null) return v;
-        }
-      }
-    }
-    // 2) startsWith fallback — handles "סכום (ש\"ח)" → "סכוםשח" vs "סכום"
-    for (const w of wanted) {
-      if (!w) continue;
-      for (const rk of recKeys) {
-        if (rk.n.startsWith(w)) {
-          const v = rec[rk.k];
-          if (v !== '' && v != null) return v;
-        }
-      }
-    }
-    return '';
-  };
-
-  // Deduplicate by invoice number (חשבונית) — keep only the first row for any
-  // given invoice. Rows without an invoice number pass through untouched.
-  // Uses a tolerant includes() match so columns like 'מספר חשבונית',
-  // 'חשבונית #' or 'No. facture' are all caught.
-  const INVOICE_NEEDLES = ['חשבונית', 'invoice', 'facture'].map(norm);
-  const findInvoice = (rec) => {
-    const recKeys = Object.keys(rec).map(k => ({ k, n: norm(k) }));
-    for (const need of INVOICE_NEEDLES) {
-      for (const rk of recKeys) {
-        if (rk.n.includes(need)) {
-          const v = rec[rk.k];
-          if (v !== '' && v != null) return String(v).trim();
-        }
-      }
-    }
-    return '';
-  };
-  const seenInvoices = new Set();
-  let duplicatesDropped = 0;
-  const dedupedRecords = [];
-  for (const f of facturationRecords) {
-    const inv = findInvoice(f);
-    if (inv) {
-      const k = norm(inv);
-      if (seenInvoices.has(k)) { duplicatesDropped++; continue; }
-      seenInvoices.add(k);
-    }
-    dedupedRecords.push(f);
-  }
+  const parseAmount = facturationParseAmount;
+  const extractYM   = facturationExtractYM;
+  const norm        = facturationNorm;
+  const pickField   = facturationPickField;
 
   const byKey = {};
   for (const f of dedupedRecords) {
@@ -6937,7 +6868,7 @@ async function renderBillingSynthesis() {
 
     <div id="printArea" class="bg-white rounded-xl border border-slate-200 shadow-sm p-5">
       <h2 class="text-lg font-bold text-slate-900 mb-1">${escapeHtml(t('navBillingSynthesis'))}</h2>
-      <div class="text-xs text-slate-500 mb-3">${rows.length} ${escapeHtml(t('linesImported'))} (${facturationRecords.length} ${escapeHtml(t('navImportFacturation'))}${duplicatesDropped > 0 ? ` · ${duplicatesDropped} doublons חשבונית ignorés` : ''})</div>
+      <div class="text-xs text-slate-500 mb-3">${rows.length} ${escapeHtml(t('linesImported'))} (${facturationCtx.originalCount} ${escapeHtml(t('navImportFacturation'))}${duplicatesDropped > 0 ? ` · ${duplicatesDropped} doublons חשבונית ignorés` : ''})</div>
       ${rows.length === 0
         ? `<p class="text-sm text-slate-500">${escapeHtml(t('noResults'))}</p>`
         : `<div class="overflow-x-auto"><table class="w-full text-sm border border-slate-200 rounded">
