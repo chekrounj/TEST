@@ -496,6 +496,9 @@ const I18N = {
     mapToCanonical: "Associer à un champ existant…",
     customField: "— Champ personnalisé —",
     noRowsImported: "Aucune ligne importée — vérifiez que les colonnes correspondent aux champs attendus",
+    confirmDeleteField: "Supprimer la colonne « {name} » ?\nLes valeurs seront effacées de tous les enregistrements et le champ sera retiré du modèle d'import.",
+    fieldDeleted: "Colonne supprimée",
+    nNewColumns: "{n} nouvelle(s) colonne(s) détectée(s) et ajoutée(s) au modèle",
     // Auth & roles
     login: "Se connecter", logout: "Se déconnecter",
     pin: "Code PIN", confirmPin: "Confirmer le PIN",
@@ -768,6 +771,9 @@ const I18N = {
     mapToCanonical: "Map to an existing field…",
     customField: "— Custom field —",
     noRowsImported: "No rows imported — check that columns match expected fields",
+    confirmDeleteField: "Delete column \"{name}\"?\nValues will be erased from all records and the field will be removed from the import template.",
+    fieldDeleted: "Column deleted",
+    nNewColumns: "{n} new column(s) detected and added to the template",
     login: "Sign in", logout: "Sign out",
     pin: "PIN code", confirmPin: "Confirm PIN",
     selectUser: "— Select a user —",
@@ -1033,6 +1039,9 @@ const I18N = {
     mapToCanonical: "מפה לשדה קיים…",
     customField: "— שדה מותאם —",
     noRowsImported: "לא יובאו שורות — בדוק שהעמודות תואמות לשדות הצפויים",
+    confirmDeleteField: "למחוק את העמודה \"{name}\"?\nהערכים יימחקו מכל הרשומות והשדה יוסר מתבנית הייבוא.",
+    fieldDeleted: "העמודה נמחקה",
+    nNewColumns: "{n} עמודות חדשות זוהו ונוספו לתבנית",
     login: "כניסה", logout: "יציאה",
     pin: "קוד PIN", confirmPin: "אישור PIN",
     selectUser: "— בחר משתמש —",
@@ -2284,6 +2293,38 @@ function defaultImportTemplate(entity) {
   return { fields: tpl.headers.map(h => ({ field: h, header: h, include: true })) };
 }
 
+// Slugify a header into a safe JS-style identifier (camelCase, ASCII).
+function slugifyField(s) {
+  return String(s)
+    .normalize('NFD').replace(/[̀-ͯ]/g, '')
+    .replace(/[^a-zA-Z0-9_ ]/g, '')
+    .trim()
+    .split(/\s+/)
+    .map((w, i) => i === 0 ? w.toLowerCase() : (w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()))
+    .join('');
+}
+
+// Erase a custom field from every record of an entity AND remove it
+// from the import template. No-op for canonical fields.
+async function deleteEntityField(entity, field) {
+  // 1. Update template
+  const canonical = new Set((ENTITY_IMPORTS[entity]?.template?.headers || []).map(s => s.toLowerCase()));
+  const tpl = (await getImportTemplate(entity)) || defaultImportTemplate(entity);
+  if (tpl?.fields) {
+    tpl.fields = tpl.fields.filter(f => String(f.field).toLowerCase() !== String(field).toLowerCase());
+    await setImportTemplate(entity, tpl);
+  }
+  // 2. Strip from records — only for non-canonical fields
+  if (canonical.has(String(field).toLowerCase())) return;
+  const all = await DB.getAll(entity);
+  for (const rec of all) {
+    if (Object.prototype.hasOwnProperty.call(rec, field)) {
+      delete rec[field];
+      await DB.put(entity, rec);
+    }
+  }
+}
+
 // Returns a copy of `row` containing only the keys that are NOT in `canonicalKeys`
 // and have a non-empty value. Used to pass user-added template fields through
 // to the saved record.
@@ -2364,7 +2405,8 @@ async function applyTemplateToList(entity, columnMap, records, container = '#lis
   for (const f of customs) {
     const th = document.createElement('th');
     th.className = 'px-4 py-3 text-start font-medium';
-    th.textContent = f.header || f.field;
+    // Header text + a small ✕ button to delete the column entirely
+    th.innerHTML = `${escapeHtml(f.header || f.field)} <button type="button" class="te-col-del text-red-500 hover:text-red-700 text-xs ms-1" data-entity="${escapeHtml(entity)}" data-field="${escapeHtml(f.field)}" title="${escapeHtml(t('fieldDeleted'))}">✕</button>`;
     if (appendAtEnd || !lastTh) headRow.appendChild(th);
     else headRow.insertBefore(th, lastTh);
   }
@@ -2382,6 +2424,20 @@ async function applyTemplateToList(entity, columnMap, records, container = '#lis
       else tr.insertBefore(td, lastTd);
     }
   });
+  // Wire delete-column buttons
+  table.querySelectorAll('.te-col-del').forEach(btn => btn.addEventListener('click', async (ev) => {
+    ev.stopPropagation();
+    const e = btn.dataset.entity;
+    const f = btn.dataset.field;
+    const label = (customs.find(x => x.field === f) || {}).header || f;
+    const ok = await confirmModal(fillTpl(t('confirmDeleteField'), { name: label }));
+    if (!ok) return;
+    await deleteEntityField(e, f);
+    toast(t('fieldDeleted'));
+    // Refresh the corresponding page
+    const refresh = { clients: renderClients, projects: renderProjects, tasks: renderTasks, employees: renderEmployees, timeEntries: renderTimeEntries, attendance: renderAttendance };
+    refresh[e]?.();
+  }));
 }
 
 // Merge only empty fields of `existing` from `updates`. Never overwrite
@@ -2405,6 +2461,29 @@ async function importEntityFile(entity, file) {
   const wb = XLSX.read(buf, { type: 'array', cellDates: true });
   const sheet = wb.Sheets[wb.SheetNames[0]];
   const rawRows = XLSX.utils.sheet_to_json(sheet, { defval: '' });
+
+  // Auto-extend the import template with any header found in the file that
+  // is neither already in the template nor a canonical field name. This
+  // ensures the table view automatically gets a column for the imported data.
+  const fileHeaders = new Set();
+  for (const r of rawRows) for (const k of Object.keys(r)) if (String(k).trim()) fileHeaders.add(String(k).trim());
+  const canonicalLc = new Set((ENTITY_IMPORTS[entity]?.template?.headers || []).map(s => s.toLowerCase()));
+  let tplForAutoExtend = (await getImportTemplate(entity)) || defaultImportTemplate(entity);
+  const knownLc = new Set([
+    ...tplForAutoExtend.fields.map(f => String(f.header || '').toLowerCase()),
+    ...tplForAutoExtend.fields.map(f => String(f.field  || '').toLowerCase())
+  ]);
+  let added = 0;
+  for (const h of fileHeaders) {
+    const lc = h.toLowerCase();
+    if (canonicalLc.has(lc) || knownLc.has(lc)) continue;
+    const field = slugifyField(h) || h;
+    if (tplForAutoExtend.fields.some(f => String(f.field).toLowerCase() === field.toLowerCase())) continue;
+    tplForAutoExtend.fields.push({ field, header: h, include: true });
+    added++;
+  }
+  if (added > 0) await setImportTemplate(entity, tplForAutoExtend);
+
   // Build a lower-cased custom header → canonical field map. Custom names
   // are accepted IN ADDITION to the canonical names (which keep working).
   const custom = await getImportTemplate(entity);
