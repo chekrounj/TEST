@@ -5799,26 +5799,72 @@ async function renderReports() {
   });
   const allRows = enrichAll();
 
-  // Per-project facturation aggregates computed on the FULL dataset
-  // (not filtered) so that monthly average / annual sum stay stable
-  // regardless of the period the user is looking at.
-  //   - סוג פרויקט "01" → facturation annuelle = Σ cost on the project
-  //   - סוג פרויקט "02" → facturation mensuelle = Σ cost ÷ distinct months
-  const projectAgg = {};
-  for (const r of allRows) {
-    const pid = String(r._en?.projectId ?? r.projectCode ?? r.projectName ?? '');
-    if (!pid) continue;
-    if (!projectAgg[pid]) projectAgg[pid] = { type: r.projectType, cost: 0, months: new Set() };
-    projectAgg[pid].cost += r.cost || 0;
-    if (r.date) projectAgg[pid].months.add(String(r.date).slice(0, 7));
+  // Facturation aggregates sourced from the Facturation import (סכום).
+  // Rules:
+  //   - Facturation Annuelle: Σ סכום per project (for every סוג פרויקט).
+  //     If a facturation row has no project number (מספר פרויקט), its
+  //     amount is bucketed by (client, year) and added on top of the
+  //     annual figure of every project that belongs to that client/year.
+  //   - Facturation Mensuelle: ONLY for סוג פרויקט "02" — Σ סכום ÷ number
+  //     of facturation rows for that project (one row ≈ one month).
+  const facturationRecords = await DB.getAll('facturation');
+  const lcKey = (s) => String(s ?? '').toLowerCase().trim();
+  const parseAmount = (v) => {
+    if (v == null || v === '') return 0;
+    const n = Number(String(v).replace(/[^\d.\-]/g, ''));
+    return Number.isFinite(n) ? n : 0;
+  };
+  const facByProjectCode = {};
+  const facByProjectName = {};
+  const facByClientYear  = {};
+  for (const f of facturationRecords) {
+    const pCode = String(f.projet ?? f.projectCode ?? f["מס' פרויקט"] ?? f["מספר פרויקט"] ?? '').trim();
+    const pName = String(f.projectName ?? f["שם הפרויקט"] ?? '').trim();
+    const cCode = String(f.client ?? f.clientNumber ?? f["מס. לקוח"] ?? f["מס לקוח"] ?? '').trim();
+    const cName = String(f.clientName ?? f["שם לקוח"] ?? '').trim();
+    const dateS = String(f.date ?? f["ת. דווח"] ?? f["תאריך"] ?? '').trim();
+    const year  = (dateS.match(/\d{4}/) || [''])[0];
+    const amt   = parseAmount(f["סכום"] ?? f.amount ?? f.montant ?? f.sum);
+    if (pCode || pName) {
+      if (pCode) {
+        const k = lcKey(pCode);
+        if (!facByProjectCode[k]) facByProjectCode[k] = { total: 0, count: 0 };
+        facByProjectCode[k].total += amt;
+        facByProjectCode[k].count += 1;
+      }
+      if (pName) {
+        const k = lcKey(pName);
+        if (!facByProjectName[k]) facByProjectName[k] = { total: 0, count: 0 };
+        facByProjectName[k].total += amt;
+        facByProjectName[k].count += 1;
+      }
+    } else if ((cCode || cName) && year) {
+      const k = (lcKey(cCode) || lcKey(cName)) + '|' + year;
+      facByClientYear[k] = (facByClientYear[k] || 0) + amt;
+    }
   }
   for (const r of allRows) {
-    const pid = String(r._en?.projectId ?? r.projectCode ?? r.projectName ?? '');
-    const a = projectAgg[pid];
-    if (!a) continue;
-    const code = parseInt(String(a.type || '').trim(), 10);
-    if (code === 1)      r.facturationAnnuelle  = a.cost;
-    else if (code === 2) r.facturationMensuelle = a.months.size ? a.cost / a.months.size : 0;
+    const pCodeK = lcKey(r.projectCode);
+    const pNameK = lcKey(r.projectName);
+    const cCodeK = lcKey(r.clientNumber);
+    const cNameK = lcKey(r.clientName);
+    const yearK  = (r.date || '').slice(0, 4);
+    const facP   = (pCodeK && facByProjectCode[pCodeK]) || (pNameK && facByProjectName[pNameK]) || null;
+
+    let annual = facP ? facP.total : 0;
+    if (yearK) {
+      const k1 = cCodeK ? cCodeK + '|' + yearK : null;
+      const k2 = cNameK ? cNameK + '|' + yearK : null;
+      if (k1 && facByClientYear[k1] != null) annual += facByClientYear[k1];
+      else if (k2 && facByClientYear[k2] != null) annual += facByClientYear[k2];
+    }
+    if (annual > 0) r.facturationAnnuelle = annual;
+
+    // Monthly average only for סוג פרויקט "02"
+    const tc = parseInt(String(r.projectType || '').trim(), 10);
+    if (tc === 2 && facP && facP.count > 0) {
+      r.facturationMensuelle = facP.total / facP.count;
+    }
   }
   const distinct = (key) => Array.from(new Set(allRows.map(r => r[key]).filter(v => v))).sort((a, b) => String(a).localeCompare(String(b)));
   const clientNames = distinct('clientName');
