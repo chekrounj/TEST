@@ -6319,9 +6319,21 @@ async function renderProfitability() {
   const pickField = (rec, kind) => {
     const wanted = aliasNorm[kind] || [];
     const recKeys = Object.keys(rec).map(k => ({ k, n: norm(k) }));
+    // 1) exact normalised match
     for (const w of wanted) {
       for (const rk of recKeys) {
         if (rk.n === w) {
+          const v = rec[rk.k];
+          if (v !== '' && v != null) return v;
+        }
+      }
+    }
+    // 2) startsWith fallback — handles "סכום (ש\"ח)" → norm "סכוםשח" vs alias
+    //    "סכום". Only startsWith, so "פרויקט" still won't match "סוגפרויקט".
+    for (const w of wanted) {
+      if (!w) continue;
+      for (const rk of recKeys) {
+        if (rk.n.startsWith(w)) {
           const v = rec[rk.k];
           if (v !== '' && v != null) return v;
         }
@@ -6615,11 +6627,21 @@ async function renderBillingSynthesis() {
   const pickField = (rec, kind) => {
     const wanted = aliasNorm[kind];
     if (!wanted) return '';
-    // Cache normalized record keys
     const recKeys = Object.keys(rec).map(k => ({ k, n: norm(k) }));
+    // 1) exact normalised match
     for (const w of wanted) {
       for (const rk of recKeys) {
         if (rk.n === w) {
+          const v = rec[rk.k];
+          if (v !== '' && v != null) return v;
+        }
+      }
+    }
+    // 2) startsWith fallback — handles "סכום (ש\"ח)" → "סכוםשח" vs "סכום"
+    for (const w of wanted) {
+      if (!w) continue;
+      for (const rk of recKeys) {
+        if (rk.n.startsWith(w)) {
           const v = rec[rk.k];
           if (v !== '' && v != null) return v;
         }
