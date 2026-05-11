@@ -2475,16 +2475,18 @@ async function applyTemplateToList(entity, columnMap, records, container = '#lis
   }));
 }
 
-// Merge only empty fields of `existing` from `updates`. Never overwrite
-// a value that's already populated. Empty = null | undefined | '' | [].
+// Upsert helper used by importers when an existing record matches the
+// incoming row. The incoming value WINS when it is non-empty (so re-
+// importing a file refreshes existing records). Existing values are
+// preserved only if the incoming value is empty/null. Returns
+// { merged, touched } where touched=false means nothing changed (the
+// row is considered a no-op duplicate).
 function fillEmpty(existing, updates) {
   const out = { ...existing };
   let touched = false;
   for (const [k, v] of Object.entries(updates)) {
-    if (v == null || v === '') continue; // ignore empty incoming values
-    const cur = out[k];
-    const empty = cur == null || cur === '' || (Array.isArray(cur) && cur.length === 0);
-    if (empty) { out[k] = v; touched = true; }
+    if (v == null || v === '') continue; // empty incoming: keep existing
+    if (out[k] !== v) { out[k] = v; touched = true; }
   }
   return { merged: out, touched };
 }
