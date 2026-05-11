@@ -3194,76 +3194,20 @@ function resetPinForm(employeId) {
 
 /* ----- TIME ENTRIES ----- */
 async function renderTimeEntries() {
-  const [clients, projects, tasks, allEmployees, entries] = await Promise.all([
+  const [clients, projects, tasks, allEmployees] = await Promise.all([
     DB.getAll('clients'), DB.getAll('projects'), DB.getAll('tasks'),
-    DB.getAll('employees'), DB.getAll('timeEntries')
+    DB.getAll('employees')
   ]);
-  const session = Auth.getSession();
-  let employees = allEmployees;
-  if (session?.role === 'employe') {
-    employees = allEmployees.filter(e => e.id === session.employeId);
-  } else if (session?.role === 'manager') {
-    employees = allEmployees.filter(e => e.id === session.employeId || Number(e.managerId) === Number(session.employeId));
-  }
   const clientById = Object.fromEntries(clients.map(c => [c.id, c]));
   const projectById = Object.fromEntries(projects.map(p => [p.id, p]));
   const taskById = Object.fromEntries(tasks.map(x => [x.id, x]));
-  const empById = Object.fromEntries(employees.map(e => [e.id, e]));
+  const empById = Object.fromEntries(allEmployees.map(e => [e.id, e]));
 
+  // Page is now read/import only — the manual entry form has been removed.
   PAGE.innerHTML = `
     <div class="flex flex-wrap items-center justify-between gap-3 mb-6">
       <h1 class="text-2xl font-bold text-slate-900">${escapeHtml(t('timeTitle'))}</h1>
       <div class="flex flex-wrap gap-2">${importBarHtml('timeEntries')}</div>
-    </div>
-
-    <div class="bg-white rounded-xl border border-slate-200 shadow-sm p-6 mb-6">
-      <h2 class="font-semibold text-slate-900 mb-4">${escapeHtml(t('timeAdd'))}</h2>
-      <form id="timeForm" class="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <div>
-          <label class="block text-sm text-slate-600 mb-1">${escapeHtml(t('timeEmployee'))}</label>
-          <select id="te_emp" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm" ${session?.role === 'employe' ? 'disabled' : ''}>
-            ${session?.role === 'employe' ? '' : `<option value="">${escapeHtml(t('selectEmployee'))}</option>`}
-            ${employees.map(e => {
-              const isMe = Number(e.id) === Number(session?.employeId);
-              return `<option value="${e.id}" ${isMe ? 'selected' : ''}>${escapeHtml((e.numeroEmploye ? e.numeroEmploye + ' — ' : '') + e.nom)}</option>`;
-            }).join('')}
-          </select>
-        </div>
-        <div>
-          <label class="block text-sm text-slate-600 mb-1">${escapeHtml(t('timeDate'))}</label>
-          <input type="date" id="te_date" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm" value="${new Date().toISOString().slice(0,10)}">
-        </div>
-        <div>
-          <label class="block text-sm text-slate-600 mb-1">${escapeHtml(t('timeClient'))}</label>
-          <select id="te_client" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm">
-            <option value="">${escapeHtml(t('selectClient'))}</option>
-            ${clients.filter(c => c.actif !== false).map(c => `<option value="${c.id}">${escapeHtml(c.nom)}</option>`).join('')}
-          </select>
-        </div>
-        <div>
-          <label class="block text-sm text-slate-600 mb-1">${escapeHtml(t('timeProject'))}</label>
-          <select id="te_project" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm" disabled>
-            <option value="">${escapeHtml(t('selectProject'))}</option>
-          </select>
-        </div>
-        <div>
-          <label class="block text-sm text-slate-600 mb-1">${escapeHtml(t('timeTask'))}</label>
-          <select id="te_task" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm" disabled>
-            <option value="">${escapeHtml(t('selectTask'))}</option>
-          </select>
-        </div>
-        <div>
-          <label class="block text-sm text-slate-600 mb-1">${escapeHtml(t('timeHours'))}</label>
-          <input type="number" step="0.25" min="0" id="te_hours" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm" placeholder="0.00">
-        </div>
-        <div class="md:col-span-2">
-          <label class="block text-sm text-slate-600 mb-1">${escapeHtml(t('timeDescription'))}</label>
-          <textarea id="te_desc" rows="2" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm"></textarea>
-        </div>
-        <div class="md:col-span-2 flex justify-end">
-          <button type="submit" class="px-4 py-2 rounded-lg bg-blue-700 text-white hover:bg-blue-800 text-sm font-medium">${escapeHtml(t('save'))}</button>
-        </div>
-      </form>
     </div>
 
     <div class="bg-white rounded-xl border border-slate-200 shadow-sm">
@@ -3276,90 +3220,6 @@ async function renderTimeEntries() {
   `;
 
   wireImportBar(renderTimeEntries);
-
-  // Cascading selects
-  const selClient = $('#te_client');
-  const selProject = $('#te_project');
-  const selTask = $('#te_task');
-
-  // Map of active clients for fast lookup; inactive clients never reach this dropdown.
-  const activeClientIds = new Set(clients.filter(c => c.actif !== false).map(c => c.id));
-  selClient.onchange = () => {
-    const cid = Number(selClient.value);
-    selProject.disabled = !cid;
-    // Only active projects of an ACTIVE client are offered.
-    const projs = projects.filter(p =>
-      p.clientId === cid && p.actif !== false && activeClientIds.has(p.clientId)
-    );
-    selProject.innerHTML = `<option value="">${escapeHtml(t('selectProject'))}</option>` +
-      projs.map(p => `<option value="${p.id}">${escapeHtml(p.nom)}</option>`).join('');
-    selTask.disabled = true;
-    selTask.innerHTML = `<option value="">${escapeHtml(t('selectTask'))}</option>`;
-  };
-  selProject.onchange = () => {
-    const pid = Number(selProject.value);
-    // Tasks are reusable across projects: show ALL tasks once a project is picked.
-    selTask.disabled = !pid;
-    selTask.innerHTML = `<option value="">${escapeHtml(t('selectTask'))}</option>` +
-      tasks.map(x => `<option value="${x.id}">${escapeHtml(x.nom)}</option>`).join('');
-  };
-
-  $('#timeForm').onsubmit = async (e) => {
-    e.preventDefault();
-    const data = {
-      employeId: Number($('#te_emp').value) || null,
-      clientId: Number($('#te_client').value) || null,
-      projectId: Number($('#te_project').value) || null,
-      taskId: Number($('#te_task').value) || null,
-      date: $('#te_date').value,
-      heures: Number($('#te_hours').value) || 0,
-      description: $('#te_desc').value.trim(),
-      statutValidation: 'brouillon',
-      submissionId: null,
-      verrouille: false
-    };
-    if (!data.employeId || !data.clientId || !data.date || !data.heures) {
-      toast('!');
-      return;
-    }
-
-    // Reconciliation pre-check — only if attendance exists for that day.
-    const disc = await DB.computeDiscrepancy(data.employeId, data.date, { addedHours: data.heures });
-    const block = !!(await DB.getSetting('bloquerSiDepassement', false));
-    if (disc.heuresPresence != null && disc.depasseSeuilOuiNon) {
-      const vars = {
-        ecart: fmt(disc.ecart),
-        date: data.date,
-        presence: fmt(disc.heuresPresence),
-        projets: fmt(disc.heuresProjets)
-      };
-      if (block) {
-        const ok = await confirmModal(
-          fillTpl(t('blockedSave'), vars) + '\n' + t('forceSave') + ' ?'
-        );
-        if (!ok) {
-          showBanner(fillTpl(t('blockedSave'), vars), 'error');
-          return;
-        }
-      } else {
-        showBanner(fillTpl(t('discrepancyAlert'), vars), 'warn');
-      }
-    } else {
-      hideBanner();
-    }
-
-    await DB.add('timeEntries', data);
-    toast(t('saved'));
-    e.target.reset();
-    selProject.disabled = true; selTask.disabled = true;
-    $('#te_date').value = new Date().toISOString().slice(0,10);
-    // Re-apply current user as default employee after form reset.
-    if (session?.employeId) {
-      const empSel = $('#te_emp');
-      if (empSel) empSel.value = String(session.employeId);
-    }
-    drawList();
-  };
 
   const drawList = async () => {
     const all = await DB.getAll('timeEntries');
@@ -3385,26 +3245,14 @@ async function renderTimeEntries() {
         <td class="px-4 py-3 font-medium">${en.heures}</td>
         <td class="px-4 py-3 text-slate-600">${escapeHtml(en.description || '')}</td>
         <td class="px-4 py-3">${statusBadge(en.statutValidation || 'brouillon', en.verrouille)}</td>
-        <td class="px-4 py-3">
-          ${en.verrouille
-            ? `<span class="text-slate-400 text-xs" title="${escapeHtml(t('lockedTooltip'))}">${escapeHtml(t('locked'))}</span>`
-            : `<button data-act="delete" data-id="${en.id}" class="text-red-600 hover:underline text-sm">${escapeHtml(t('delete'))}</button>`}
-        </td>
       </tr>`).join('');
     $('#listBody').innerHTML = tableEl(
-      [t('timeDate'), t('timeEmployee'), t('timeClient'), t('timeProject'), t('timeTask'), t('timeHours'), t('timeDescription'), t('timeStatus'), t('actions')],
+      [t('timeDate'), t('timeEmployee'), t('timeClient'), t('timeProject'), t('timeTask'), t('timeHours'), t('timeDescription'), t('timeStatus')],
       rows
     );
     await applyTemplateToList('timeEntries',
       { date: 0, nom: 1, numeroEmploye: 1, email: 1, employe: 1, client: 2, projet: 3, tache: 4, heures: 5, description: 6 },
-      filtered);
-    $$('#listBody [data-act="delete"]').forEach(b => b.onclick = async () => {
-      if (await confirmModal(t('confirmDelete'))) {
-        await DB.remove('timeEntries', Number(b.dataset.id));
-        toast(t('deleted'));
-        drawList();
-      }
-    });
+      filtered, '#listBody', true);
   };
   $('#searchInput').oninput = drawList;
   await drawList();
