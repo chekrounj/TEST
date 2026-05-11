@@ -6862,11 +6862,26 @@ async function renderBillingSynthesis() {
 
   // Deduplicate by invoice number (חשבונית) — keep only the first row for any
   // given invoice. Rows without an invoice number pass through untouched.
+  // Uses a tolerant includes() match so columns like 'מספר חשבונית',
+  // 'חשבונית #' or 'No. facture' are all caught.
+  const INVOICE_NEEDLES = ['חשבונית', 'invoice', 'facture'].map(norm);
+  const findInvoice = (rec) => {
+    const recKeys = Object.keys(rec).map(k => ({ k, n: norm(k) }));
+    for (const need of INVOICE_NEEDLES) {
+      for (const rk of recKeys) {
+        if (rk.n.includes(need)) {
+          const v = rec[rk.k];
+          if (v !== '' && v != null) return String(v).trim();
+        }
+      }
+    }
+    return '';
+  };
   const seenInvoices = new Set();
   let duplicatesDropped = 0;
   const dedupedRecords = [];
   for (const f of facturationRecords) {
-    const inv = String(pickField(f, 'invoice')).trim();
+    const inv = findInvoice(f);
     if (inv) {
       const k = norm(inv);
       if (seenInvoices.has(k)) { duplicatesDropped++; continue; }
