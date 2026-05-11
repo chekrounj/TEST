@@ -2179,9 +2179,17 @@ const ENTITY_IMPORTS = {
         }
       }
 
-      // Task: keep as-is (don't auto-create — tasks are templates, not freeform)
+      // ---- Task: auto-create when referenced by name and not found ----
       let tid = Number(row.tache);
-      if (!tid && row.tache) tid = ctx.taskByName[String(row.tache).toLowerCase().trim()] || null;
+      if (!tid && row.tache) {
+        const raw = String(row.tache).trim();
+        const k = raw.toLowerCase();
+        tid = ctx.taskByName[k] || null;
+        if (!tid) {
+          tid = await DB.add('tasks', { nom: raw, numeroTache: await nextTaskNumber(), statut: 'open', description: '', typeTask: '' });
+          ctx.taskByName[k] = tid;
+        }
+      }
 
       const incoming = {
         employeId: emp.id,
@@ -2435,9 +2443,12 @@ async function importEntityFile(entity, file) {
   return { imported, ignored, updated };
 }
 
-function importBarHtml(entity) {
+function importBarHtml(entity, opts = {}) {
+  const canImport = opts.canImport !== false;
+  const exportBtn = `<button data-export="${entity}" class="px-3 py-2 rounded-lg border border-slate-300 hover:bg-slate-50 text-sm">📊 ${escapeHtml(t('exportExcel'))}</button>`;
+  if (!canImport) return exportBtn;
   return `
-    <button data-export="${entity}" class="px-3 py-2 rounded-lg border border-slate-300 hover:bg-slate-50 text-sm">📊 ${escapeHtml(t('exportExcel'))}</button>
+    ${exportBtn}
     <button data-tpl="${entity}" class="px-3 py-2 rounded-lg border border-slate-300 hover:bg-slate-50 text-sm">⬇ ${escapeHtml(t('downloadTemplate'))}</button>
     <label class="px-3 py-2 rounded-lg border border-slate-300 hover:bg-slate-50 text-sm cursor-pointer">
       ⬆ ${escapeHtml(t('importExcel'))}
@@ -2621,7 +2632,7 @@ function renderListShell({ title, addLabel, onAdd, searchPlaceholder, entity, re
     <div class="flex flex-wrap items-center justify-between gap-3 mb-6">
       <h1 class="text-2xl font-bold text-slate-900">${escapeHtml(title)}</h1>
       <div class="flex flex-wrap gap-2">
-        ${entity ? importBarHtml(entity) : ''}
+        ${entity ? importBarHtml(entity, { canImport: !readOnly }) : ''}
         ${readOnly ? '' : `<button id="addBtn" class="px-4 py-2 rounded-lg bg-blue-700 text-white hover:bg-blue-800 text-sm font-medium">+ ${escapeHtml(addLabel)}</button>`}
       </div>
     </div>
