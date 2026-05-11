@@ -6731,11 +6731,11 @@ async function renderBillingSynthesis() {
         : `<div class="overflow-x-auto"><table class="w-full text-sm border border-slate-200 rounded">
         <thead>
           <tr class="bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
-            <th class="px-3 py-2 text-start font-medium">Nom du client</th>
-            <th class="px-3 py-2 text-start font-medium">N° projet</th>
+            <th class="px-3 py-2 text-start font-medium">שם לקוח</th>
+            <th class="px-3 py-2 text-start font-medium">מס' פרויקט</th>
             <th class="px-3 py-2 text-end font-medium">Mois facturés</th>
             <th class="px-3 py-2 text-end font-medium">Total facturé</th>
-            <th class="px-3 py-2 text-start font-medium">Type de projet</th>
+            <th class="px-3 py-2 text-start font-medium">תיאור סוג פרויקט</th>
           </tr>
         </thead>
         <tbody>
@@ -6767,7 +6767,7 @@ async function renderBillingSynthesis() {
   `;
 
   $('#bs_export').onclick = () => {
-    const headers = ['Nom du client', 'N° projet', 'Mois facturés', 'Total facturé', 'Type de projet'];
+    const headers = ['שם לקוח', "מס' פרויקט", 'Mois facturés', 'Total facturé', 'תיאור סוג פרויקט'];
     const data = rows.map(r => [r.clientName, r.code, r.monthCount, +r.total.toFixed(2), r.projectType]);
     data.push([]);
     data.push(['Total', '', totalMonths, +totalFacture.toFixed(2), '']);
