@@ -492,6 +492,9 @@ const I18N = {
     noNewHeaders: "Aucun en-tête détecté",
     alreadyInTemplate: "(déjà présent)",
     nFieldsAdded: "{n} champ(s) ajouté(s)",
+    mapToCanonical: "Associer à un champ existant…",
+    customField: "— Champ personnalisé —",
+    noRowsImported: "Aucune ligne importée — vérifiez que les colonnes correspondent aux champs attendus",
     // Auth & roles
     login: "Se connecter", logout: "Se déconnecter",
     pin: "Code PIN", confirmPin: "Confirmer le PIN",
@@ -760,6 +763,9 @@ const I18N = {
     noNewHeaders: "No headers detected",
     alreadyInTemplate: "(already in template)",
     nFieldsAdded: "{n} field(s) added",
+    mapToCanonical: "Map to an existing field…",
+    customField: "— Custom field —",
+    noRowsImported: "No rows imported — check that columns match expected fields",
     login: "Sign in", logout: "Sign out",
     pin: "PIN code", confirmPin: "Confirm PIN",
     selectUser: "— Select a user —",
@@ -1021,6 +1027,9 @@ const I18N = {
     noNewHeaders: "לא זוהו כותרות",
     alreadyInTemplate: "(כבר קיים)",
     nFieldsAdded: "{n} שדות נוספו",
+    mapToCanonical: "מפה לשדה קיים…",
+    customField: "— שדה מותאם —",
+    noRowsImported: "לא יובאו שורות — בדוק שהעמודות תואמות לשדות הצפויים",
     login: "כניסה", logout: "יציאה",
     pin: "קוד PIN", confirmPin: "אישור PIN",
     selectUser: "— בחר משתמש —",
@@ -2545,7 +2554,11 @@ function wireImportBar(refreshFn) {
       if (!file) return;
       try {
         const { imported, ignored, updated } = await importEntityFile(inp.dataset.import, file);
-        toast(`${imported} ${t('linesImported')} · ${updated} ${t('linesUpdated')} · ${ignored} ${t('linesIgnored')}`);
+        if (imported === 0 && updated === 0 && ignored > 0) {
+          showBanner(t('noRowsImported'), 'error');
+        } else {
+          toast(`${imported} ${t('linesImported')} · ${updated} ${t('linesUpdated')} · ${ignored} ${t('linesIgnored')}`);
+        }
       } catch (err) {
         console.error(err);
         toast(t('importErr') + ': ' + err.message);
@@ -5805,30 +5818,51 @@ function showHeaderDetectionModal(entity, tpl, detected) {
     .split(/\s+/).map((w, i) => i === 0 ? w.toLowerCase() : (w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()))
     .join('');
 
+  // Try to find a canonical match: exact (case-insensitive), then substring both ways.
+  const findCanonicalMatch = (h) => {
+    const lc = h.toLowerCase();
+    const exact = canonicalLc.indexOf(lc);
+    if (exact >= 0) return canonical[exact];
+    for (let i = 0; i < canonical.length; i++) {
+      const c = canonical[i].toLowerCase();
+      if (lc.includes(c) || c.includes(lc)) return canonical[i];
+    }
+    return null;
+  };
+
   const candidates = detected.map(h => {
     const lc = h.toLowerCase();
-    const matchIdx = canonicalLc.indexOf(lc);
-    const suggestedField = matchIdx >= 0 ? canonical[matchIdx] : (slugify(h) || h);
+    const canonMatch = findCanonicalMatch(h);
+    const slug = slugify(h) || h;
+    const suggestedField = canonMatch || slug;
     const dup = existingHeaders.has(lc) || existingFields.has(suggestedField.toLowerCase());
-    return { header: h, suggestedField, alreadyExists: dup };
+    return { header: h, suggestedField, isCanonical: !!canonMatch, alreadyExists: dup };
   });
+
+  const canonOpts = (sel) => `
+    ${canonical.map(c => `<option value="${escapeHtml(c)}" ${sel && c.toLowerCase() === sel.toLowerCase() ? 'selected' : ''}>${escapeHtml(c)}</option>`).join('')}
+    <option value="__custom" ${!sel || !canonicalLc.includes((sel||'').toLowerCase()) ? 'selected' : ''}>${escapeHtml(t('customField'))}</option>
+  `;
 
   openModal({
     title: t('detectedHeaders'),
     bodyHtml: `
       <div class="space-y-1 max-h-[60vh] overflow-y-auto">
         ${candidates.map((c, i) => `
-          <label class="flex items-start gap-3 p-2 rounded border ${c.alreadyExists ? 'border-slate-200 bg-slate-50' : 'border-slate-200 hover:bg-slate-50'} cursor-pointer">
-            <input type="checkbox" data-i="${i}" class="dh-pick w-4 h-4 mt-1" ${c.alreadyExists ? '' : 'checked'} ${c.alreadyExists ? 'disabled' : ''}>
-            <div class="flex-1">
-              <div class="text-sm font-medium text-slate-800">${escapeHtml(c.header)}${c.alreadyExists ? ` <span class="text-xs text-slate-500 font-normal">${escapeHtml(t('alreadyInTemplate'))}</span>` : ''}</div>
-              <div class="mt-1 flex items-center gap-2">
-                <span class="text-xs text-slate-500">${escapeHtml(t('columnField'))}:</span>
-                <input type="text" data-i="${i}" class="dh-field text-xs px-2 py-1 border border-slate-300 rounded w-48"
-                  value="${escapeHtml(c.suggestedField)}" placeholder="${escapeHtml(t('fieldNamePlaceholder'))}" ${c.alreadyExists ? 'disabled' : ''}>
+          <div class="p-2 rounded border ${c.alreadyExists ? 'border-slate-200 bg-slate-50' : 'border-slate-200 hover:bg-slate-50'}">
+            <label class="flex items-start gap-3 cursor-pointer">
+              <input type="checkbox" data-i="${i}" class="dh-pick w-4 h-4 mt-1" ${c.alreadyExists ? '' : 'checked'} ${c.alreadyExists ? 'disabled' : ''}>
+              <div class="flex-1">
+                <div class="text-sm font-medium text-slate-800">${escapeHtml(c.header)}${c.alreadyExists ? ` <span class="text-xs text-slate-500 font-normal">${escapeHtml(t('alreadyInTemplate'))}</span>` : ''}</div>
+                <div class="mt-1 flex flex-wrap items-center gap-2">
+                  <span class="text-xs text-slate-500">${escapeHtml(t('mapToCanonical'))}</span>
+                  <select data-i="${i}" class="dh-target text-xs px-2 py-1 border border-slate-300 rounded" ${c.alreadyExists ? 'disabled' : ''}>${canonOpts(c.isCanonical ? c.suggestedField : '')}</select>
+                  <input type="text" data-i="${i}" class="dh-field text-xs px-2 py-1 border border-slate-300 rounded w-44"
+                    value="${escapeHtml(c.isCanonical ? '' : c.suggestedField)}" placeholder="${escapeHtml(t('fieldNamePlaceholder'))}" ${(c.alreadyExists || c.isCanonical) ? 'disabled' : ''}>
+                </div>
               </div>
-            </div>
-          </label>
+            </label>
+          </div>
         `).join('')}
       </div>
     `,
@@ -5836,8 +5870,11 @@ function showHeaderDetectionModal(entity, tpl, detected) {
       const picked = Array.from(document.querySelectorAll('.dh-pick:checked')).map(c => Number(c.dataset.i));
       let added = 0;
       for (const idx of picked) {
+        const target = document.querySelector(`.dh-target[data-i="${idx}"]`)?.value || '';
         const fInput = document.querySelector(`.dh-field[data-i="${idx}"]`);
-        const field  = (fInput?.value || '').trim() || candidates[idx].suggestedField;
+        let field;
+        if (target && target !== '__custom') field = target;
+        else field = (fInput?.value || '').trim() || candidates[idx].suggestedField;
         if (!field) continue;
         const lc = field.toLowerCase();
         if (tpl.fields.some(x => String(x.field).toLowerCase() === lc)) continue;
@@ -5846,6 +5883,18 @@ function showHeaderDetectionModal(entity, tpl, detected) {
       }
       if (added) toast(fillTpl(t('nFieldsAdded'), { n: added }));
       drawTemplateEditor(entity, tpl);
+    }
+  });
+
+  // Toggle field-input enable/disable when the mapping dropdown changes
+  document.querySelectorAll('.dh-target').forEach(sel => sel.onchange = () => {
+    const i = sel.dataset.i;
+    const fInput = document.querySelector(`.dh-field[data-i="${i}"]`);
+    if (!fInput) return;
+    if (sel.value && sel.value !== '__custom') {
+      fInput.value = ''; fInput.disabled = true;
+    } else {
+      fInput.disabled = false;
     }
   });
 }
