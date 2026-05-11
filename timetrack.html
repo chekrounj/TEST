@@ -299,9 +299,6 @@
       <button data-page="employees" data-roles="admin,manager" class="nav-item flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-slate-100 text-slate-700 text-start">
         <span class="nav-ico text-slate-500">👤</span><span data-i18n="navEmployees">Employés</span>
       </button>
-      <button data-page="time" data-roles="admin,manager,employe"      class="nav-item flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-slate-100 text-slate-700 text-start">
-        <span class="nav-ico text-slate-500">⏱</span><span data-i18n="navTime">Saisie heures</span>
-      </button>
       <button data-page="mySubmissions" data-roles="admin,manager,employe" class="nav-item flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-slate-100 text-slate-700 text-start">
         <span class="nav-ico text-slate-500">📝</span><span data-i18n="navMySubmissions">Mes saisies</span>
       </button>
@@ -320,6 +317,23 @@
       <button data-page="reports" data-roles="admin,manager" class="nav-item flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-slate-100 text-slate-700 text-start">
         <span class="nav-ico text-slate-500">📈</span><span data-i18n="navReports">Rapports</span>
       </button>
+
+      <div class="nav-group" data-group="importdata" data-roles="admin,manager">
+        <button class="nav-group-toggle w-full flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-slate-100 text-slate-700 text-start">
+          <span class="nav-ico text-slate-500">📥</span>
+          <span data-i18n="navImportData">Import de données</span>
+          <span class="nav-chevron ms-auto text-slate-400 transition-transform">▸</span>
+        </button>
+        <div class="nav-group-items hidden flex-col gap-1 mt-1 ms-3 ps-3 border-s border-slate-200">
+          <button data-page="facturation" data-roles="admin,manager" class="nav-item flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-slate-100 text-slate-700 text-start">
+            <span class="nav-ico text-slate-500">💼</span><span data-i18n="navImportFacturation">Import facturation</span>
+          </button>
+          <button data-page="time" data-roles="admin,manager" class="nav-item flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-slate-100 text-slate-700 text-start">
+            <span class="nav-ico text-slate-500">⏱</span><span data-i18n="navImportTime">Heures saisies</span>
+          </button>
+        </div>
+      </div>
+
       <button data-page="settings" data-roles="admin,manager,employe"  class="nav-item flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-slate-100 text-slate-700 text-start">
         <span class="nav-ico text-slate-500">⚙</span><span data-i18n="navSettings">Paramètres</span>
       </button>
@@ -435,6 +449,11 @@ const I18N = {
     typeAlreadyExists: "Ce type existe déjà",
     navBillingTypes: "Types de facturation",
     navTarifHoraire: "Tarif horaire",
+    navFacturation: "Facturation",
+    navImportData: "Import de données",
+    navImportFacturation: "Import facturation",
+    navImportTime: "Heures saisies",
+    facturationEmpty: "Importez un fichier Excel pour créer les colonnes du tableau Facturation.",
     billingTypesTitle: "Types de facturation",
     billingTypeName: "Nom du type",
     addBillingType: "Ajouter un type",
@@ -716,6 +735,11 @@ const I18N = {
     typeAlreadyExists: "This type already exists",
     navBillingTypes: "Billing types",
     navTarifHoraire: "Hourly rate",
+    navFacturation: "Billing",
+    navImportData: "Data import",
+    navImportFacturation: "Import billing",
+    navImportTime: "Time entries",
+    facturationEmpty: "Import an Excel file to populate the Billing table columns.",
     billingTypesTitle: "Billing types",
     billingTypeName: "Type name",
     addBillingType: "Add a type",
@@ -986,6 +1010,11 @@ const I18N = {
     typeAlreadyExists: "סוג זה כבר קיים",
     navBillingTypes: "סוגי חיוב",
     navTarifHoraire: "תעריף שעתי",
+    navFacturation: "חיוב",
+    navImportData: "ייבוא נתונים",
+    navImportFacturation: "ייבוא חיוב",
+    navImportTime: "רישום שעות",
+    facturationEmpty: "ייבא קובץ Excel כדי ליצור את עמודות טבלת החיוב.",
     billingTypesTitle: "סוגי חיוב",
     billingTypeName: "שם הסוג",
     addBillingType: "הוסף סוג",
@@ -1247,7 +1276,7 @@ async function setBillingTypes(list) {
    ===================================================================== */
 const DB = (() => {
   const DB_NAME = 'TimeTrackDB';
-  const DB_VERSION = 4;
+  const DB_VERSION = 5;
   let _dbPromise = null;
 
   function open() {
@@ -1259,6 +1288,11 @@ const DB = (() => {
       req.onupgradeneeded = (e) => {
         const db = e.target.result;
         const upgradeTx = e.target.transaction;
+        // v5: facturation store. Schemaless — columns are driven by the
+        // user's imported Excel file.
+        if (!db.objectStoreNames.contains('facturation')) {
+          db.createObjectStore('facturation', { keyPath: 'id', autoIncrement: true });
+        }
         // v4: missions + recurrences stores. No existing data touched.
         if (!db.objectStoreNames.contains('missions')) {
           const s = db.createObjectStore('missions', { keyPath: 'id', autoIncrement: true });
@@ -1395,7 +1429,7 @@ const DB = (() => {
     return reqToPromise(store.clear());
   }
   async function clearAll() {
-    const stores = ['clients','projects','tasks','employees','timeEntries','attendance','submissions','missions','recurrences','settings'];
+    const stores = ['clients','projects','tasks','employees','timeEntries','attendance','submissions','missions','recurrences','facturation','settings'];
     await Promise.all(stores.map(s => clearStore(s)));
   }
   async function getSetting(cle, def = null) {
@@ -1840,6 +1874,7 @@ async function navigate(page) {
   if (page === 'reconciliation') { if (!guardRole('admin','manager')) return; return renderReconciliation(); }
   if (page === 'missions')       { if (!guardRole('admin','manager','employe')) return; return renderMissions(); }
   if (page === 'reports')        { if (!guardRole('admin','manager')) return; return renderReports(); }
+  if (page === 'facturation')    { if (!guardRole('admin','manager')) return; return renderFacturation(); }
   if (page === 'settings')       return renderSettings();
 }
 
@@ -2310,6 +2345,26 @@ const ENTITY_IMPORTS = {
       ]
     }
     // NOTE: actual import handled by importAttendanceHandler (richer report).
+  },
+  facturation: {
+    // Fully schemaless: the template is whatever the user's Excel file
+    // contains. importEntityFile auto-extends the template with every
+    // detected header on first import (and on each subsequent import
+    // that introduces a new column).
+    template: {
+      headers: [],
+      sample: [[]]
+    },
+    importRow: async (row) => {
+      const record = {};
+      for (const [k, v] of Object.entries(row || {})) {
+        if (v === '' || v == null) continue;
+        record[k] = v;
+      }
+      if (Object.keys(record).length === 0) return false;
+      await DB.add('facturation', record);
+      return true;
+    }
   }
 };
 
@@ -2742,6 +2797,20 @@ const ENTITY_EXPORTERS = {
       eById[s.validePar] || '', s.dateValidation || '',
       s.commentaire || ''
     ]);
+    return { headers, rows };
+  },
+  facturation: async () => {
+    // Build headers from the import template (in order), falling back
+    // to the union of keys found across stored records.
+    const tpl = (await getImportTemplate('facturation')) || { fields: [] };
+    let headers = tpl.fields.filter(f => f.include !== false).map(f => f.field);
+    const all = await DB.getAll('facturation');
+    if (!headers.length) {
+      const set = new Set();
+      for (const r of all) for (const k of Object.keys(r)) if (k !== 'id') set.add(k);
+      headers = Array.from(set);
+    }
+    const rows = all.map(r => headers.map(h => r[h] ?? ''));
     return { headers, rows };
   }
 };
@@ -5599,6 +5668,62 @@ async function recurrenceForm(rec) {
 /* ----- REPORTS ----- */
 // Report columns are described with their Hebrew header (the display
 // label) and the property to read from each enriched row.
+/* ----- FACTURATION ----- */
+async function renderFacturation() {
+  PAGE.innerHTML = `
+    <div class="flex flex-wrap items-center justify-between gap-3 mb-6">
+      <h1 class="text-2xl font-bold text-slate-900">${escapeHtml(t('navFacturation'))}</h1>
+      <div class="flex flex-wrap gap-2">${importBarHtml('facturation', { canImport: true })}</div>
+    </div>
+    <div class="bg-white rounded-xl border border-slate-200 shadow-sm">
+      <div class="p-4 border-b border-slate-200">
+        <input id="searchInput" type="search" placeholder="${escapeHtml(t('search'))}" class="w-full max-w-sm px-3 py-2 border border-slate-300 rounded-lg text-sm">
+      </div>
+      <div id="listBody"></div>
+    </div>
+  `;
+  wireImportBar(renderFacturation);
+
+  const draw = async () => {
+    const tpl = (await getImportTemplate('facturation')) || { fields: [] };
+    const fields = (tpl.fields || []).filter(f => f.include !== false);
+    const all = await DB.getAll('facturation');
+    const q = $('#searchInput').value.trim().toLowerCase();
+    const filtered = q
+      ? all.filter(r => Object.values(r).some(v => String(v ?? '').toLowerCase().includes(q)))
+      : all;
+    if (fields.length === 0) {
+      $('#listBody').innerHTML = `<p class="px-4 py-6 text-slate-500 text-sm">${escapeHtml(t('facturationEmpty'))}</p>`;
+      return;
+    }
+    const headerHtml = fields.map(f =>
+      `<th class="px-4 py-3 text-start font-medium">${escapeHtml(f.header || f.field)} <button type="button" class="fb-col-del text-red-500 hover:text-red-700 text-xs ms-1" data-field="${escapeHtml(f.field)}" title="${escapeHtml(t('fieldDeleted'))}">✕</button></th>`
+    ).join('');
+    const rows = filtered.map(r => `
+      <tr class="hover:bg-slate-50">${
+        fields.map(f => `<td class="px-4 py-3 text-slate-700 text-sm">${escapeHtml(String(r[f.field] ?? ''))}</td>`).join('')
+      }</tr>`).join('');
+    $('#listBody').innerHTML = `
+      <table class="w-full text-sm">
+        <thead class="bg-slate-50 text-slate-600 text-xs uppercase tracking-wide"><tr>${headerHtml}</tr></thead>
+        <tbody class="divide-y divide-slate-100">${rows || `<tr><td class="px-4 py-6 text-slate-400" colspan="${fields.length}">${escapeHtml(t('noResults'))}</td></tr>`}</tbody>
+      </table>`;
+    // Per-column delete: removes the field from the template AND its values
+    // from every facturation record.
+    document.querySelectorAll('.fb-col-del').forEach(btn => btn.onclick = async () => {
+      const f = btn.dataset.field;
+      const label = (fields.find(x => x.field === f) || {}).header || f;
+      const ok = await confirmModal(fillTpl(t('confirmDeleteField'), { name: label }));
+      if (!ok) return;
+      await deleteEntityField('facturation', f);
+      toast(t('fieldDeleted'));
+      draw();
+    });
+  };
+  $('#searchInput').oninput = draw;
+  await draw();
+}
+
 const REPORT_COLUMNS = [
   { key: 'date',                   label: "ת. דווח",            num: false },
   { key: 'employee',               label: 'עובד',               num: false },
@@ -6417,6 +6542,7 @@ async function exportJson() {
     submissions: await DB.getAll('submissions'),
     missions: await DB.getAll('missions'),
     recurrences: await DB.getAll('recurrences'),
+    facturation: await DB.getAll('facturation'),
     settings: await DB.getAll('settings'),
     exportedAt: new Date().toISOString()
   };
@@ -6440,7 +6566,7 @@ async function importJsonHandler(e) {
     const text = await file.text();
     const data = JSON.parse(text);
     await DB.clearAll();
-    const stores = ['clients','projects','tasks','employees','timeEntries','attendance','submissions','missions','recurrences','settings'];
+    const stores = ['clients','projects','tasks','employees','timeEntries','attendance','submissions','missions','recurrences','facturation','settings'];
     for (const s of stores) {
       if (Array.isArray(data[s])) {
         for (const r of data[s]) await DB.put(s, r);
