@@ -2129,12 +2129,15 @@ const ENTITY_IMPORTS = {
         DB.getAll('projects'), DB.getAll('tasks'),
         DB.getAll('timeEntries')
       ]);
+      const norm = (s) => String(s || '').toLowerCase().trim();
       return {
         employees, clients, projects, tasks, existingEntries,
-        clientByName: Object.fromEntries(clients.map(c => [c.nom.toLowerCase(), c.id])),
-        projectByCode: Object.fromEntries(projects.filter(p => p.code).map(p => [p.code.toLowerCase(), p.id])),
-        projectByName: Object.fromEntries(projects.map(p => [p.nom.toLowerCase(), p.id])),
-        taskByName: Object.fromEntries(tasks.map(x => [x.nom.toLowerCase(), x.id]))
+        clientByName: Object.fromEntries(clients.map(c => [norm(c.nom), c.id])),
+        clientByCode: Object.fromEntries(clients.filter(c => c.numeroClient).map(c => [norm(c.numeroClient), c.id])),
+        projectByCode: Object.fromEntries(projects.filter(p => p.code).map(p => [norm(p.code), p.id])),
+        projectByName: Object.fromEntries(projects.map(p => [norm(p.nom), p.id])),
+        taskByName: Object.fromEntries(tasks.map(x => [norm(x.nom), x.id])),
+        taskByCode: Object.fromEntries(tasks.filter(x => x.numeroTache).map(x => [norm(x.numeroTache), x.id]))
       };
     },
     importRow: async (row, ctx) => {
@@ -2163,40 +2166,49 @@ const ENTITY_IMPORTS = {
         ctx.employees.push(emp);
       }
 
-      // ---- Client: auto-create when only a name is provided ----
+      // ---- Client: lookup by (numero, nom) and auto-create with both ----
+      const lc = (s) => String(s || '').toLowerCase().trim();
       let cid = Number(row.client);
-      if (!cid && row.client) {
-        const cName = String(row.client).trim();
-        cid = ctx.clientByName[cName.toLowerCase()];
-        if (!cid) {
-          cid = await DB.add('clients', { numeroClient: await nextClientNumber(), nom: cName, actif: true });
-          ctx.clientByName[cName.toLowerCase()] = cid;
+      if (!cid) {
+        const cCode = String(row.client || '').trim();
+        const cName = String(row.clientName || '').trim();
+        if (cCode) cid = ctx.clientByCode[lc(cCode)] || ctx.clientByName[lc(cCode)];
+        if (!cid && cName) cid = ctx.clientByName[lc(cName)];
+        if (!cid && (cCode || cName)) {
+          const num = cCode || await nextClientNumber();
+          cid = await DB.add('clients', { numeroClient: num, nom: cName || cCode, actif: true });
+          ctx.clientByCode[lc(num)] = cid;
+          if (cName) ctx.clientByName[lc(cName)] = cid;
         }
       }
 
-      // ---- Project: auto-create (linked to the resolved client when available) ----
+      // ---- Project: lookup by (code, nom), auto-create with both ----
       let pid = Number(row.projet);
-      if (!pid && row.projet) {
-        const raw = String(row.projet).trim();
-        const k = raw.toLowerCase();
-        pid = ctx.projectByCode[k] || ctx.projectByName[k] || null;
-        if (!pid) {
-          const code = await nextProjectCode();
-          pid = await DB.add('projects', { nom: raw, code, clientId: cid || null, actif: true, statutProjet: 'active' });
-          ctx.projectByName[k] = pid;
-          ctx.projectByCode[code.toLowerCase()] = pid;
+      if (!pid) {
+        const pCode = String(row.projet || '').trim();
+        const pName = String(row.projectName || '').trim();
+        if (pCode) pid = ctx.projectByCode[lc(pCode)] || ctx.projectByName[lc(pCode)];
+        if (!pid && pName) pid = ctx.projectByName[lc(pName)];
+        if (!pid && (pCode || pName)) {
+          const code = pCode || await nextProjectCode();
+          pid = await DB.add('projects', { nom: pName || pCode, code, clientId: cid || null, actif: true, statutProjet: 'active' });
+          ctx.projectByCode[lc(code)] = pid;
+          if (pName) ctx.projectByName[lc(pName)] = pid;
         }
       }
 
-      // ---- Task: auto-create when referenced by name and not found ----
+      // ---- Task: lookup by (numero, nom), auto-create with both ----
       let tid = Number(row.tache);
-      if (!tid && row.tache) {
-        const raw = String(row.tache).trim();
-        const k = raw.toLowerCase();
-        tid = ctx.taskByName[k] || null;
-        if (!tid) {
-          tid = await DB.add('tasks', { nom: raw, numeroTache: await nextTaskNumber(), statut: 'open', description: '', typeTask: '' });
-          ctx.taskByName[k] = tid;
+      if (!tid) {
+        const tCode = String(row.tache || '').trim();
+        const tName = String(row.activityName || '').trim();
+        if (tCode) tid = ctx.taskByCode[lc(tCode)] || ctx.taskByName[lc(tCode)];
+        if (!tid && tName) tid = ctx.taskByName[lc(tName)];
+        if (!tid && (tCode || tName)) {
+          const num = tCode || await nextTaskNumber();
+          tid = await DB.add('tasks', { numeroTache: num, nom: tName || tCode, statut: 'open', description: '', typeTask: '' });
+          ctx.taskByCode[lc(num)] = tid;
+          if (tName) ctx.taskByName[lc(tName)] = tid;
         }
       }
 
@@ -6517,6 +6529,36 @@ async function seedDefaultSettings() {
   if (await DB.getSetting('bloquerSiDepassement', null) == null) {
     await DB.setSetting('bloquerSiDepassement', false);
   }
+  await ensureTimeEntriesTemplateHebrew();
+}
+
+// One-shot seed: replace the default Saisie heures import template with the
+// 16 Hebrew column layout requested by the user. Idempotent via a version
+// flag — re-run only if the version changes.
+async function ensureTimeEntriesTemplateHebrew() {
+  const ver = 'hebrew-v1';
+  const seeded = await DB.getSetting('timeEntriesTemplateSeedVersion', null);
+  if (seeded === ver) return;
+  const fields = [
+    { field: 'projet',                 header: "מס' פרויקט",          include: true },
+    { field: 'projectName',            header: 'שם הפרויקט',          include: true },
+    { field: 'client',                 header: 'מס. לקוח',            include: true },
+    { field: 'clientName',             header: 'שם לקוח',             include: true },
+    { field: 'projectManager',         header: 'מנהל פרויקט',         include: true },
+    { field: 'projectType',            header: 'סוג פרויקט',          include: true },
+    { field: 'projectTypeDescription', header: 'תאור סוג פרויקט',     include: true },
+    { field: 'invoice',                header: 'חשבונית',             include: true },
+    { field: 'reportNumber',           header: "מס' דווח",            include: true },
+    { field: 'tache',                  header: 'מספר פעילות (WBS)',   include: true },
+    { field: 'activityName',           header: 'שם פעילות',           include: true },
+    { field: 'sku',                    header: "מק'ט",                include: true },
+    { field: 'description',            header: 'תאור מוצר',           include: true },
+    { field: 'nom',                    header: 'עובד',                include: true },
+    { field: 'date',                   header: 'ת. דווח',             include: true },
+    { field: 'heures',                 header: "סה'כ דווח ללקוח",     include: true }
+  ];
+  await setImportTemplate('timeEntries', { fields });
+  await DB.setSetting('timeEntriesTemplateSeedVersion', ver);
 }
 
 async function boot() {
