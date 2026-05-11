@@ -6675,14 +6675,21 @@ async function renderBillingSynthesis() {
   };
 
   const byProject = {};
-  // Flexible key lookup — facturation records are fully schemaless, so we
-  // scan every key of every record and match by substring (e.g. a column
-  // labelled "סכום (ש\"ח)" or "Montant (ש\"ח)" still maps to "amount").
+  // Flexible key lookup — facturation records are fully schemaless. Strip
+  // apostrophes / geresh / quotes / dots / parentheses / whitespace, lowercase
+  // and NFD-normalise so "מס' פרויקט", "מס׳ פרויקט", "מספר פרויקט" and "Mispar Project"
+  // all collide.
+  const norm = (s) => String(s ?? '')
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '')
+    .replace(/[׳״‘’“”'"`.,()\[\]\s\-_]/g, '')
+    .toLowerCase();
   const pickField = (rec, needles) => {
     for (const need of needles) {
-      const n = String(need).toLowerCase();
+      const n = norm(need);
+      if (!n) continue;
       for (const k of Object.keys(rec)) {
-        if (String(k).toLowerCase().includes(n)) {
+        if (norm(k).includes(n)) {
           const v = rec[k];
           if (v !== '' && v != null) return v;
         }
@@ -6694,14 +6701,15 @@ async function renderBillingSynthesis() {
   for (const f of facturationRecords) {
     const pCode = String(pickField(f, ["מס' פרויקט", 'מספר פרויקט', 'projectCode', 'projet'])).trim();
     const pName = String(pickField(f, ['שם הפרויקט', 'projectName'])).trim();
-    if (!pCode && !pName) continue;
     const cName = String(pickField(f, ['שם לקוח', 'clientName', 'client'])).trim();
     const pType = String(pickField(f, ['סוג פרויקט', 'projectType'])).trim();
     const pTypeDesc = String(pickField(f, ['תיאור סוג פרויקט', 'תאור סוג פרויקט', 'projectTypeDescription'])).trim();
     const amt   = parseAmount(pickField(f, ['סכום', 'amount', 'montant', 'sum']));
     const ym    = extractYM(pickField(f, ['ת. דווח', 'תאריך', 'חודש', 'date', 'month', 'mois']));
 
-    const key = lcKey(pCode || pName);
+    // Group by (client + project) — if no project info we still bucket the
+    // row under the client, otherwise under a synthetic "(sans projet)" key.
+    const key = lcKey(cName) + '|' + lcKey(pCode || pName);
     if (!byProject[key]) byProject[key] = {
       code: pCode, name: pName, clientName: cName,
       projectType: pType, projectTypeDescription: pTypeDesc,
