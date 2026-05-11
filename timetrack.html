@@ -6828,7 +6828,8 @@ async function renderBillingSynthesis() {
     projectTypeDesc: ['תיאור סוג פרויקט', 'תאור סוג פרויקט', 'projectTypeDescription'],
     projectType:     ['סוג פרויקט', 'projectType'],
     amount:          ['סכום', 'סכוםשח', 'amount', 'montant', 'sum', 'total'],
-    date:            ['ת. דווח', 'תאריך', 'חודש', 'date', 'month', 'mois']
+    date:            ['ת. דווח', 'תאריך', 'חודש', 'date', 'month', 'mois'],
+    invoice:         ['חשבונית', 'invoice', 'numeroFacture', 'noFacture']
   };
   const aliasNorm = Object.fromEntries(
     Object.entries(ALIASES).map(([k, arr]) => [k, arr.map(norm)])
@@ -6859,8 +6860,23 @@ async function renderBillingSynthesis() {
     return '';
   };
 
-  const byKey = {};
+  // Deduplicate by invoice number (חשבונית) — keep only the first row for any
+  // given invoice. Rows without an invoice number pass through untouched.
+  const seenInvoices = new Set();
+  let duplicatesDropped = 0;
+  const dedupedRecords = [];
   for (const f of facturationRecords) {
+    const inv = String(pickField(f, 'invoice')).trim();
+    if (inv) {
+      const k = norm(inv);
+      if (seenInvoices.has(k)) { duplicatesDropped++; continue; }
+      seenInvoices.add(k);
+    }
+    dedupedRecords.push(f);
+  }
+
+  const byKey = {};
+  for (const f of dedupedRecords) {
     const project = String(pickField(f, 'project')).trim();
     const cName   = String(pickField(f, 'clientName')).trim();
     const pType   = String(pickField(f, 'projectType')).trim();
@@ -6906,7 +6922,7 @@ async function renderBillingSynthesis() {
 
     <div id="printArea" class="bg-white rounded-xl border border-slate-200 shadow-sm p-5">
       <h2 class="text-lg font-bold text-slate-900 mb-1">${escapeHtml(t('navBillingSynthesis'))}</h2>
-      <div class="text-xs text-slate-500 mb-3">${rows.length} ${escapeHtml(t('linesImported'))} (${facturationRecords.length} ${escapeHtml(t('navImportFacturation'))})</div>
+      <div class="text-xs text-slate-500 mb-3">${rows.length} ${escapeHtml(t('linesImported'))} (${facturationRecords.length} ${escapeHtml(t('navImportFacturation'))}${duplicatesDropped > 0 ? ` · ${duplicatesDropped} doublons חשבונית ignorés` : ''})</div>
       ${rows.length === 0
         ? `<p class="text-sm text-slate-500">${escapeHtml(t('noResults'))}</p>`
         : `<div class="overflow-x-auto"><table class="w-full text-sm border border-slate-200 rounded">
