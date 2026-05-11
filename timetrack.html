@@ -330,6 +330,9 @@
           <button data-page="profitability" data-roles="admin,manager" class="nav-item flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-slate-100 text-slate-700 text-start">
             <span class="nav-ico text-slate-500">•</span><span data-i18n="navProfitability">Rentabilité</span>
           </button>
+          <button data-page="projectSynthesis" data-roles="admin,manager" class="nav-item flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-slate-100 text-slate-700 text-start">
+            <span class="nav-ico text-slate-500">•</span><span data-i18n="navProjectSynthesis">Synthèse projets</span>
+          </button>
         </div>
       </div>
 
@@ -675,6 +678,8 @@ const I18N = {
     navUnbilledProjects: "Projets non facturés",
     unbilledHint: "Projets avec des heures saisies mais aucune facturation",
     navProfitability: "Rentabilité",
+    navProjectSynthesis: "Synthèse projets",
+    projectSynthesisHint: "Synthèse par projet : total heures, nombre de mois actifs et coût total",
     reportsTitle: "Rapports",
     reportFilters: "Filtres",
     reportGroupBy: "Grouper par",
@@ -954,6 +959,8 @@ const I18N = {
     navUnbilledProjects: "Unbilled projects",
     unbilledHint: "Projects with hours logged but no billing",
     navProfitability: "Profitability",
+    navProjectSynthesis: "Project synthesis",
+    projectSynthesisHint: "Per-project synthesis: total hours, number of active months and total cost",
     reportsTitle: "Reports",
     reportFilters: "Filters",
     reportGroupBy: "Group by",
@@ -1233,6 +1240,8 @@ const I18N = {
     navUnbilledProjects: "פרויקטים ללא חשבונית",
     unbilledHint: "פרויקטים עם שעות רשומות אך ללא חיוב",
     navProfitability: "רווחיות",
+    navProjectSynthesis: "סיכום פרויקטים",
+    projectSynthesisHint: "סיכום לכל פרויקט: סך שעות, מספר חודשים פעילים ועלות כוללת",
     reportsTitle: "דוחות",
     reportFilters: "מסננים",
     reportGroupBy: "קבץ לפי",
@@ -1903,6 +1912,7 @@ async function navigate(page) {
   if (page === 'reports')        { if (!guardRole('admin','manager')) return; return renderReports(); }
   if (page === 'unbilledProjects') { if (!guardRole('admin','manager')) return; return renderUnbilledProjects(); }
   if (page === 'profitability')    { if (!guardRole('admin','manager')) return; return renderProfitability(); }
+  if (page === 'projectSynthesis') { if (!guardRole('admin','manager')) return; return renderProjectSynthesis(); }
   if (page === 'facturation')    { if (!guardRole('admin','manager')) return; return renderFacturation(); }
   if (page === 'settings')       return renderSettings();
 }
@@ -6526,6 +6536,107 @@ async function renderProfitability() {
   $('#pr_print').onclick = () => window.print();
 
   draw();
+}
+
+/* ----- REPORT: Synthèse projets ----- */
+async function renderProjectSynthesis() {
+  const [entries, projects, employees, tarifs] = await Promise.all([
+    DB.getAll('timeEntries'),
+    DB.getAll('projects'),
+    DB.getAll('employees'),
+    getTarifsHoraires()
+  ]);
+  const pById = Object.fromEntries(projects.map(p => [p.id, p]));
+  const eById = Object.fromEntries(employees.map(e => [e.id, e]));
+
+  const lcKey = (s) => String(s ?? '').toLowerCase().trim();
+
+  const byProject = {};
+  for (const en of entries) {
+    const proj = pById[en.projectId] || {};
+    const code = String(en.projectCode || proj.code || '').trim();
+    const name = String(en.projectName || proj.nom  || '').trim();
+    if (!code && !name) continue;
+    const key = lcKey(code || name);
+    const emp = eById[en.employeId] || {};
+    const sku = String(en.sku || '').trim();
+    const rate = (sku && tarifs[sku] != null) ? Number(tarifs[sku]) : (Number(emp.tauxHoraire) || 0);
+    const hours = Number(en.heures) || 0;
+    if (!byProject[key]) byProject[key] = {
+      code, name, hours: 0, cost: 0, months: new Set()
+    };
+    byProject[key].hours += hours;
+    byProject[key].cost  += hours * rate;
+    const ym = (en.date || '').slice(0, 7);
+    if (ym) byProject[key].months.add(ym);
+  }
+
+  const rows = Object.values(byProject)
+    .map(r => ({ code: r.code, name: r.name, hours: r.hours, cost: r.cost, monthCount: r.months.size }))
+    .sort((a, b) => String(a.name || a.code).localeCompare(String(b.name || b.code)));
+
+  const totalHours  = rows.reduce((s, r) => s + r.hours, 0);
+  const totalCost   = rows.reduce((s, r) => s + r.cost, 0);
+  const totalMonths = rows.reduce((s, r) => s + r.monthCount, 0);
+
+  PAGE.innerHTML = `
+    <div class="flex items-center justify-between mb-6">
+      <h1 class="text-2xl font-bold text-slate-900">📈 ${escapeHtml(t('navProjectSynthesis'))}</h1>
+    </div>
+    <p class="text-sm text-slate-500 mb-4">${escapeHtml(t('projectSynthesisHint'))}</p>
+
+    <div id="printArea" class="bg-white rounded-xl border border-slate-200 shadow-sm p-5">
+      <h2 class="text-lg font-bold text-slate-900 mb-1">${escapeHtml(t('navProjectSynthesis'))}</h2>
+      <div class="text-xs text-slate-500 mb-3">${rows.length} ${escapeHtml(t('linesImported'))}</div>
+      ${rows.length === 0
+        ? `<p class="text-sm text-slate-500">${escapeHtml(t('noResults'))}</p>`
+        : `<div class="overflow-x-auto"><table class="w-full text-sm border border-slate-200 rounded">
+        <thead>
+          <tr class="bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
+            <th class="px-3 py-2 text-start font-medium">N° projet</th>
+            <th class="px-3 py-2 text-start font-medium">Nom du projet</th>
+            <th class="px-3 py-2 text-end font-medium">Total mois</th>
+            <th class="px-3 py-2 text-end font-medium">Total heures</th>
+            <th class="px-3 py-2 text-end font-medium">Total coût</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${rows.map(r => `
+            <tr class="border-t border-slate-100">
+              <td class="px-3 py-2 text-slate-700">${escapeHtml(r.code)}</td>
+              <td class="px-3 py-2 text-slate-700 font-medium">${escapeHtml(r.name)}</td>
+              <td class="px-3 py-2 text-end">${r.monthCount}</td>
+              <td class="px-3 py-2 text-end font-medium">${fmt(r.hours)}</td>
+              <td class="px-3 py-2 text-end font-medium">${fmt(r.cost)}</td>
+            </tr>
+          `).join('')}
+        </tbody>
+        <tfoot>
+          <tr class="bg-slate-100 font-semibold border-t-2 border-slate-300">
+            <td colspan="2" class="px-3 py-2 text-end">${escapeHtml(t('reportTotalHours'))} / ${escapeHtml(t('reportTotalCost'))}</td>
+            <td class="px-3 py-2 text-end">${totalMonths}</td>
+            <td class="px-3 py-2 text-end">${fmt(totalHours)}</td>
+            <td class="px-3 py-2 text-end">${fmt(totalCost)}</td>
+          </tr>
+        </tfoot>
+      </table></div>`}
+    </div>
+
+    <div class="mt-4 flex flex-wrap gap-2 justify-end no-print">
+      <button id="ps_export" class="px-4 py-2 rounded-lg border border-slate-300 hover:bg-slate-50 text-sm">📊 ${escapeHtml(t('exportExcel'))}</button>
+      <button id="ps_print"  class="px-4 py-2 rounded-lg border border-slate-300 hover:bg-slate-50 text-sm">🖨 ${escapeHtml(t('reportPrint'))}</button>
+    </div>
+  `;
+
+  $('#ps_export').onclick = () => {
+    const headers = ['N° projet', 'Nom du projet', 'Total mois', 'Total heures', 'Total coût'];
+    const data = rows.map(r => [r.code, r.name, r.monthCount, +r.hours.toFixed(2), +r.cost.toFixed(2)]);
+    data.push([]);
+    data.push([`${t('reportTotalHours')} / ${t('reportTotalCost')}`, '', totalMonths, +totalHours.toFixed(2), +totalCost.toFixed(2)]);
+    exportListToExcel(`synthese-projets-${new Date().toISOString().slice(0,10)}`, 'Synthèse projets', headers, data);
+    toast(t('exported'));
+  };
+  $('#ps_print').onclick = () => window.print();
 }
 
 /* ----- IMPORT TEMPLATE — header detection from a file ----- */
