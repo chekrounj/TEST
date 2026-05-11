@@ -5617,21 +5617,24 @@ async function renderReports() {
     const sku  = String(en.sku || '').trim();
     const rate = (sku && tarifs[sku] != null) ? Number(tarifs[sku]) : (Number(emp.tauxHoraire) || 0);
     const hours = Number(en.heures) || 0;
+    // Prefer the raw imported text values (en.*) over what was stored on
+    // the resolved record — so the filter dropdowns and the table cells
+    // stay in sync with what's literally in the imported file.
     return {
       _en: en,
       date: en.date || '',
       employee: emp.nom || '',
       clientNumber: cli.numeroClient || '',
-      clientName:   cli.nom || en.clientName || '',
+      clientName:   en.clientName || cli.nom || '',
       projectCode:  proj.code || '',
-      projectName:  proj.nom  || en.projectName || '',
-      projectType:  proj.typeProjet || en.projectType || '',
+      projectName:  en.projectName || proj.nom || '',
+      projectType:  en.projectType || proj.typeProjet || '',
       projectTypeDescription: en.projectTypeDescription || '',
       projectManager: en.projectManager || '',
       invoice: en.invoice || '',
       reportNumber: en.reportNumber || '',
       activityNumber: tsk.numeroTache || '',
-      activityName:   tsk.nom || en.activityName || '',
+      activityName:   en.activityName || tsk.nom || '',
       sku,
       description: en.description || '',
       hours, rate, cost: hours * rate
@@ -5822,6 +5825,14 @@ async function renderReports() {
     else renderReports._expanded.add(k);
     draw();
   });
+  // Auto-apply on any filter / group / sort / column toggle change.
+  ['rp_month','rp_client','rp_ptdesc','rp_emp','rp_group','rp_sort'].forEach(id => {
+    const el = $('#' + id);
+    if (!el) return;
+    el.onchange = () => { renderReports._expanded = new Set(); draw(); };
+    el.oninput  = () => { renderReports._expanded = new Set(); draw(); };
+  });
+  document.querySelectorAll('[data-col]').forEach(c => c.onchange = () => draw());
   $('#rp_expandAll').onclick   = () => { renderReports._expanded = new Set(renderReports._allKeys || []); draw(); };
   $('#rp_collapseAll').onclick = () => { renderReports._expanded = new Set(); draw(); };
   $('#rp_generate').onclick = () => { renderReports._expanded = new Set(); draw(); };
