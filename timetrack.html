@@ -4371,13 +4371,19 @@ async function drawTypePies(employees, timeEntries) {
   const projects = await DB.getAll('projects');
   const pById = Object.fromEntries(projects.map(p => [p.id, p]));
   const eFull = Object.fromEntries(employees.map(e => [e.id, e]));
+  const tarifs = await getTarifsHoraires();
 
   const lastMonthEntries = timeEntries.filter(en => (en.date || '') >= startIso && (en.date || '') <= endIso);
   const byType = {};
   for (const en of lastMonthEntries) {
-    const type = (en.projectType && String(en.projectType).trim()) || pById[en.projectId]?.typeProjet || t('untyped');
+    // Group by תיאור סוג פרויקט (projectTypeDescription) instead of project type.
+    const type = (en.projectTypeDescription && String(en.projectTypeDescription).trim()) || t('untyped');
     const hours = Number(en.heures) || 0;
-    const rate  = Number(eFull[en.employeId]?.tauxHoraire) || 0;
+    // Cost like reports: rate from tarif horaire by SKU, fallback to employee tauxHoraire.
+    const sku = String(en.sku || '').trim();
+    const rate = (sku && tarifs[sku] != null)
+      ? Number(tarifs[sku])
+      : (Number(eFull[en.employeId]?.tauxHoraire) || 0);
     if (!byType[type]) byType[type] = { hours: 0, cost: 0 };
     byType[type].hours += hours;
     byType[type].cost  += hours * rate;
