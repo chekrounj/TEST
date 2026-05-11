@@ -425,7 +425,7 @@ const I18N = {
     actions: "Actions",
     // Clients
     clientsTitle: "Clients", clientName: "Nom", clientAddress: "Adresse",
-    clientContact: "Contact", clientActive: "Actif",
+    clientContact: "Contact", clientActive: "Actif", clientNumber: "N° client",
     // Projects
     projectsTitle: "Projets", projectClient: "Client", projectName: "Nom",
     projectCode: "Code", projectRate: "Taux horaire", projectBudget: "Budget (heures)",
@@ -446,6 +446,7 @@ const I18N = {
     // Tasks
     tasksTitle: "Tâches", taskProject: "Projet", taskName: "Nom",
     taskDesc: "Description", taskStatus: "Statut", taskType: "Type de tâche",
+    taskNumber: "N° tâche",
     // Employees
     employeesTitle: "Employés", empName: "Nom", empEmail: "Email",
     empRole: "Rôle", empRate: "Taux horaire", empNumber: "N° employé",
@@ -701,7 +702,7 @@ const I18N = {
     noResults: "No results",
     actions: "Actions",
     clientsTitle: "Clients", clientName: "Name", clientAddress: "Address",
-    clientContact: "Contact", clientActive: "Active",
+    clientContact: "Contact", clientActive: "Active", clientNumber: "Client #",
     projectsTitle: "Projects", projectClient: "Client", projectName: "Name",
     projectCode: "Code", projectRate: "Hourly rate", projectBudget: "Budget (hours)",
     projectActive: "Active", projectType: "Project type", projectStatus: "Project status",
@@ -720,6 +721,7 @@ const I18N = {
     projectPrice: "Price",
     tasksTitle: "Tasks", taskProject: "Project", taskName: "Name",
     taskDesc: "Description", taskStatus: "Status", taskType: "Task type",
+    taskNumber: "Task #",
     employeesTitle: "Employees", empName: "Name", empEmail: "Email",
     empRole: "Role", empRate: "Hourly rate", empNumber: "Employee #",
     timeTitle: "Time entry", timeClient: "Client", timeProject: "Project",
@@ -965,7 +967,7 @@ const I18N = {
     noResults: "אין תוצאות",
     actions: "פעולות",
     clientsTitle: "לקוחות", clientName: "שם", clientAddress: "כתובת",
-    clientContact: "איש קשר", clientActive: "פעיל",
+    clientContact: "איש קשר", clientActive: "פעיל", clientNumber: "מספר לקוח",
     projectsTitle: "פרויקטים", projectClient: "לקוח", projectName: "שם",
     projectCode: "קוד", projectRate: "תעריף שעתי", projectBudget: "תקציב (שעות)",
     projectActive: "פעיל", projectType: "סוג פרויקט", projectStatus: "סטטוס פרויקט",
@@ -984,6 +986,7 @@ const I18N = {
     projectPrice: "מחיר",
     tasksTitle: "משימות", taskProject: "פרויקט", taskName: "שם",
     taskDesc: "תיאור", taskStatus: "סטטוס", taskType: "סוג משימה",
+    taskNumber: "מספר משימה",
     employeesTitle: "עובדים", empName: "שם", empEmail: "דוא״ל",
     empRole: "תפקיד", empRate: "תעריף שעתי", empNumber: "מספר עובד",
     timeTitle: "רישום שעות", timeClient: "לקוח", timeProject: "פרויקט",
@@ -1877,28 +1880,35 @@ function statusBadge(statut, verrouille) {
 const ENTITY_IMPORTS = {
   clients: {
     template: {
-      headers: ['nom', 'adresse', 'contact', 'actif'],
-      sample: [['Acme Corp', '1 rue de Paris, 75001', 'contact@acme.fr', true]]
+      headers: ['numeroClient', 'nom', 'adresse', 'contact', 'actif'],
+      sample: [['CLI001', 'Acme Corp', '1 rue de Paris, 75001', 'contact@acme.fr', true]]
     },
     buildContext: async () => ({ all: await DB.getAll('clients') }),
     importRow: async (row, ctx) => {
       const nom = String(row.nom || '').trim();
       if (!nom) return false;
+      const numProvided = String(row.numeroClient || '').trim();
       const incoming = {
+        numeroClient: numProvided,
         nom,
         adresse: String(row.adresse || '').trim(),
         contact: String(row.contact || '').trim(),
         actif: row.actif === '' || row.actif == null ? undefined : parseBool(row.actif, true)
       };
-      const existing = ctx.all.find(c => (c.nom || '').toLowerCase() === nom.toLowerCase());
+      const lc = (s) => String(s || '').toLowerCase();
+      const existing = ctx.all.find(c =>
+        (numProvided && lc(c.numeroClient) === lc(numProvided))
+        || lc(c.nom) === lc(nom)
+      );
       if (existing) {
         const { merged, touched } = fillEmpty(existing, incoming);
         if (!touched) return false;
         await DB.update('clients', existing.id, merged);
         return 'updated';
       }
-      const extras = extractExtras(row, ['nom','adresse','contact','actif']);
+      const extras = extractExtras(row, ['numeroClient','nom','adresse','contact','actif']);
       await DB.add('clients', {
+        numeroClient: numProvided || await nextClientNumber(),
         nom,
         adresse: incoming.adresse,
         contact: incoming.contact,
@@ -1932,10 +1942,11 @@ const ENTITY_IMPORTS = {
         const cName = String(row.clientId).trim();
         cid = ctx.byName[cName.toLowerCase()] || null;
         if (!cid) {
-          // Auto-create the referenced client (active by default)
-          cid = await DB.add('clients', { nom: cName, actif: true });
+          // Auto-create the referenced client (active by default) with a fresh number
+          const num = await nextClientNumber();
+          cid = await DB.add('clients', { numeroClient: num, nom: cName, actif: true });
           ctx.byName[cName.toLowerCase()] = cid;
-          ctx.clients.push({ id: cid, nom: cName, actif: true });
+          ctx.clients.push({ id: cid, numeroClient: num, nom: cName, actif: true });
         }
       }
       const type = String(row.typeProjet || '').trim();
@@ -1971,7 +1982,7 @@ const ENTITY_IMPORTS = {
       await DB.add('projects', {
         clientId: cid || null,
         nom,
-        code,
+        code: code || await nextProjectCode(),
         tauxHoraire: incoming.tauxHoraire ?? null,
         budgetHeures: incoming.budgetHeures ?? null,
         actif: incoming.actif === undefined ? true : incoming.actif,
@@ -1993,28 +2004,38 @@ const ENTITY_IMPORTS = {
   },
   tasks: {
     template: {
-      headers: ['nom', 'description', 'statut', 'typeTask'],
-      sample: [['Réunion hebdo', 'Stand-up équipe', 'open', 'Réunion']]
+      headers: ['numeroTache', 'nom', 'description', 'statut', 'typeTask'],
+      sample: [['TSK001', 'Réunion hebdo', 'Stand-up équipe', 'open', 'Réunion']]
     },
     buildContext: async () => ({ all: await DB.getAll('tasks') }),
     importRow: async (row, ctx) => {
       const nom = String(row.nom || '').trim();
       if (!nom) return false;
+      const numProvided = String(row.numeroTache || '').trim();
       const incoming = {
+        numeroTache: numProvided,
         nom,
         description: String(row.description || '').trim(),
         statut: String(row.statut || '').trim(),
         typeTask: String(row.typeTask || '').trim()
       };
-      const existing = ctx.all.find(x => (x.nom || '').toLowerCase() === nom.toLowerCase());
+      const lc = (s) => String(s || '').toLowerCase();
+      const existing = ctx.all.find(x =>
+        (numProvided && lc(x.numeroTache) === lc(numProvided))
+        || lc(x.nom) === lc(nom));
       if (existing) {
         const { merged, touched } = fillEmpty(existing, incoming);
         if (!touched) return false;
         await DB.update('tasks', existing.id, merged);
         return 'updated';
       }
-      const extrasT = extractExtras(row, ['nom','description','statut','typeTask']);
-      await DB.add('tasks', { ...incoming, statut: incoming.statut || 'open', ...extrasT });
+      const extrasT = extractExtras(row, ['numeroTache','nom','description','statut','typeTask']);
+      await DB.add('tasks', {
+        ...incoming,
+        numeroTache: numProvided || await nextTaskNumber(),
+        statut: incoming.statut || 'open',
+        ...extrasT
+      });
       ctx.all = await DB.getAll('tasks');
       return true;
     }
@@ -2139,7 +2160,7 @@ const ENTITY_IMPORTS = {
         const cName = String(row.client).trim();
         cid = ctx.clientByName[cName.toLowerCase()];
         if (!cid) {
-          cid = await DB.add('clients', { nom: cName, actif: true });
+          cid = await DB.add('clients', { numeroClient: await nextClientNumber(), nom: cName, actif: true });
           ctx.clientByName[cName.toLowerCase()] = cid;
         }
       }
@@ -2151,8 +2172,10 @@ const ENTITY_IMPORTS = {
         const k = raw.toLowerCase();
         pid = ctx.projectByCode[k] || ctx.projectByName[k] || null;
         if (!pid) {
-          pid = await DB.add('projects', { nom: raw, clientId: cid || null, actif: true, statutProjet: 'active' });
+          const code = await nextProjectCode();
+          pid = await DB.add('projects', { nom: raw, code, clientId: cid || null, actif: true, statutProjet: 'active' });
           ctx.projectByName[k] = pid;
+          ctx.projectByCode[code.toLowerCase()] = pid;
         }
       }
 
@@ -2283,6 +2306,26 @@ async function nextEmployeeNumber(extra = []) {
   for (const n of extra) consider(n);
   return `EMP${String(max + 1).padStart(3, '0')}`;
 }
+
+// Generic next-number helper. Looks at `field` on every record of `storeName`
+// and returns prefix + (max + 1) zero-padded. Non-matching values are ignored.
+async function nextNumberFor(storeName, field, prefix, extra = []) {
+  const all = await DB.getAll(storeName);
+  const re = new RegExp('^' + prefix + '(\\d+)$', 'i');
+  let max = 0;
+  for (const r of all) {
+    const m = String(r[field] || '').match(re);
+    if (m) max = Math.max(max, Number(m[1]));
+  }
+  for (const n of (extra || [])) {
+    const m = String(n || '').match(re);
+    if (m) max = Math.max(max, Number(m[1]));
+  }
+  return `${prefix}${String(max + 1).padStart(3, '0')}`;
+}
+const nextClientNumber = (extra) => nextNumberFor('clients', 'numeroClient', 'CLI', extra);
+const nextTaskNumber   = (extra) => nextNumberFor('tasks',   'numeroTache',  'TSK', extra);
+const nextProjectCode  = (extra) => nextNumberFor('projects','code',         'PRJ', extra);
 
 // Mutates the rendered list table according to the import template:
 //  - canonical columns marked include=false are hidden
@@ -2622,9 +2665,10 @@ async function renderClients() {
   const draw = async () => {
     const all = await DB.getAll('clients');
     const q = $('#searchInput').value.trim().toLowerCase();
-    const filtered = all.filter(c => !q || (c.nom||'').toLowerCase().includes(q) || (c.contact||'').toLowerCase().includes(q));
+    const filtered = all.filter(c => !q || (c.nom||'').toLowerCase().includes(q) || (c.contact||'').toLowerCase().includes(q) || (c.numeroClient||'').toLowerCase().includes(q));
     const rows = filtered.map(c => `
       <tr class="hover:bg-slate-50">
+        <td class="px-4 py-3 text-slate-600 text-xs">${escapeHtml(c.numeroClient || '')}</td>
         <td class="px-4 py-3">${escapeHtml(c.nom)}</td>
         <td class="px-4 py-3 text-slate-600">${escapeHtml(c.adresse || '')}</td>
         <td class="px-4 py-3 text-slate-600">${escapeHtml(c.contact || '')}</td>
@@ -2632,10 +2676,10 @@ async function renderClients() {
         <td class="px-4 py-3">${rowActions(c.id)}</td>
       </tr>`).join('');
     $('#listBody').innerHTML = tableEl(
-      [t('clientName'), t('clientAddress'), t('clientContact'), t('clientActive'), t('actions')],
+      [t('clientNumber'), t('clientName'), t('clientAddress'), t('clientContact'), t('clientActive'), t('actions')],
       rows
     );
-    await applyTemplateToList('clients', { nom: 0, adresse: 1, contact: 2, actif: 3 }, filtered);
+    await applyTemplateToList('clients', { numeroClient: 0, nom: 1, adresse: 2, contact: 3, actif: 4 }, filtered);
     $$('#listBody [data-act]').forEach(b => b.onclick = async () => {
       const id = Number(b.dataset.id);
       if (b.dataset.act === 'edit') {
@@ -2655,11 +2699,12 @@ async function renderClients() {
 }
 
 function clientForm(rec) {
-  const r = rec || { nom: '', adresse: '', contact: '', actif: true };
+  const r = rec || { numeroClient: '', nom: '', adresse: '', contact: '', actif: true };
   openModal({
     title: rec ? t('edit') : t('add'),
     bodyHtml: `
       <div class="space-y-3">
+        ${field('numeroClient', t('clientNumber'), r.numeroClient)}
         ${field('nom', t('clientName'), r.nom, 'text', true)}
         ${field('adresse', t('clientAddress'), r.adresse)}
         ${field('contact', t('clientContact'), r.contact)}
@@ -2667,12 +2712,14 @@ function clientForm(rec) {
       </div>`,
     onSave: async () => {
       const data = {
+        numeroClient: $('#f_numeroClient').value.trim(),
         nom: $('#f_nom').value.trim(),
         adresse: $('#f_adresse').value.trim(),
         contact: $('#f_contact').value.trim(),
         actif: $('#f_actif').checked
       };
       if (!data.nom) return false;
+      if (!data.numeroClient) data.numeroClient = await nextClientNumber();
       if (rec) await DB.update('clients', rec.id, data);
       else await DB.add('clients', data);
       toast(t('saved'));
@@ -2777,6 +2824,7 @@ async function projectForm(rec) {
         actif: $('#f_actif').checked
       };
       if (!data.nom || !data.clientId) return false;
+      if (!data.code) data.code = await nextProjectCode();
       if (rec) await DB.update('projects', rec.id, data);
       else await DB.add('projects', data);
       toast(t('saved'));
@@ -2798,9 +2846,10 @@ async function renderTasks() {
   const draw = async () => {
     const all = await DB.getAll('tasks');
     const q = $('#searchInput').value.trim().toLowerCase();
-    const filtered = all.filter(x => !q || (x.nom||'').toLowerCase().includes(q));
+    const filtered = all.filter(x => !q || (x.nom||'').toLowerCase().includes(q) || (x.numeroTache||'').toLowerCase().includes(q));
     const rows = filtered.map(x => `
       <tr class="hover:bg-slate-50">
+        <td class="px-4 py-3 text-slate-600 text-xs">${escapeHtml(x.numeroTache || '')}</td>
         <td class="px-4 py-3">${escapeHtml(x.nom)}</td>
         <td class="px-4 py-3 text-slate-600">${escapeHtml(x.typeTask || '')}</td>
         <td class="px-4 py-3 text-slate-600">${escapeHtml(x.statut || '')}</td>
@@ -2808,10 +2857,10 @@ async function renderTasks() {
         <td class="px-4 py-3">${rowActions(x.id)}</td>
       </tr>`).join('');
     $('#listBody').innerHTML = tableEl(
-      [t('taskName'), t('taskType'), t('taskStatus'), t('taskDesc'), t('actions')],
+      [t('taskNumber'), t('taskName'), t('taskType'), t('taskStatus'), t('taskDesc'), t('actions')],
       rows
     );
-    await applyTemplateToList('tasks', { nom: 0, typeTask: 1, statut: 2, description: 3 }, filtered);
+    await applyTemplateToList('tasks', { numeroTache: 0, nom: 1, typeTask: 2, statut: 3, description: 4 }, filtered);
     $$('#listBody [data-act]').forEach(b => b.onclick = async () => {
       const id = Number(b.dataset.id);
       if (b.dataset.act === 'edit') taskForm(await DB.getById('tasks', id));
@@ -2829,11 +2878,12 @@ async function renderTasks() {
 }
 
 async function taskForm(rec) {
-  const r = rec || { nom: '', description: '', statut: 'open', typeTask: '' };
+  const r = rec || { numeroTache: '', nom: '', description: '', statut: 'open', typeTask: '' };
   openModal({
     title: rec ? t('edit') : t('add'),
     bodyHtml: `
       <div class="space-y-3">
+        ${field('numeroTache', t('taskNumber'), r.numeroTache)}
         ${field('nom', t('taskName'), r.nom, 'text', true)}
         ${field('typeTask', t('taskType'), r.typeTask)}
         ${field('statut', t('taskStatus'), r.statut)}
@@ -2841,12 +2891,14 @@ async function taskForm(rec) {
       </div>`,
     onSave: async () => {
       const data = {
+        numeroTache: $('#f_numeroTache').value.trim(),
         nom: $('#f_nom').value.trim(),
         typeTask: $('#f_typeTask').value.trim(),
         statut: $('#f_statut').value.trim(),
         description: $('#f_description').value.trim()
       };
       if (!data.nom) return false;
+      if (!data.numeroTache) data.numeroTache = await nextTaskNumber();
       if (rec) await DB.update('tasks', rec.id, data);
       else await DB.add('tasks', data);
       toast(t('saved'));
