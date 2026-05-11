@@ -296,6 +296,9 @@
           <button data-page="billingTypes" data-roles="admin,manager" class="nav-item flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-slate-100 text-slate-700 text-start">
             <span class="nav-ico text-slate-500">💲</span><span data-i18n="navBillingTypes">Types de facturation</span>
           </button>
+          <button data-page="tarifHoraire" data-roles="admin,manager" class="nav-item flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-slate-100 text-slate-700 text-start">
+            <span class="nav-ico text-slate-500">💸</span><span data-i18n="navTarifHoraire">Tarif horaire</span>
+          </button>
         </div>
       </div>
 
@@ -437,6 +440,7 @@ const I18N = {
     typeName: "Nom du type", noTypes: "Aucun type défini",
     typeAlreadyExists: "Ce type existe déjà",
     navBillingTypes: "Types de facturation",
+    navTarifHoraire: "Tarif horaire",
     billingTypesTitle: "Types de facturation",
     billingTypeName: "Nom du type",
     addBillingType: "Ajouter un type",
@@ -716,6 +720,7 @@ const I18N = {
     typeName: "Type name", noTypes: "No types defined",
     typeAlreadyExists: "This type already exists",
     navBillingTypes: "Billing types",
+    navTarifHoraire: "Hourly rate",
     billingTypesTitle: "Billing types",
     billingTypeName: "Type name",
     addBillingType: "Add a type",
@@ -984,6 +989,7 @@ const I18N = {
     typeName: "שם הסוג", noTypes: "לא הוגדרו סוגים",
     typeAlreadyExists: "סוג זה כבר קיים",
     navBillingTypes: "סוגי חיוב",
+    navTarifHoraire: "תעריף שעתי",
     billingTypesTitle: "סוגי חיוב",
     billingTypeName: "שם הסוג",
     addBillingType: "הוסף סוג",
@@ -1828,6 +1834,7 @@ async function navigate(page) {
   if (page === 'projects')       { if (!guardRole('admin','manager')) return; return renderProjects(); }
   if (page === 'tasks')          { if (!guardRole('admin','manager')) return; return renderTasks(); }
   if (page === 'billingTypes')   { if (!guardRole('admin','manager')) return; return renderBillingTypes(); }
+  if (page === 'tarifHoraire')   { if (!guardRole('admin','manager')) return; return renderTarifHoraire(); }
   if (page === 'employees')      { if (!guardRole('admin','manager')) return; return renderEmployees(); }
   if (page === 'time')           return renderTimeEntries();
   if (page === 'mySubmissions')  return renderMySubmissions();
@@ -3054,6 +3061,68 @@ async function renderBillingTypes() {
           </ul>`}
     </div>
   `;
+}
+
+/* ----- TARIF HORAIRE — SKU (מק"ט) → hourly price (מחיר לשעה) ----- */
+async function getTarifsHoraires() {
+  const v = await DB.getSetting('tarifsHoraires', null);
+  return (v && typeof v === 'object' && !Array.isArray(v)) ? v : {};
+}
+async function setTarifsHoraires(map) {
+  return DB.setSetting('tarifsHoraires', map);
+}
+
+async function renderTarifHoraire() {
+  // SKUs come from time-entries (the מק'ט column). The hourly price for
+  // each SKU is editable on this page and stored under settings.tarifsHoraires.
+  const [entries, tarifs] = await Promise.all([DB.getAll('timeEntries'), getTarifsHoraires()]);
+  const skuSet = new Set();
+  for (const en of entries) {
+    if (en.sku != null && String(en.sku).trim()) skuSet.add(String(en.sku).trim());
+  }
+  for (const k of Object.keys(tarifs)) if (String(k).trim()) skuSet.add(String(k).trim());
+  const skus = Array.from(skuSet).sort((a, b) => a.localeCompare(b));
+
+  PAGE.innerHTML = `
+    <div class="flex items-center justify-between mb-6">
+      <h1 class="text-2xl font-bold text-slate-900">💸 ${escapeHtml(t('navTarifHoraire'))}</h1>
+    </div>
+    <div class="bg-white rounded-xl border border-slate-200 shadow-sm">
+      ${skus.length === 0
+        ? `<p class="text-sm text-slate-500 p-6">${escapeHtml(t('noResults'))}</p>`
+        : `<table class="w-full text-sm">
+            <thead class="bg-slate-50 text-xs uppercase text-slate-500">
+              <tr>
+                <th class="px-4 py-3 text-start font-medium">מק"ט</th>
+                <th class="px-4 py-3 text-start font-medium">מחיר לשעה</th>
+              </tr>
+            </thead>
+            <tbody class="divide-y divide-slate-100">
+              ${skus.map(sku => `
+                <tr class="hover:bg-slate-50">
+                  <td class="px-4 py-3">${escapeHtml(sku)}</td>
+                  <td class="px-4 py-3">
+                    <input type="number" step="0.01" min="0" data-sku="${escapeHtml(sku)}"
+                      class="th-price w-32 px-2 py-1 border border-slate-300 rounded text-sm"
+                      value="${tarifs[sku] == null ? '' : tarifs[sku]}">
+                  </td>
+                </tr>`).join('')}
+            </tbody>
+          </table>`}
+    </div>
+  `;
+
+  document.querySelectorAll('.th-price').forEach(input => {
+    input.onchange = async () => {
+      const sku = input.dataset.sku;
+      const val = input.value === '' ? null : Number(input.value);
+      const cur = await getTarifsHoraires();
+      if (val == null || Number.isNaN(val)) delete cur[sku];
+      else cur[sku] = val;
+      await setTarifsHoraires(cur);
+      toast(t('saved'));
+    };
+  });
 }
 
 /* ----- EMPLOYEES ----- */
