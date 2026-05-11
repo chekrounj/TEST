@@ -648,6 +648,7 @@ const I18N = {
     reportTotalHours: "Total heures",
     reportTotalCost: "Coût total",
     reportPeriod: "Période",
+    reportMonth: "Mois",
     colDate: "Date", colEmployee: "Employé", colClient: "Client",
     colProject: "Projet", colTask: "Tâche", colHours: "Heures",
     colRate: "Taux horaire", colCost: "Coût", colDescription: "Description",
@@ -917,6 +918,7 @@ const I18N = {
     reportTotalHours: "Total hours",
     reportTotalCost: "Total cost",
     reportPeriod: "Period",
+    reportMonth: "Month",
     colDate: "Date", colEmployee: "Employee", colClient: "Client",
     colProject: "Project", colTask: "Task", colHours: "Hours",
     colRate: "Rate", colCost: "Cost", colDescription: "Description",
@@ -1186,6 +1188,7 @@ const I18N = {
     reportTotalHours: "סה״כ שעות",
     reportTotalCost: "עלות כוללת",
     reportPeriod: "תקופה",
+    reportMonth: "חודש",
     colDate: "תאריך", colEmployee: "עובד", colClient: "לקוח",
     colProject: "פרויקט", colTask: "משימה", colHours: "שעות",
     colRate: "תעריף", colCost: "עלות", colDescription: "תיאור",
@@ -5568,34 +5571,77 @@ async function recurrenceForm(rec) {
 }
 
 /* ----- REPORTS ----- */
+// Report columns are described with their Hebrew header (the display
+// label) and the property to read from each enriched row.
 const REPORT_COLUMNS = [
-  { key: 'date',        labelKey: 'colDate',        width: 90  },
-  { key: 'employee',    labelKey: 'colEmployee',    width: 120 },
-  { key: 'client',      labelKey: 'colClient',      width: 120 },
-  { key: 'project',     labelKey: 'colProject',     width: 120 },
-  { key: 'projectType', labelKey: 'colProjectType', width: 110 },
-  { key: 'task',        labelKey: 'colTask',        width: 120 },
-  { key: 'hours',       labelKey: 'colHours',       width: 70,  num: true },
-  { key: 'rate',        labelKey: 'colRate',        width: 80,  num: true },
-  { key: 'cost',        labelKey: 'colCost',        width: 90,  num: true },
-  { key: 'description', labelKey: 'colDescription', width: 200 }
+  { key: 'date',                   label: "ת. דווח",            num: false },
+  { key: 'employee',               label: 'עובד',               num: false },
+  { key: 'clientNumber',           label: 'מס. לקוח',           num: false },
+  { key: 'clientName',             label: 'שם לקוח',            num: false },
+  { key: 'projectCode',            label: "מס' פרויקט",         num: false },
+  { key: 'projectName',            label: 'שם הפרויקט',         num: false },
+  { key: 'projectType',            label: 'סוג פרויקט',         num: false },
+  { key: 'projectTypeDescription', label: 'תיאור פרויקט',       num: false },
+  { key: 'projectManager',         label: 'מנהל פרויקט',        num: false },
+  { key: 'invoice',                label: 'חשבונית',            num: false },
+  { key: 'reportNumber',           label: "מס' דווח",           num: false },
+  { key: 'activityNumber',         label: 'מספר פעילות',        num: false },
+  { key: 'activityName',           label: 'שם פעילות',          num: false },
+  { key: 'sku',                    label: "מק'ט",               num: false },
+  { key: 'description',            label: 'תאור מוצר',          num: false },
+  { key: 'hours',                  label: "סה'כ דווח",          num: true },
+  { key: 'rate',                   label: 'מחיר לשעה',          num: true },
+  { key: 'cost',                   label: 'עלות',               num: true }
 ];
 
 async function renderReports() {
-  const [employees, clients, projects, tasks, entries] = await Promise.all([
+  const [employees, clients, projects, tasks, entries, tarifs] = await Promise.all([
     DB.getAll('employees'), DB.getAll('clients'),
     DB.getAll('projects'), DB.getAll('tasks'),
-    DB.getAll('timeEntries')
+    DB.getAll('timeEntries'), getTarifsHoraires()
   ]);
   const eById = Object.fromEntries(employees.map(e => [e.id, e]));
   const cById = Object.fromEntries(clients.map(c => [c.id, c]));
   const pById = Object.fromEntries(projects.map(p => [p.id, p]));
   const tById = Object.fromEntries(tasks.map(x => [x.id, x]));
 
-  const today = new Date();
-  const monthAgo = new Date(today.getTime() - 30 * 86400000);
-  const defaultFrom = monthAgo.toISOString().slice(0,10);
-  const defaultTo = today.toISOString().slice(0,10);
+  const defaultMonth = new Date().toISOString().slice(0, 7); // YYYY-MM
+
+  // Build the per-row enriched view first so filter dropdowns can be
+  // populated with the distinct values actually present in the data.
+  const enrichAll = () => entries.map(en => {
+    const emp  = eById[en.employeId] || {};
+    const proj = pById[en.projectId] || {};
+    const cli  = cById[en.clientId]  || {};
+    const tsk  = tById[en.taskId]    || {};
+    const sku  = String(en.sku || '').trim();
+    const rate = (sku && tarifs[sku] != null) ? Number(tarifs[sku]) : (Number(emp.tauxHoraire) || 0);
+    const hours = Number(en.heures) || 0;
+    return {
+      _en: en,
+      date: en.date || '',
+      employee: emp.nom || '',
+      clientNumber: cli.numeroClient || '',
+      clientName:   cli.nom || en.clientName || '',
+      projectCode:  proj.code || '',
+      projectName:  proj.nom  || en.projectName || '',
+      projectType:  proj.typeProjet || en.projectType || '',
+      projectTypeDescription: en.projectTypeDescription || '',
+      projectManager: en.projectManager || '',
+      invoice: en.invoice || '',
+      reportNumber: en.reportNumber || '',
+      activityNumber: tsk.numeroTache || '',
+      activityName:   tsk.nom || en.activityName || '',
+      sku,
+      description: en.description || '',
+      hours, rate, cost: hours * rate
+    };
+  });
+  const allRows = enrichAll();
+  const distinct = (key) => Array.from(new Set(allRows.map(r => r[key]).filter(v => v))).sort((a, b) => String(a).localeCompare(String(b)));
+  const clientNames = distinct('clientName');
+  const ptDescs     = distinct('projectTypeDescription');
+  const employeeNames = distinct('employee');
 
   PAGE.innerHTML = `
     <div class="flex items-center justify-between mb-6">
@@ -5604,35 +5650,30 @@ async function renderReports() {
 
     <div class="bg-white rounded-xl border border-slate-200 shadow-sm p-5 mb-4 no-print">
       <h2 class="font-semibold text-slate-900 mb-3">${escapeHtml(t('reportFilters'))}</h2>
-      <div class="grid grid-cols-1 md:grid-cols-3 gap-3 mb-3">
+      <div class="grid grid-cols-1 md:grid-cols-4 gap-3 mb-3">
         <div>
-          <label class="block text-xs text-slate-500 mb-1">${escapeHtml(t('attFromDate'))}</label>
-          <input id="rp_from" type="date" value="${defaultFrom}" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm">
+          <label class="block text-xs text-slate-500 mb-1">${escapeHtml(t('reportMonth'))}</label>
+          <input id="rp_month" type="month" value="${defaultMonth}" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm">
         </div>
         <div>
-          <label class="block text-xs text-slate-500 mb-1">${escapeHtml(t('attToDate'))}</label>
-          <input id="rp_to" type="date" value="${defaultTo}" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm">
-        </div>
-        <div></div>
-        <div>
-          <label class="block text-xs text-slate-500 mb-1">${escapeHtml(t('timeClient'))}</label>
+          <label class="block text-xs text-slate-500 mb-1">שם לקוח</label>
           <select id="rp_client" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm">
             <option value="">—</option>
-            ${clients.map(c => `<option value="${c.id}">${escapeHtml(c.nom)}</option>`).join('')}
+            ${clientNames.map(n => `<option value="${escapeHtml(n)}">${escapeHtml(n)}</option>`).join('')}
           </select>
         </div>
         <div>
-          <label class="block text-xs text-slate-500 mb-1">${escapeHtml(t('timeProject'))}</label>
-          <select id="rp_project" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm">
+          <label class="block text-xs text-slate-500 mb-1">תיאור פרויקט</label>
+          <select id="rp_ptdesc" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm">
             <option value="">—</option>
-            ${projects.map(p => `<option value="${p.id}">${escapeHtml(p.nom)}</option>`).join('')}
+            ${ptDescs.map(n => `<option value="${escapeHtml(n)}">${escapeHtml(n)}</option>`).join('')}
           </select>
         </div>
         <div>
-          <label class="block text-xs text-slate-500 mb-1">${escapeHtml(t('timeEmployee'))}</label>
+          <label class="block text-xs text-slate-500 mb-1">עובד</label>
           <select id="rp_emp" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm">
             <option value="">—</option>
-            ${employees.map(e => `<option value="${e.id}">${escapeHtml(e.nom)}</option>`).join('')}
+            ${employeeNames.map(n => `<option value="${escapeHtml(n)}">${escapeHtml(n)}</option>`).join('')}
           </select>
         </div>
       </div>
@@ -5641,20 +5682,19 @@ async function renderReports() {
           <label class="block text-xs text-slate-500 mb-1">${escapeHtml(t('reportGroupBy'))}</label>
           <select id="rp_group" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm">
             <option value="">${escapeHtml(t('reportNoGroup'))}</option>
-            <option value="client">${escapeHtml(t('colClient'))}</option>
-            <option value="project">${escapeHtml(t('colProject'))}</option>
-            <option value="projectType">${escapeHtml(t('colProjectType'))}</option>
-            <option value="employee">${escapeHtml(t('colEmployee'))}</option>
+            <option value="clientName">שם לקוח</option>
+            <option value="projectType">סוג פרויקט</option>
+            <option value="projectName">פרויקט</option>
+            <option value="employee">עובד</option>
           </select>
         </div>
         <div>
           <label class="block text-xs text-slate-500 mb-1">${escapeHtml(t('reportSortBy'))}</label>
           <select id="rp_sort" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm">
             <option value="date">${escapeHtml(t('colDate'))}</option>
-            <option value="employee">${escapeHtml(t('colEmployee'))}</option>
-            <option value="client">${escapeHtml(t('colClient'))}</option>
-            <option value="project">${escapeHtml(t('colProject'))}</option>
-            <option value="projectType">${escapeHtml(t('colProjectType'))}</option>
+            <option value="employee">עובד</option>
+            <option value="clientName">שם לקוח</option>
+            <option value="projectName">פרויקט</option>
             <option value="hours">${escapeHtml(t('colHours'))}</option>
             <option value="cost">${escapeHtml(t('colCost'))}</option>
           </select>
@@ -5665,8 +5705,8 @@ async function renderReports() {
         <div class="flex flex-wrap gap-2">
           ${REPORT_COLUMNS.map(c => `
             <label class="inline-flex items-center gap-1 px-2 py-1 rounded border border-slate-300 text-sm cursor-pointer hover:bg-slate-50">
-              <input type="checkbox" data-col="${c.key}" class="w-4 h-4" ${['date','employee','client','project','hours','cost'].includes(c.key) ? 'checked' : ''}>
-              ${escapeHtml(t(c.labelKey))}
+              <input type="checkbox" data-col="${c.key}" class="w-4 h-4" ${['date','employee','clientName','projectName','projectType','hours','cost'].includes(c.key) ? 'checked' : ''}>
+              ${escapeHtml(c.label)}
             </label>`).join('')}
         </div>
       </div>
@@ -5686,64 +5726,39 @@ async function renderReports() {
     </div>
   `;
 
-  // Helper that produces flat rows + grouped structure
   const computeRows = () => {
-    const fFrom = $('#rp_from').value;
-    const fTo   = $('#rp_to').value;
-    const fCli  = $('#rp_client').value;
-    const fPrj  = $('#rp_project').value;
-    const fEmp  = $('#rp_emp').value;
-    const groupBy = $('#rp_group').value;
-    const sortBy  = $('#rp_sort').value;
+    const fMonth   = $('#rp_month').value;
+    const fClient  = $('#rp_client').value;
+    const fPtDesc  = $('#rp_ptdesc').value;
+    const fEmp     = $('#rp_emp').value;
+    const groupBy  = $('#rp_group').value;
+    const sortBy   = $('#rp_sort').value;
 
-    let list = entries.slice();
-    if (fFrom) list = list.filter(en => (en.date || '') >= fFrom);
-    if (fTo)   list = list.filter(en => (en.date || '') <= fTo);
-    if (fCli)  list = list.filter(en => Number(en.clientId) === Number(fCli));
-    if (fPrj)  list = list.filter(en => Number(en.projectId) === Number(fPrj));
-    if (fEmp)  list = list.filter(en => Number(en.employeId) === Number(fEmp));
-
-    const enriched = list.map(en => {
-      const emp = eById[en.employeId] || {};
-      const proj = pById[en.projectId] || {};
-      const rate = Number(emp.tauxHoraire) || 0;
-      const hours = Number(en.heures) || 0;
-      return {
-        date: en.date || '',
-        employee: emp.nom || '?',
-        client: cById[en.clientId]?.nom || '',
-        project: proj.nom || '',
-        projectType: proj.typeProjet || t('untyped'),
-        task: tById[en.taskId]?.nom || '',
-        hours,
-        rate,
-        cost: hours * rate,
-        description: en.description || ''
-      };
-    });
+    let list = allRows.slice();
+    if (fMonth)  list = list.filter(r => (r.date || '').startsWith(fMonth));
+    if (fClient) list = list.filter(r => r.clientName === fClient);
+    if (fPtDesc) list = list.filter(r => r.projectTypeDescription === fPtDesc);
+    if (fEmp)    list = list.filter(r => r.employee === fEmp);
 
     const cmp = (a, b) => {
       const va = a[sortBy], vb = b[sortBy];
       if (typeof va === 'number') return vb - va; // numeric desc
       return String(va || '').localeCompare(String(vb || ''));
     };
-    enriched.sort(cmp);
+    list.sort(cmp);
 
-    return { rows: enriched, groupBy, fFrom, fTo };
+    return { rows: list, groupBy, fMonth };
   };
 
   const draw = () => {
-    const { rows, groupBy, fFrom, fTo } = computeRows();
-    const cols = REPORT_COLUMNS.filter(c => $(`#printArea-cols`)
-      ? false
-      : (document.querySelector(`[data-col="${c.key}"]`)?.checked));
+    const { rows, groupBy, fMonth } = computeRows();
+    const cols = REPORT_COLUMNS.filter(c => document.querySelector(`[data-col="${c.key}"]`)?.checked);
     const totalHours = rows.reduce((s, r) => s + r.hours, 0);
     const totalCost  = rows.reduce((s, r) => s + r.cost, 0);
 
     const headerRow = `<tr class="bg-slate-50 text-xs uppercase tracking-wide text-slate-500">${
-      cols.map(c => `<th class="px-3 py-2 text-start font-medium">${escapeHtml(t(c.labelKey))}</th>`).join('')
+      cols.map(c => `<th class="px-3 py-2 text-start font-medium">${escapeHtml(c.label)}</th>`).join('')
     }</tr>`;
-
     const dataRowHtml = (r) => `<tr class="border-t border-slate-100">${
       cols.map(c => {
         const v = r[c.key];
@@ -5775,7 +5790,6 @@ async function renderReports() {
           ${open ? groups[k].map(dataRowHtml).join('') : ''}
         `;
       }).join('');
-      // Stash for expand/collapse-all buttons
       renderReports._allKeys = sortedKeys;
     } else {
       bodyHtml = rows.map(dataRowHtml).join('');
@@ -5789,7 +5803,7 @@ async function renderReports() {
         ${cols.find(c => c.key === 'cost')  ? `<td class="px-3 py-2 text-end">${fmt(totalCost)}</td>` : ''}
       </tr>`;
 
-    $('#rp_meta').textContent = `${t('reportPeriod')}: ${fFrom || '—'} → ${fTo || '—'} · ${rows.length} ${t('linesImported')}`;
+    $('#rp_meta').textContent = `${t('reportMonth')}: ${fMonth || '—'} · ${rows.length} ${t('linesImported')}`;
     $('#rp_body').innerHTML = rows.length
       ? `<div class="overflow-x-auto"><table class="w-full text-sm border border-slate-200 rounded">
           <thead>${headerRow}</thead>
@@ -5799,9 +5813,7 @@ async function renderReports() {
       : `<p class="text-sm text-slate-500">${escapeHtml(t('noResults'))}</p>`;
   };
 
-  // Init expanded set (per render)
   if (!renderReports._expanded) renderReports._expanded = new Set();
-  // Hook group toggle clicks (delegated)
   $('#rp_body').addEventListener('click', (ev) => {
     const tr = ev.target.closest('[data-group-key]');
     if (!tr) return;
@@ -5810,22 +5822,14 @@ async function renderReports() {
     else renderReports._expanded.add(k);
     draw();
   });
-  $('#rp_expandAll').onclick = () => {
-    renderReports._expanded = new Set(renderReports._allKeys || []);
-    draw();
-  };
-  $('#rp_collapseAll').onclick = () => {
-    renderReports._expanded = new Set();
-    draw();
-  };
-
+  $('#rp_expandAll').onclick   = () => { renderReports._expanded = new Set(renderReports._allKeys || []); draw(); };
+  $('#rp_collapseAll').onclick = () => { renderReports._expanded = new Set(); draw(); };
   $('#rp_generate').onclick = () => { renderReports._expanded = new Set(); draw(); };
   $('#rp_export').onclick = () => {
-    const { rows, groupBy } = computeRows();
+    const { rows } = computeRows();
     const cols = REPORT_COLUMNS.filter(c => document.querySelector(`[data-col="${c.key}"]`)?.checked);
-    const headers = cols.map(c => t(c.labelKey));
+    const headers = cols.map(c => c.label);
     const data = rows.map(r => cols.map(c => c.num ? (Math.round((r[c.key]||0) * 100) / 100) : (r[c.key] ?? '')));
-    // Append totals
     const totalHours = rows.reduce((s, r) => s + r.hours, 0);
     const totalCost  = rows.reduce((s, r) => s + r.cost, 0);
     const totalsRow = cols.map(c => c.key === 'hours' ? totalHours : c.key === 'cost' ? totalCost : '');
@@ -5838,7 +5842,6 @@ async function renderReports() {
   };
   $('#rp_print').onclick = () => window.print();
 
-  // First render
   draw();
 }
 
