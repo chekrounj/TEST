@@ -6675,15 +6675,31 @@ async function renderBillingSynthesis() {
   };
 
   const byProject = {};
+  // Flexible key lookup — facturation records are fully schemaless, so we
+  // scan every key of every record and match by substring (e.g. a column
+  // labelled "סכום (ש\"ח)" or "Montant (ש\"ח)" still maps to "amount").
+  const pickField = (rec, needles) => {
+    for (const need of needles) {
+      const n = String(need).toLowerCase();
+      for (const k of Object.keys(rec)) {
+        if (String(k).toLowerCase().includes(n)) {
+          const v = rec[k];
+          if (v !== '' && v != null) return v;
+        }
+      }
+    }
+    return '';
+  };
+
   for (const f of facturationRecords) {
-    const pCode = String(f.projet ?? f.projectCode ?? f["מס' פרויקט"] ?? f["מספר פרויקט"] ?? '').trim();
-    const pName = String(f.projectName ?? f["שם הפרויקט"] ?? '').trim();
+    const pCode = String(pickField(f, ["מס' פרויקט", 'מספר פרויקט', 'projectCode', 'projet'])).trim();
+    const pName = String(pickField(f, ['שם הפרויקט', 'projectName'])).trim();
     if (!pCode && !pName) continue;
-    const cName = String(f.clientName ?? f["שם לקוח"] ?? '').trim();
-    const pType = String(f.projectType ?? f["סוג פרויקט"] ?? '').trim();
-    const pTypeDesc = String(f.projectTypeDescription ?? f["תיאור סוג פרויקט"] ?? f["תאור סוג פרויקט"] ?? '').trim();
-    const amt   = parseAmount(f["סכום"] ?? f["סכום (ש\"ח)"] ?? f.amount ?? f.montant ?? f.sum);
-    const ym    = extractYM(f.date ?? f["ת. דווח"] ?? f["תאריך"] ?? f["חודש"] ?? f.month ?? f.mois);
+    const cName = String(pickField(f, ['שם לקוח', 'clientName', 'client'])).trim();
+    const pType = String(pickField(f, ['סוג פרויקט', 'projectType'])).trim();
+    const pTypeDesc = String(pickField(f, ['תיאור סוג פרויקט', 'תאור סוג פרויקט', 'projectTypeDescription'])).trim();
+    const amt   = parseAmount(pickField(f, ['סכום', 'amount', 'montant', 'sum']));
+    const ym    = extractYM(pickField(f, ['ת. דווח', 'תאריך', 'חודש', 'date', 'month', 'mois']));
 
     const key = lcKey(pCode || pName);
     if (!byProject[key]) byProject[key] = {
