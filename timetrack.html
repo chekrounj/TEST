@@ -2168,6 +2168,7 @@ const ENTITY_IMPORTS = {
         await DB.update('timeEntries', existing.id, merged);
         return 'updated';
       }
+      const extrasTE = extractExtras(row, ['date','heures','description','employe','client','projet','tache','numeroEmploye','matricule','email','nom','employee','name']);
       await DB.add('timeEntries', {
         employeId: emp.id,
         clientId: cid || null,
@@ -2177,7 +2178,8 @@ const ENTITY_IMPORTS = {
         description: incoming.description,
         statutValidation: 'brouillon',
         submissionId: null,
-        verrouille: false
+        verrouille: false,
+        ...extrasTE
       });
       ctx.existingEntries = await DB.getAll('timeEntries');
       return true;
@@ -3268,6 +3270,9 @@ async function renderTimeEntries() {
       [t('timeDate'), t('timeEmployee'), t('timeClient'), t('timeProject'), t('timeTask'), t('timeHours'), t('timeDescription'), t('timeStatus'), t('actions')],
       rows
     );
+    await applyTemplateToList('timeEntries',
+      { date: 0, nom: 1, numeroEmploye: 1, email: 1, employe: 1, client: 2, projet: 3, tache: 4, heures: 5, description: 6 },
+      filtered);
     $$('#listBody [data-act="delete"]').forEach(b => b.onclick = async () => {
       if (await confirmModal(t('confirmDelete'))) {
         await DB.remove('timeEntries', Number(b.dataset.id));
@@ -3430,6 +3435,9 @@ async function renderAttendance() {
       [t('timeEmployee'), t('attDate'), t('attClockIn'), t('attClockOut'), t('attBreak'), t('attTotal'), t('attSource'), t('actions')],
       rows
     );
+    await applyTemplateToList('attendance',
+      { nom: 0, numeroEmploye: 0, email: 0, date: 1, heureEntree: 2, heureSortie: 3, pause: 4, totalHeures: 5, source: 6 },
+      filtered);
     $$('#listBody [data-act]').forEach(b => b.onclick = async () => {
       const id = Number(b.dataset.id);
       if (b.dataset.act === 'edit') attendanceForm(await DB.getById('attendance', id));
@@ -3561,9 +3569,11 @@ async function importAttendanceHandler(e) {
       if (totalHeures == null) totalHeures = diffHours(heureEntree, heureSortie, pauseH);
       totalHeures = totalHeures == null ? 0 : Number(totalHeures);
 
+      const extrasAtt = extractExtras(r, ['email','numeroEmploye','nom','date','heureEntree','entree','entrée','clockIn','in','start','heureSortie','sortie','clockOut','out','end','pause','break','totalHeures','heures','total','hours','source','employe','employee','matricule','name']);
       const record = {
         date, heureEntree, heureSortie, pause: pauseH,
-        totalHeures, source: 'import', importeLe: importedAt
+        totalHeures, source: 'import', importeLe: importedAt,
+        ...extrasAtt
       };
 
       if (!emp) {
