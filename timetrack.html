@@ -1919,7 +1919,16 @@ const ENTITY_IMPORTS = {
       const nom = String(row.nom || '').trim();
       if (!nom) return false;
       let cid = Number(row.clientId);
-      if (!cid && row.clientId) cid = ctx.byName[String(row.clientId).toLowerCase().trim()] || null;
+      if (!cid && row.clientId) {
+        const cName = String(row.clientId).trim();
+        cid = ctx.byName[cName.toLowerCase()] || null;
+        if (!cid) {
+          // Auto-create the referenced client (active by default)
+          cid = await DB.add('clients', { nom: cName, actif: true });
+          ctx.byName[cName.toLowerCase()] = cid;
+          ctx.clients.push({ id: cid, nom: cName, actif: true });
+        }
+      }
       const type = String(row.typeProjet || '').trim();
       if (type && !ctx.knownTypes.has(type.toLowerCase())) {
         ctx.knownTypes.add(type.toLowerCase());
@@ -2012,14 +2021,32 @@ const ENTITY_IMPORTS = {
       if (!nom) return false;
       const num = String(row.numeroEmploye || '').trim();
       const email = String(row.email || '').trim();
+      const lc = (s) => String(s || '').toLowerCase();
+
+      // Resolve / auto-create the manager when a 'manager' column is provided
+      let managerId = null;
+      const mgrRaw = row.manager != null ? String(row.manager).trim() : '';
+      if (mgrRaw) {
+        const found = ctx.all.find(e => lc(e.nom) === lc(mgrRaw) || lc(e.email) === lc(mgrRaw) || lc(e.numeroEmploye) === lc(mgrRaw));
+        if (found) managerId = found.id;
+        else {
+          managerId = await DB.add('employees', {
+            nom: mgrRaw, role: 'manager', actif: true,
+            managerId: null, pin: null, email: '', numeroEmploye: '', tauxHoraire: null
+          });
+          ctx.all.push({ id: managerId, nom: mgrRaw, role: 'manager', actif: true });
+        }
+      }
+
       const incoming = {
         numeroEmploye: num,
         nom,
         email,
         role: String(row.role || '').trim(),
-        tauxHoraire: row.tauxHoraire === '' || row.tauxHoraire == null ? undefined : Number(row.tauxHoraire)
+        tauxHoraire: row.tauxHoraire === '' || row.tauxHoraire == null ? undefined : Number(row.tauxHoraire),
+        managerId: managerId == null ? undefined : managerId
       };
-      const lc = (s) => String(s || '').toLowerCase();
+
       const existing = ctx.all.find(e =>
         (num && lc(e.numeroEmploye) === lc(num))
         || (email && lc(e.email) === lc(email))
@@ -2031,11 +2058,12 @@ const ENTITY_IMPORTS = {
         await DB.update('employees', existing.id, merged);
         return 'updated';
       }
-      const extrasE = extractExtras(row, ['numeroEmploye','nom','email','role','tauxHoraire']);
+      const extrasE = extractExtras(row, ['numeroEmploye','nom','email','role','tauxHoraire','manager','managerId']);
       await DB.add('employees', {
         numeroEmploye: num, nom, email,
         role: incoming.role || 'employe',
         tauxHoraire: incoming.tauxHoraire ?? null,
+        managerId: managerId,
         actif: true,
         ...extrasE
       });
