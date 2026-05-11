@@ -2253,6 +2253,12 @@ const ENTITY_IMPORTS = {
         return 'updated';
       }
       const extrasTE = extractExtras(row, ['date','heures','description','employe','client','projet','tache','numeroEmploye','matricule','email','nom','employee','name']);
+      // Preserve the raw מס. לקוח / מס' פרויקט / מספר פעילות values from
+      // the row so views (Clients list, reports…) can show exactly what
+      // the file contained, without re-querying the resolved record.
+      const rawClient  = String(row.client || '').trim();
+      const rawProject = String(row.projet || '').trim();
+      const rawTask    = String(row.tache  || '').trim();
       await DB.add('timeEntries', {
         employeId: emp.id,
         clientId: cid || null,
@@ -2263,6 +2269,9 @@ const ENTITY_IMPORTS = {
         statutValidation: 'brouillon',
         submissionId: null,
         verrouille: false,
+        clientNumber: rawClient,
+        projectCode: rawProject,
+        activityNumber: rawTask,
         ...extrasTE
       });
       ctx.existingEntries = await DB.getAll('timeEntries');
@@ -2801,10 +2810,9 @@ function tableEl(headers, rowsHtml) {
 
 /* ----- CLIENTS ----- */
 async function renderClients() {
-  // Read-only view derived from time-entries. Only two columns are shown:
-  //   מס. לקוח (numeroClient)  -  שם לקוח (nom).
-  // A client appears here as soon as it is referenced by at least one
-  // imported time-entry.
+  // Read-only view fed directly from the Saisie heures import. Two columns
+  // (מס. לקוח / שם לקוח) sourced from each time-entry's raw clientNumber
+  // and clientName fields (filled at import). Distinct rows only.
   renderListShell({
     title: t('clientsTitle'),
     addLabel: t('add'),
@@ -2816,24 +2824,25 @@ async function renderClients() {
   const draw = async () => {
     const [allClients, entries] = await Promise.all([DB.getAll('clients'), DB.getAll('timeEntries')]);
     const clientById = Object.fromEntries(allClients.map(c => [c.id, c]));
-    // Distinct clientIds referenced by time-entries
     const seen = new Set();
-    const referenced = [];
+    const list = [];
     for (const en of entries) {
-      const cid = Number(en.clientId);
-      if (!cid || seen.has(cid)) continue;
-      const c = clientById[cid];
-      if (!c) continue;
-      seen.add(cid);
-      referenced.push(c);
+      const cli = clientById[en.clientId] || {};
+      const numero = String(en.clientNumber || cli.numeroClient || '').trim();
+      const nom    = String(en.clientName   || cli.nom          || '').trim();
+      if (!numero && !nom) continue;
+      const key = numero + '' + nom;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      list.push({ numeroClient: numero, nom });
     }
-    referenced.sort((a, b) => String(a.numeroClient || '').localeCompare(String(b.numeroClient || '')));
+    list.sort((a, b) => String(a.numeroClient).localeCompare(String(b.numeroClient)));
     const q = $('#searchInput').value.trim().toLowerCase();
-    const filtered = referenced.filter(c => !q || (c.nom||'').toLowerCase().includes(q) || (c.numeroClient||'').toLowerCase().includes(q));
+    const filtered = list.filter(c => !q || c.nom.toLowerCase().includes(q) || c.numeroClient.toLowerCase().includes(q));
     const rows = filtered.map(c => `
       <tr class="hover:bg-slate-50">
-        <td class="px-4 py-3 text-slate-700">${escapeHtml(c.numeroClient || '')}</td>
-        <td class="px-4 py-3">${escapeHtml(c.nom || '')}</td>
+        <td class="px-4 py-3 text-slate-700">${escapeHtml(c.numeroClient)}</td>
+        <td class="px-4 py-3">${escapeHtml(c.nom)}</td>
       </tr>`).join('');
     $('#listBody').innerHTML = tableEl(["מס. לקוח", "שם לקוח"], rows);
     await applyTemplateToList('clients', { numeroClient: 0, nom: 1 }, filtered, '#listBody', true);
@@ -5624,17 +5633,17 @@ async function renderReports() {
       _en: en,
       date: en.date || '',
       employee: emp.nom || '',
-      clientNumber: cli.numeroClient || '',
-      clientName:   en.clientName || cli.nom || '',
-      projectCode:  proj.code || '',
-      projectName:  en.projectName || proj.nom || '',
-      projectType:  en.projectType || proj.typeProjet || '',
+      clientNumber: en.clientNumber   || cli.numeroClient || '',
+      clientName:   en.clientName     || cli.nom          || '',
+      projectCode:  en.projectCode    || proj.code        || '',
+      projectName:  en.projectName    || proj.nom         || '',
+      projectType:  en.projectType    || proj.typeProjet  || '',
       projectTypeDescription: en.projectTypeDescription || '',
       projectManager: en.projectManager || '',
       invoice: en.invoice || '',
       reportNumber: en.reportNumber || '',
-      activityNumber: tsk.numeroTache || '',
-      activityName:   en.activityName || tsk.nom || '',
+      activityNumber: en.activityNumber || tsk.numeroTache || '',
+      activityName:   en.activityName   || tsk.nom         || '',
       sku,
       description: en.description || '',
       hours, rate, cost: hours * rate
