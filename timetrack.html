@@ -592,6 +592,7 @@ const I18N = {
     statActiveEmployees: "Employés actifs",
     statPendingSubs: "Soumissions en attente",
     statRejectedThisMonth: "Soumissions rejetées ce mois",
+    statRevenueYear: "Chiffre d'affaires de l'année",
     statHoursDraft: "Vos heures en brouillon",
     statLastSubmission: "Dernière soumission",
     statToValidate: "Soumissions à valider",
@@ -878,6 +879,7 @@ const I18N = {
     dashTitle: "Dashboard",
     statActiveEmployees: "Active employees",
     statPendingSubs: "Pending submissions",
+    statRevenueYear: "Yearly revenue",
     statRejectedThisMonth: "Rejected this month",
     statHoursDraft: "Your draft hours",
     statLastSubmission: "Last submission",
@@ -1160,6 +1162,7 @@ const I18N = {
     lockedTooltip: "רישום מאושר — פנה למנהל לשינוי",
     dashTitle: "לוח מחוונים",
     statActiveEmployees: "עובדים פעילים",
+    statRevenueYear: "מחזור שנתי",
     statPendingSubs: "הגשות ממתינות",
     statRejectedThisMonth: "הגשות שנדחו החודש",
     statHoursDraft: "שעות בטיוטה",
@@ -1943,7 +1946,10 @@ function showBanner(html, level = 'warn') {
   el.classList.remove('hidden');
 }
 function hideBanner() { $('#globalBanner').classList.add('hidden'); }
-function fmt(n) { return (Math.round(Number(n) * 100) / 100).toString(); }
+function fmt(n) {
+  const v = Math.round(Number(n) || 0);
+  return v.toLocaleString('fr-FR');
+}
 // Format an ISO date (YYYY-MM-DD or ISO timestamp) as DD-MM-YYYY for display.
 // Accepts already-formatted DD-MM-YYYY strings transparently.
 function formatDate(iso) {
@@ -4053,9 +4059,10 @@ async function renderDashboard() {
   const session = Auth.getSession();
   if (!session) { showAuthShell(); return; }
   const role = session.role;
-  const [employees, submissions, timeEntries, missions, recurrences, clients] = await Promise.all([
+  const [employees, submissions, timeEntries, missions, recurrences, clients, facturation] = await Promise.all([
     DB.getAll('employees'), DB.getAll('submissions'), DB.getAll('timeEntries'),
-    DB.getAll('missions'), DB.getAll('recurrences'), DB.getAll('clients')
+    DB.getAll('missions'), DB.getAll('recurrences'), DB.getAll('clients'),
+    DB.getAll('facturation')
   ]);
   const monthStart = new Date(); monthStart.setDate(1);
   const monthStartIso = monthStart.toISOString().slice(0,10);
@@ -4073,11 +4080,13 @@ async function renderDashboard() {
     const activeRecs = recurrences.filter(r => r.actif !== false).length;
     const done = missions.filter(m => m.statut === 'effectuee');
     const respect = done.length ? Math.round(100 * done.filter(m => m.respectDelaiDemande === true).length / done.length) : null;
+    const revenueYear = computeRevenueYear(facturation);
     $('#dashBody').innerHTML = `
-      <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+      <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
         ${statCard('👥', t('statActiveEmployees'), activeEmployees, 'bg-blue-50 text-blue-800', 'activeEmployees')}
         ${statCard('⏳', t('statPendingSubs'), pending, 'bg-amber-50 text-amber-800', 'pendingSubs')}
         ${statCard('⛔', t('statRejectedThisMonth'), rejected, 'bg-red-50 text-red-800', 'rejectedSubs')}
+        ${statCard('💶', t('statRevenueYear'), fmt(revenueYear), 'bg-emerald-50 text-emerald-800')}
       </div>
       <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
         ${statCard('📋', t('statActiveMissions'), activeMissions, 'bg-slate-100 text-slate-800', 'activeMissions')}
@@ -4369,6 +4378,44 @@ async function renderEmployeeMissions(employeId, clients, allMissions) {
   }
 
   redraw();
+}
+
+// Yearly revenue = Σ סכום (or any "amount"-like column) from facturation
+// for the current calendar year. Rows without a parseable date count too,
+// since the facturation Excel may not always carry a date column.
+function computeRevenueYear(facturationRecords) {
+  const norm = (s) => String(s ?? '')
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '')
+    .replace(/[׳״‘’“”'"`.,()\[\]\s\-_]/g, '')
+    .toLowerCase();
+  const AMOUNT_ALIASES  = ['סכום', 'amount', 'montant', 'sum', 'total'].map(norm);
+  const DATE_ALIASES    = ['ת. דווח', 'תאריך', 'חודש', 'date', 'month', 'mois'].map(norm);
+  const pick = (rec, aliases) => {
+    const keys = Object.keys(rec).map(k => ({ k, n: norm(k) }));
+    for (const a of aliases) for (const k of keys) if (k.n === a) { const v = rec[k.k]; if (v !== '' && v != null) return v; }
+    for (const a of aliases) for (const k of keys) if (a && k.n.startsWith(a)) { const v = rec[k.k]; if (v !== '' && v != null) return v; }
+    return '';
+  };
+  const parseAmount = (v) => {
+    if (v == null || v === '') return 0;
+    const n = Number(String(v).replace(/[^\d.\-]/g, ''));
+    return Number.isFinite(n) ? n : 0;
+  };
+  const yearOf = (v) => {
+    const s = String(v ?? '').trim();
+    const m = s.match(/(\d{4})/);
+    return m ? m[1] : '';
+  };
+  const thisYear = String(new Date().getFullYear());
+  let total = 0;
+  for (const f of facturationRecords) {
+    const dateRaw = pick(f, DATE_ALIASES);
+    const y = yearOf(dateRaw);
+    if (y && y !== thisYear) continue;
+    total += parseAmount(pick(f, AMOUNT_ALIASES));
+  }
+  return total;
 }
 
 function statCard(icon, label, value, cls = 'bg-slate-100 text-slate-700', detailKey = null) {
