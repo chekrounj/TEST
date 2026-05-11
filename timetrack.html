@@ -2462,56 +2462,59 @@ async function importEntityFile(entity, file) {
   const sheet = wb.Sheets[wb.SheetNames[0]];
   const rawRows = XLSX.utils.sheet_to_json(sheet, { defval: '' });
 
+  // Normalised lookup key: lowercase + NFD + strip combining diacritics + trim.
+  // Makes "Tâche", "tache", "TÂCHE" all collide on "tache".
+  const norm = (s) => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().trim();
+
   // Collect every header used in the file (rows can have heterogeneous keys)
   const fileHeaders = new Set();
   for (const r of rawRows) for (const k of Object.keys(r)) if (String(k).trim()) fileHeaders.add(String(k).trim());
 
   const canonical = ENTITY_IMPORTS[entity]?.template?.headers || [];
-  const canonicalLc = canonical.map(c => c.toLowerCase());
+  const canonicalNorm = canonical.map(c => norm(c));
 
-  // 1) Build the header → canonical map from:
+  // 1) Build the normalised header → canonical map from:
   //    a. canonical names as self-aliases,
   //    b. existing template custom headers,
   //    c. substring matches between file headers and canonical names.
   const headerMap = {};
-  for (const c of canonical) headerMap[c.toLowerCase()] = c;
+  for (const c of canonical) headerMap[norm(c)] = c;
   let tplForAutoExtend = (await getImportTemplate(entity)) || defaultImportTemplate(entity);
   for (const f of tplForAutoExtend.fields) {
     if (f.include !== false && f.header && f.field) {
-      headerMap[String(f.header).toLowerCase().trim()] = f.field;
+      headerMap[norm(f.header)] = f.field;
     }
   }
   for (const h of fileHeaders) {
-    const lc = h.toLowerCase();
-    if (headerMap[lc]) continue;
-    // Try canonical substring match in either direction
+    const n = norm(h);
+    if (headerMap[n]) continue;
     for (let i = 0; i < canonical.length; i++) {
-      const cLc = canonicalLc[i];
-      if (lc.includes(cLc) || cLc.includes(lc)) { headerMap[lc] = canonical[i]; break; }
+      const cN = canonicalNorm[i];
+      if (n.includes(cN) || cN.includes(n)) { headerMap[n] = canonical[i]; break; }
     }
   }
 
   // 2) Auto-extend the import template with any TRULY new column (not mapped
-  //    to any canonical field). The list view will pick it up automatically.
-  const knownFieldsLc = new Set(tplForAutoExtend.fields.map(f => String(f.field || '').toLowerCase()));
+  //    to any canonical field). The list view picks it up automatically.
+  const knownFieldsLc = new Set(tplForAutoExtend.fields.map(f => norm(f.field)));
   let added = 0;
   for (const h of fileHeaders) {
-    const lc = h.toLowerCase();
-    if (headerMap[lc]) continue; // already mapped (canonical or template)
+    const n = norm(h);
+    if (headerMap[n]) continue;
     const field = slugifyField(h) || h;
-    if (knownFieldsLc.has(field.toLowerCase())) continue;
+    if (knownFieldsLc.has(norm(field))) continue;
     tplForAutoExtend.fields.push({ field, header: h, include: true });
-    knownFieldsLc.add(field.toLowerCase());
-    headerMap[lc] = field;
+    knownFieldsLc.add(norm(field));
+    headerMap[n] = field;
     added++;
   }
   if (added > 0) await setImportTemplate(entity, tplForAutoExtend);
 
-  // 3) Normalize each row: map header (any case) to canonical/custom field.
+  // 3) Normalize each row: map header (any case/diacritics) to canonical/custom field.
   const rows = rawRows.map(r => {
     const out = { ...r };
     for (const [k, v] of Object.entries(r)) {
-      const canon = headerMap[String(k).toLowerCase().trim()];
+      const canon = headerMap[norm(k)];
       if (canon && out[canon] === undefined) out[canon] = v;
     }
     return out;
