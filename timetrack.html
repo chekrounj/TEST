@@ -314,9 +314,21 @@
       <button data-page="missions" data-roles="admin,manager,employe" class="nav-item flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-slate-100 text-slate-700 text-start">
         <span class="nav-ico text-slate-500">📋</span><span data-i18n="navMissions">Missions</span>
       </button>
-      <button data-page="reports" data-roles="admin,manager" class="nav-item flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-slate-100 text-slate-700 text-start">
-        <span class="nav-ico text-slate-500">📈</span><span data-i18n="navReports">Rapports</span>
-      </button>
+      <div class="nav-group" data-group="reports-grp" data-roles="admin,manager">
+        <button class="nav-group-toggle w-full flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-slate-100 text-slate-700 text-start">
+          <span class="nav-ico text-slate-500">📈</span>
+          <span data-i18n="navReports">Rapports</span>
+          <span class="nav-chevron ms-auto text-slate-400 transition-transform">▸</span>
+        </button>
+        <div class="nav-group-items hidden flex-col gap-1 mt-1 ms-3 ps-3 border-s border-slate-200">
+          <button data-page="reports" data-roles="admin,manager" class="nav-item flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-slate-100 text-slate-700 text-start">
+            <span class="nav-ico text-slate-500">•</span><span data-i18n="navMainReport">Rapport principal</span>
+          </button>
+          <button data-page="unbilledProjects" data-roles="admin,manager" class="nav-item flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-slate-100 text-slate-700 text-start">
+            <span class="nav-ico text-slate-500">•</span><span data-i18n="navUnbilledProjects">Projets non facturés</span>
+          </button>
+        </div>
+      </div>
 
       <div class="nav-group" data-group="importdata" data-roles="admin,manager">
         <button class="nav-group-toggle w-full flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-slate-100 text-slate-700 text-start">
@@ -656,6 +668,9 @@ const I18N = {
     exportExcel: "Exporter Excel",
     // Reports
     navReports: "Rapports",
+    navMainReport: "Rapport principal",
+    navUnbilledProjects: "Projets non facturés",
+    unbilledHint: "Projets avec des heures saisies mais aucune facturation",
     reportsTitle: "Rapports",
     reportFilters: "Filtres",
     reportGroupBy: "Grouper par",
@@ -931,6 +946,9 @@ const I18N = {
     closeDetails: "Close",
     exportExcel: "Export Excel",
     navReports: "Reports",
+    navMainReport: "Main report",
+    navUnbilledProjects: "Unbilled projects",
+    unbilledHint: "Projects with hours logged but no billing",
     reportsTitle: "Reports",
     reportFilters: "Filters",
     reportGroupBy: "Group by",
@@ -1206,6 +1224,9 @@ const I18N = {
     closeDetails: "סגור",
     exportExcel: "ייצא Excel",
     navReports: "דוחות",
+    navMainReport: "דוח ראשי",
+    navUnbilledProjects: "פרויקטים ללא חשבונית",
+    unbilledHint: "פרויקטים עם שעות רשומות אך ללא חיוב",
     reportsTitle: "דוחות",
     reportFilters: "מסננים",
     reportGroupBy: "קבץ לפי",
@@ -1874,6 +1895,7 @@ async function navigate(page) {
   if (page === 'reconciliation') { if (!guardRole('admin','manager')) return; return renderReconciliation(); }
   if (page === 'missions')       { if (!guardRole('admin','manager','employe')) return; return renderMissions(); }
   if (page === 'reports')        { if (!guardRole('admin','manager')) return; return renderReports(); }
+  if (page === 'unbilledProjects') { if (!guardRole('admin','manager')) return; return renderUnbilledProjects(); }
   if (page === 'facturation')    { if (!guardRole('admin','manager')) return; return renderFacturation(); }
   if (page === 'settings')       return renderSettings();
 }
@@ -6097,6 +6119,131 @@ async function renderReports() {
   $('#rp_print').onclick = () => window.print();
 
   draw();
+}
+
+/* ----- REPORT: Projets non facturés ----- */
+async function renderUnbilledProjects() {
+  const [entries, projects, clients, employees, facturationRecords, tarifs] = await Promise.all([
+    DB.getAll('timeEntries'), DB.getAll('projects'),
+    DB.getAll('clients'), DB.getAll('employees'),
+    DB.getAll('facturation'), getTarifsHoraires()
+  ]);
+  const cById = Object.fromEntries(clients.map(c => [c.id, c]));
+  const pById = Object.fromEntries(projects.map(p => [p.id, p]));
+  const eById = Object.fromEntries(employees.map(e => [e.id, e]));
+
+  const lcKey = (s) => String(s ?? '').toLowerCase().trim();
+  const parseAmount = (v) => {
+    if (v == null || v === '') return 0;
+    const n = Number(String(v).replace(/[^\d.\-]/g, ''));
+    return Number.isFinite(n) ? n : 0;
+  };
+
+  // Σ facturation per project (matched by code OR by name)
+  const facByCode = {};
+  const facByName = {};
+  for (const f of facturationRecords) {
+    const pCode = String(f.projet ?? f.projectCode ?? f["מס' פרויקט"] ?? f["מספר פרויקט"] ?? '').trim();
+    const pName = String(f.projectName ?? f["שם הפרויקט"] ?? '').trim();
+    const amt   = parseAmount(f["סכום"] ?? f.amount ?? f.montant ?? f.sum);
+    if (pCode) facByCode[lcKey(pCode)] = (facByCode[lcKey(pCode)] || 0) + amt;
+    if (pName) facByName[lcKey(pName)] = (facByName[lcKey(pName)] || 0) + amt;
+  }
+
+  // Group time-entries by project — hours / cost
+  const byProject = {};
+  for (const en of entries) {
+    const proj = pById[en.projectId] || {};
+    const code = String(en.projectCode || proj.code || '').trim();
+    const name = String(en.projectName || proj.nom  || '').trim();
+    if (!code && !name) continue;
+    const key = lcKey(code || name);
+    const emp = eById[en.employeId] || {};
+    const sku = String(en.sku || '').trim();
+    const rate = (sku && tarifs[sku] != null) ? Number(tarifs[sku]) : (Number(emp.tauxHoraire) || 0);
+    const hours = Number(en.heures) || 0;
+    if (!byProject[key]) byProject[key] = {
+      code, name,
+      clientName: en.clientName || cById[en.clientId]?.nom || '',
+      projectType: en.projectType || proj.typeProjet || '',
+      hours: 0, cost: 0
+    };
+    byProject[key].hours += hours;
+    byProject[key].cost  += hours * rate;
+  }
+
+  // Filter: hours > 0 AND facturation == 0
+  const rows = [];
+  for (const slot of Object.values(byProject)) {
+    const f1 = slot.code ? (facByCode[lcKey(slot.code)] || 0) : 0;
+    const f2 = slot.name ? (facByName[lcKey(slot.name)] || 0) : 0;
+    const fact = f1 + (f1 ? 0 : f2);
+    if (slot.hours > 0 && fact === 0) rows.push({ ...slot, fact });
+  }
+  rows.sort((a, b) => String(a.name || a.code).localeCompare(String(b.name || b.code)));
+
+  const totalHours = rows.reduce((s, r) => s + r.hours, 0);
+  const totalCost  = rows.reduce((s, r) => s + r.cost, 0);
+
+  PAGE.innerHTML = `
+    <div class="flex items-center justify-between mb-6">
+      <h1 class="text-2xl font-bold text-slate-900">📈 ${escapeHtml(t('navUnbilledProjects'))}</h1>
+    </div>
+    <p class="text-sm text-slate-500 mb-4">${escapeHtml(t('unbilledHint'))}</p>
+
+    <div id="printArea" class="bg-white rounded-xl border border-slate-200 shadow-sm p-5">
+      <h2 class="text-lg font-bold text-slate-900 mb-1">${escapeHtml(t('navUnbilledProjects'))}</h2>
+      <div class="text-xs text-slate-500 mb-3">${rows.length} ${escapeHtml(t('linesImported'))}</div>
+      ${rows.length === 0
+        ? `<p class="text-sm text-slate-500">${escapeHtml(t('noResults'))}</p>`
+        : `<div class="overflow-x-auto"><table class="w-full text-sm border border-slate-200 rounded">
+        <thead>
+          <tr class="bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
+            <th class="px-3 py-2 text-start font-medium">מס' פרויקט</th>
+            <th class="px-3 py-2 text-start font-medium">שם הפרויקט</th>
+            <th class="px-3 py-2 text-start font-medium">שם לקוח</th>
+            <th class="px-3 py-2 text-start font-medium">סוג פרויקט</th>
+            <th class="px-3 py-2 text-end font-medium">סה'כ שעות</th>
+            <th class="px-3 py-2 text-end font-medium">עלות</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${rows.map(r => `
+            <tr class="border-t border-slate-100">
+              <td class="px-3 py-2 text-slate-700">${escapeHtml(r.code)}</td>
+              <td class="px-3 py-2 text-slate-700 font-medium">${escapeHtml(r.name)}</td>
+              <td class="px-3 py-2 text-slate-700">${escapeHtml(r.clientName)}</td>
+              <td class="px-3 py-2 text-slate-700">${escapeHtml(r.projectType)}</td>
+              <td class="px-3 py-2 text-end font-medium">${fmt(r.hours)}</td>
+              <td class="px-3 py-2 text-end font-medium">${fmt(r.cost)}</td>
+            </tr>
+          `).join('')}
+        </tbody>
+        <tfoot>
+          <tr class="bg-slate-100 font-semibold border-t-2 border-slate-300">
+            <td colspan="4" class="px-3 py-2 text-end">${escapeHtml(t('reportTotalHours'))} / ${escapeHtml(t('reportTotalCost'))}</td>
+            <td class="px-3 py-2 text-end">${fmt(totalHours)}</td>
+            <td class="px-3 py-2 text-end">${fmt(totalCost)}</td>
+          </tr>
+        </tfoot>
+      </table></div>`}
+    </div>
+
+    <div class="mt-4 flex flex-wrap gap-2 justify-end no-print">
+      <button id="up_export" class="px-4 py-2 rounded-lg border border-slate-300 hover:bg-slate-50 text-sm">📊 ${escapeHtml(t('exportExcel'))}</button>
+      <button id="up_print"  class="px-4 py-2 rounded-lg border border-slate-300 hover:bg-slate-50 text-sm">🖨 ${escapeHtml(t('reportPrint'))}</button>
+    </div>
+  `;
+
+  $('#up_export').onclick = () => {
+    const headers = ["מס' פרויקט", 'שם הפרויקט', 'שם לקוח', 'סוג פרויקט', "סה'כ שעות", 'עלות'];
+    const data = rows.map(r => [r.code, r.name, r.clientName, r.projectType, +r.hours.toFixed(2), +r.cost.toFixed(2)]);
+    data.push([]);
+    data.push([`${t('reportTotalHours')} / ${t('reportTotalCost')}`, '', '', '', +totalHours.toFixed(2), +totalCost.toFixed(2)]);
+    exportListToExcel(`projets-non-factures-${new Date().toISOString().slice(0,10)}`, 'Projets non facturés', headers, data);
+    toast(t('exported'));
+  };
+  $('#up_print').onclick = () => window.print();
 }
 
 /* ----- IMPORT TEMPLATE — header detection from a file ----- */
