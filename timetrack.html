@@ -5992,15 +5992,7 @@ async function renderSettings() {
     <div class="bg-white rounded-xl border border-slate-200 shadow-sm p-6 mb-6 ${isAdmin ? '' : 'hidden'}">
       <h2 class="font-semibold text-slate-900 mb-1">📑 ${escapeHtml(t('importTemplatesTitle'))}</h2>
       <p class="text-xs text-slate-500 mb-4">${escapeHtml(t('importTemplatesHint'))}</p>
-      <select id="tplEntitySel" class="px-3 py-2 border border-slate-300 rounded-lg text-sm mb-4">
-        <option value="">${escapeHtml(t('selectEntity'))}</option>
-        <option value="clients">${escapeHtml(t('navClients'))}</option>
-        <option value="projects">${escapeHtml(t('navProjects'))}</option>
-        <option value="tasks">${escapeHtml(t('navTasks'))}</option>
-        <option value="employees">${escapeHtml(t('navEmployees'))}</option>
-        <option value="timeEntries">${escapeHtml(t('navTime'))}</option>
-        <option value="attendance">${escapeHtml(t('navAttendance'))}</option>
-      </select>
+      <div class="text-sm text-slate-700 mb-3"><span class="font-medium">${escapeHtml(t('navTime'))}</span></div>
       <div id="tplEditor"></div>
     </div>
 
@@ -6090,19 +6082,16 @@ async function renderSettings() {
   };
 
   // ---------- Import templates editor ----------
-  if ($('#tplEntitySel')) {
-    const sel = $('#tplEntitySel');
-    sel.onchange = async () => {
-      const entity = sel.value;
-      if (!entity) { $('#tplEditor').innerHTML = ''; return; }
-      const baseFields = ENTITY_IMPORTS[entity]?.template?.headers || [];
-      let cur = await getImportTemplate(entity);
-      if (!cur) cur = defaultImportTemplate(entity);
-      // Ensure every canonical field is represented (in case ENTITY_IMPORTS evolved)
-      const known = new Set(cur.fields.map(f => f.field));
-      for (const h of baseFields) if (!known.has(h)) cur.fields.push({ field: h, header: h, include: true });
-      drawTemplateEditor(entity, cur);
-    };
+  // Only the "Saisie heures" template is editable from this app — every
+  // other entity is fed via the time-entries import.
+  if ($('#tplEditor')) {
+    const entity = 'timeEntries';
+    const baseFields = ENTITY_IMPORTS[entity]?.template?.headers || [];
+    let cur = await getImportTemplate(entity);
+    if (!cur) cur = defaultImportTemplate(entity);
+    const known = new Set(cur.fields.map(f => f.field));
+    for (const h of baseFields) if (!known.has(h)) cur.fields.push({ field: h, header: h, include: true });
+    drawTemplateEditor(entity, cur);
   }
 
   if ($('#genRecBtn')) {
