@@ -6330,54 +6330,58 @@ async function renderProfitability() {
     return '';
   };
 
-  // -- Aggregate facturation per project --
-  const facByProject = {};
+  // -- Aggregate facturation per (client + project) — same grouping as the
+  //    Synthèse facturation report so the "Total facturé" column matches
+  //    exactly column 4 of that report. --
+  const facByKey = {};
   for (const f of facturationRecords) {
     const project = String(pickField(f, 'project')).trim();
-    if (!project) continue;
-    const cName = String(pickField(f, 'clientName')).trim();
-    const amt   = parseAmount(pickField(f, 'amount'));
-    const ym    = extractYM(pickField(f, 'date'));
-    const k = norm(project);
-    if (!facByProject[k]) facByProject[k] = {
+    const cName   = String(pickField(f, 'clientName')).trim();
+    const amt     = parseAmount(pickField(f, 'amount'));
+    const ym      = extractYM(pickField(f, 'date'));
+    const k = norm(cName) + '|' + norm(project);
+    if (!facByKey[k]) facByKey[k] = {
       project, clientName: cName, total: 0, months: new Set(), rowCount: 0
     };
-    const slot = facByProject[k];
+    const slot = facByKey[k];
+    if (!slot.project && project) slot.project = project;
     if (!slot.clientName && cName) slot.clientName = cName;
     slot.total += amt;
     slot.rowCount += 1;
     if (ym) slot.months.add(ym);
   }
 
-  // -- Aggregate time-entries per project (hours + cost) --
-  const teByProject = {};
+  // -- Aggregate time-entries per (client + project) so the hours/cost row up
+  //    against the same key as the facturation aggregate. --
+  const teByKey = {};
   for (const en of entries) {
     const proj = pById[en.projectId] || {};
     const code = String(en.projectCode || proj.code || '').trim();
     const name = String(en.projectName || proj.nom  || '').trim();
     if (!code && !name) continue;
-    const k = norm(code || name);
+    const cName = en.clientName || '';
+    const k = norm(cName) + '|' + norm(code || name);
     const emp = eById[en.employeId] || {};
     const sku = String(en.sku || '').trim();
     const rate = (sku && tarifs[sku] != null) ? Number(tarifs[sku]) : (Number(emp.tauxHoraire) || 0);
     const hours = Number(en.heures) || 0;
-    if (!teByProject[k]) teByProject[k] = {
+    if (!teByKey[k]) teByKey[k] = {
       project: code || name,
-      clientName: en.clientName || '',
+      clientName: cName,
       hours: 0, cost: 0
     };
-    const slot = teByProject[k];
-    if (!slot.clientName && en.clientName) slot.clientName = en.clientName;
+    const slot = teByKey[k];
+    if (!slot.clientName && cName) slot.clientName = cName;
     slot.hours += hours;
     slot.cost  += hours * rate;
   }
 
   // -- Merge — union of keys from facturation and time-entries --
-  const keys = new Set([...Object.keys(facByProject), ...Object.keys(teByProject)]);
+  const keys = new Set([...Object.keys(facByKey), ...Object.keys(teByKey)]);
   const rows = [];
   for (const k of keys) {
-    const fac = facByProject[k] || { project: '', clientName: '', total: 0, months: new Set(), rowCount: 0 };
-    const te  = teByProject[k]  || { project: '', clientName: '', hours: 0, cost: 0 };
+    const fac = facByKey[k] || { project: '', clientName: '', total: 0, months: new Set(), rowCount: 0 };
+    const te  = teByKey[k]  || { project: '', clientName: '', hours: 0, cost: 0 };
     const project    = fac.project   || te.project;
     const clientName = fac.clientName || te.clientName;
     const monthCount = fac.months.size > 0 ? fac.months.size : fac.rowCount;
