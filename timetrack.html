@@ -6653,7 +6653,6 @@ async function renderProjectSynthesis() {
 async function renderBillingSynthesis() {
   const facturationRecords = await DB.getAll('facturation');
 
-  const lcKey = (s) => String(s ?? '').toLowerCase().trim();
   const parseAmount = (v) => {
     if (v == null || v === '') return 0;
     const n = Number(String(v).replace(/[^\d.\-]/g, ''));
@@ -6662,35 +6661,45 @@ async function renderBillingSynthesis() {
   const extractYM = (v) => {
     const s = String(v ?? '').trim();
     if (!s) return '';
-    // YYYY-MM at start (e.g. 2025-04 or 2025-04-15)
     let m = s.match(/^(\d{4})[-\/.](\d{1,2})/);
     if (m) return `${m[1]}-${String(m[2]).padStart(2, '0')}`;
-    // DD-MM-YYYY or DD/MM/YYYY
     m = s.match(/^(\d{1,2})[-\/.](\d{1,2})[-\/.](\d{4})/);
     if (m) return `${m[3]}-${String(m[2]).padStart(2, '0')}`;
-    // MM/YYYY or MM-YYYY
     m = s.match(/^(\d{1,2})[-\/.](\d{4})/);
     if (m) return `${m[2]}-${String(m[1]).padStart(2, '0')}`;
     return '';
   };
 
-  const byProject = {};
-  // Flexible key lookup — facturation records are fully schemaless. Strip
-  // apostrophes / geresh / quotes / dots / parentheses / whitespace, lowercase
-  // and NFD-normalise so "מס' פרויקט", "מס׳ פרויקט", "מספר פרויקט" and "Mispar Project"
-  // all collide.
+  // Normalised key — strip apostrophes / geresh / quotes / dots / brackets /
+  // whitespace, drop combining diacritics, lowercase.
   const norm = (s) => String(s ?? '')
     .normalize('NFD')
     .replace(/[̀-ͯ]/g, '')
     .replace(/[׳״‘’“”'"`.,()\[\]\s\-_]/g, '')
     .toLowerCase();
-  const pickField = (rec, needles) => {
-    for (const need of needles) {
-      const n = norm(need);
-      if (!n) continue;
-      for (const k of Object.keys(rec)) {
-        if (norm(k).includes(n)) {
-          const v = rec[k];
+
+  // Exact-match alias table. Order = priority. Each alias is normalised, then
+  // each record key is normalised and compared with ===.
+  const ALIASES = {
+    project:    ['פרויקט', "מס' פרויקט", 'מס פרויקט', 'מספר פרויקט', 'projectCode', 'projet', 'project'],
+    clientName: ['שם לקוח', 'clientName', 'client', 'nomClient'],
+    projectTypeDesc: ['תיאור סוג פרויקט', 'תאור סוג פרויקט', 'projectTypeDescription'],
+    projectType:     ['סוג פרויקט', 'projectType'],
+    amount:          ['סכום', 'סכוםשח', 'amount', 'montant', 'sum', 'total'],
+    date:            ['ת. דווח', 'תאריך', 'חודש', 'date', 'month', 'mois']
+  };
+  const aliasNorm = Object.fromEntries(
+    Object.entries(ALIASES).map(([k, arr]) => [k, arr.map(norm)])
+  );
+  const pickField = (rec, kind) => {
+    const wanted = aliasNorm[kind];
+    if (!wanted) return '';
+    // Cache normalized record keys
+    const recKeys = Object.keys(rec).map(k => ({ k, n: norm(k) }));
+    for (const w of wanted) {
+      for (const rk of recKeys) {
+        if (rk.n === w) {
+          const v = rec[rk.k];
           if (v !== '' && v != null) return v;
         }
       }
@@ -6698,45 +6707,41 @@ async function renderBillingSynthesis() {
     return '';
   };
 
+  const byKey = {};
   for (const f of facturationRecords) {
-    const pCode = String(pickField(f, ["מס' פרויקט", 'מספר פרויקט', 'projectCode', 'projet'])).trim();
-    const pName = String(pickField(f, ['שם הפרויקט', 'projectName'])).trim();
-    const cName = String(pickField(f, ['שם לקוח', 'clientName', 'client'])).trim();
-    const pType = String(pickField(f, ['סוג פרויקט', 'projectType'])).trim();
-    const pTypeDesc = String(pickField(f, ['תיאור סוג פרויקט', 'תאור סוג פרויקט', 'projectTypeDescription'])).trim();
-    const amt   = parseAmount(pickField(f, ['סכום', 'amount', 'montant', 'sum']));
-    const ym    = extractYM(pickField(f, ['ת. דווח', 'תאריך', 'חודש', 'date', 'month', 'mois']));
+    const project = String(pickField(f, 'project')).trim();
+    const cName   = String(pickField(f, 'clientName')).trim();
+    const pType   = String(pickField(f, 'projectType')).trim();
+    const pTypeDesc = String(pickField(f, 'projectTypeDesc')).trim();
+    const amt     = parseAmount(pickField(f, 'amount'));
+    const ym      = extractYM(pickField(f, 'date'));
 
-    // Group by (client + project) — if no project info we still bucket the
-    // row under the client, otherwise under a synthetic "(sans projet)" key.
-    const key = lcKey(cName) + '|' + lcKey(pCode || pName);
-    if (!byProject[key]) byProject[key] = {
-      code: pCode, name: pName, clientName: cName,
+    const key = norm(cName) + '|' + norm(project);
+    if (!byKey[key]) byKey[key] = {
+      project, clientName: cName,
       projectType: pType, projectTypeDescription: pTypeDesc,
       total: 0, months: new Set(), rowCount: 0
     };
-    const slot = byProject[key];
+    const slot = byKey[key];
     if (!slot.clientName && cName) slot.clientName = cName;
     if (!slot.projectType && pType) slot.projectType = pType;
     if (!slot.projectTypeDescription && pTypeDesc) slot.projectTypeDescription = pTypeDesc;
-    if (!slot.code && pCode) slot.code = pCode;
-    if (!slot.name && pName) slot.name = pName;
+    if (!slot.project && project) slot.project = project;
     slot.total += amt;
     slot.rowCount += 1;
     if (ym) slot.months.add(ym);
   }
 
-  const rows = Object.values(byProject)
+  const rows = Object.values(byKey)
     .map(r => ({
+      project: r.project,
       clientName: r.clientName,
-      code: r.code,
-      name: r.name,
       monthCount: r.months.size > 0 ? r.months.size : r.rowCount,
       total: r.total,
       projectType: r.projectTypeDescription || r.projectType
     }))
     .sort((a, b) => String(a.clientName || '').localeCompare(String(b.clientName || ''))
-                 || String(a.name || a.code).localeCompare(String(b.name || b.code)));
+                 || String(a.project || '').localeCompare(String(b.project || '')));
 
   const totalFacture = rows.reduce((s, r) => s + r.total, 0);
   const totalMonths  = rows.reduce((s, r) => s + r.monthCount, 0);
@@ -6749,14 +6754,14 @@ async function renderBillingSynthesis() {
 
     <div id="printArea" class="bg-white rounded-xl border border-slate-200 shadow-sm p-5">
       <h2 class="text-lg font-bold text-slate-900 mb-1">${escapeHtml(t('navBillingSynthesis'))}</h2>
-      <div class="text-xs text-slate-500 mb-3">${rows.length} ${escapeHtml(t('linesImported'))}</div>
+      <div class="text-xs text-slate-500 mb-3">${rows.length} ${escapeHtml(t('linesImported'))} (${facturationRecords.length} ${escapeHtml(t('navImportFacturation'))})</div>
       ${rows.length === 0
         ? `<p class="text-sm text-slate-500">${escapeHtml(t('noResults'))}</p>`
         : `<div class="overflow-x-auto"><table class="w-full text-sm border border-slate-200 rounded">
         <thead>
           <tr class="bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
+            <th class="px-3 py-2 text-start font-medium">פרויקט</th>
             <th class="px-3 py-2 text-start font-medium">שם לקוח</th>
-            <th class="px-3 py-2 text-start font-medium">מס' פרויקט</th>
             <th class="px-3 py-2 text-end font-medium">Mois facturés</th>
             <th class="px-3 py-2 text-end font-medium">Total facturé</th>
             <th class="px-3 py-2 text-start font-medium">תיאור סוג פרויקט</th>
@@ -6765,8 +6770,8 @@ async function renderBillingSynthesis() {
         <tbody>
           ${rows.map(r => `
             <tr class="border-t border-slate-100">
+              <td class="px-3 py-2 text-slate-700 font-medium">${escapeHtml(r.project)}</td>
               <td class="px-3 py-2 text-slate-700">${escapeHtml(r.clientName)}</td>
-              <td class="px-3 py-2 text-slate-700 font-medium">${escapeHtml(r.code)}</td>
               <td class="px-3 py-2 text-end">${r.monthCount}</td>
               <td class="px-3 py-2 text-end font-medium">${fmt(r.total)}</td>
               <td class="px-3 py-2 text-slate-700">${escapeHtml(r.projectType)}</td>
@@ -6791,8 +6796,8 @@ async function renderBillingSynthesis() {
   `;
 
   $('#bs_export').onclick = () => {
-    const headers = ['שם לקוח', "מס' פרויקט", 'Mois facturés', 'Total facturé', 'תיאור סוג פרויקט'];
-    const data = rows.map(r => [r.clientName, r.code, r.monthCount, +r.total.toFixed(2), r.projectType]);
+    const headers = ['פרויקט', 'שם לקוח', 'Mois facturés', 'Total facturé', 'תיאור סוג פרויקט'];
+    const data = rows.map(r => [r.project, r.clientName, r.monthCount, +r.total.toFixed(2), r.projectType]);
     data.push([]);
     data.push(['Total', '', totalMonths, +totalFacture.toFixed(2), '']);
     exportListToExcel(`synthese-facturation-${new Date().toISOString().slice(0,10)}`, 'Synthèse facturation', headers, data);
