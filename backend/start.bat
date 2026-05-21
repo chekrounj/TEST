@@ -30,9 +30,11 @@ for /f "tokens=*" %%v in ('node --version 2^>nul') do set "NODEVER=%%v"
 echo [OK] Node.js !NODEVER!
 
 REM --- Installe les dependances ------------------------------
-if not exist node_modules (
+REM On verifie l'existence d'express, pas juste node_modules
+REM ^(le dossier peut exister mais etre vide / partiel apres un install interrompu^).
+if not exist "node_modules\express\package.json" (
   echo.
-  echo Installation des dependances ^(~30s, une seule fois^)...
+  echo Installation des dependances ^(~30s, peut prendre quelques minutes^)...
   call npm install
   if errorlevel 1 (
     echo.
@@ -41,6 +43,19 @@ if not exist node_modules (
     echo       - antivirus qui bloque l'ecriture dans node_modules
     echo       - proxy d'entreprise ^(set HTTP_PROXY=...^)
     echo       - pas de connexion internet
+    echo       - chemin contenant des caracteres speciaux ^(rare^)
+    echo.
+    pause
+    exit /b 1
+  )
+  REM Re-verifie qu'express a bien ete installe
+  if not exist "node_modules\express\package.json" (
+    echo.
+    echo [X] npm install s'est termine mais express n'est pas la.
+    echo     Essayez :
+    echo       1. supprimer le dossier node_modules ^(rd /s /q node_modules^)
+    echo       2. supprimer package-lock.json ^(del package-lock.json^)
+    echo       3. relancer start.bat
     echo.
     pause
     exit /b 1
