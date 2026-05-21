@@ -39,11 +39,4 @@ echo "Lancement du serveur sur http://localhost:3000"
 echo "Ctrl+C pour arrêter."
 echo
 
-# Ouvrir le navigateur (macOS = open, Linux = xdg-open)
-if command -v open >/dev/null 2>&1; then
-  (sleep 1 && open "http://localhost:3000/cashflow.html") &
-elif command -v xdg-open >/dev/null 2>&1; then
-  (sleep 1 && xdg-open "http://localhost:3000/cashflow.html") &
-fi
-
 exec node server.js

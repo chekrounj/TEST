@@ -42,10 +42,9 @@ ALLOW_DEV_LOGIN=1
   Write-Host "[OK] .env créé"
 }
 
-# --- Démarrage + navigateur -----------------------------------
+# --- Démarrage (le serveur ouvre lui-même le navigateur) ------
 Write-Host ""
 Write-Host "Lancement du serveur sur http://localhost:3000" -ForegroundColor Green
 Write-Host "Fermer cette fenêtre (ou Ctrl+C) pour arrêter."
 Write-Host ""
-Start-Process "http://localhost:3000/cashflow.html"
 node server.js

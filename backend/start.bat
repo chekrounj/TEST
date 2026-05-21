@@ -54,10 +54,9 @@ if not exist .env (
   echo [OK] .env cree.
 )
 
-REM --- Demarre et ouvre le navigateur --------------------------
+REM --- Demarre le serveur (qui ouvre lui-meme le navigateur) ----
 echo.
 echo Lancement du serveur sur http://localhost:3000
 echo Fermez cette fenetre ^(ou Ctrl+C^) pour arreter le serveur.
 echo.
-start "" "http://localhost:3000/cashflow.html"
 node server.js

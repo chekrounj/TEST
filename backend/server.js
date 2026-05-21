@@ -21,7 +21,9 @@ import jwt from 'jsonwebtoken';
 import cors from 'cors';
 import 'dotenv/config';
 import path from 'node:path';
+import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
+import { exec } from 'node:child_process';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -151,12 +153,51 @@ app.put('/api/sync', auth, (req, res) => {
 
 app.get('/api/health', (req, res) => res.json({ ok: true, ts: new Date().toISOString() }));
 
-// En dev, sert cashflow.html depuis le repo parent. En prod, fais-le servir
-// par nginx/caddy ; conserve uniquement /api/* sur ce backend.
+// Vérifie qu'on trouve cashflow.html — sinon journal clair au démarrage.
+const cashflowPath = path.join(STATIC_DIR, 'cashflow.html');
+const cashflowExists = fs.existsSync(cashflowPath);
+if (!cashflowExists) {
+  console.warn(`[cashflow-backend] ⚠ cashflow.html introuvable dans ${STATIC_DIR}`);
+  console.warn('[cashflow-backend]   Le serveur démarre mais ne pourra rien afficher.');
+  console.warn(`[cashflow-backend]   Place cashflow.html dans ${STATIC_DIR}, ou définis STATIC_DIR dans .env.`);
+}
+
+// Route explicite "/" → cashflow.html (sinon express.static peut servir un
+// index.html résiduel et donner l'impression que rien ne fonctionne).
+app.get('/', (req, res, next) => {
+  if (!cashflowExists) return next();
+  res.sendFile(cashflowPath);
+});
+
+// En dev, sert le reste de cashflow.html et ses voisins. En prod, faites
+// servir les statiques par nginx/caddy et gardez /api/* sur ce backend.
 app.use(express.static(STATIC_DIR));
+
+// 404 explicite avec un message utile.
+app.use((req, res) => {
+  const msg = cashflowExists
+    ? "cette URL ne correspond à aucun fichier."
+    : "<b>cashflow.html</b> est introuvable dans <code>" + STATIC_DIR + "</code>.";
+  res.status(404).type('html').send(
+    '<h2 style="font-family:sans-serif;color:#7c2d12;">404 — Fichier introuvable</h2>'
+    + '<p style="font-family:sans-serif">Le serveur tourne mais ' + msg + '</p>'
+    + '<p style="font-family:sans-serif"><a href="/">Retour à l accueil</a></p>'
+  );
+});
+
+const openBrowser = (url) => {
+  const cmd = process.platform === 'win32' ? `start "" "${url}"`
+            : process.platform === 'darwin' ? `open "${url}"`
+            : `xdg-open "${url}"`;
+  exec(cmd, () => {});
+};
 
 app.listen(PORT, () => {
   console.log(`[cashflow-backend] ▶ http://localhost:${PORT}`);
   console.log(`[cashflow-backend] static dir: ${STATIC_DIR}`);
+  console.log(`[cashflow-backend] cashflow.html : ${cashflowExists ? 'OK' : 'MANQUANT'}`);
   console.log(`[cashflow-backend] db: ${path.join(__dirname, 'data.db')}`);
+  if (process.env.OPEN_BROWSER !== '0' && cashflowExists) {
+    setTimeout(() => openBrowser(`http://localhost:${PORT}/`), 300);
+  }
 });
