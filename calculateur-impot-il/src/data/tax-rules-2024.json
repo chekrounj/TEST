@@ -1,0 +1,50 @@
+{
+  "year": 2024,
+  "source": "https://www.gov.il/he/departments/topics/income_tax_rates",
+  "lastVerified": "2026-05-28",
+  "verificationStatus": {
+    "brackets": "verified-from-published-tables",
+    "pointValue": "verified-from-published-tables",
+    "bituah": "pending-official-verification",
+    "selfPension": "pending-official-verification",
+    "eshel": "approximate-pending-regulation-check",
+    "fxFallback": "indicative-annual-average"
+  },
+  "brackets": [
+    { "limit": 84120, "rate": 0.10 },
+    { "limit": 120720, "rate": 0.14 },
+    { "limit": 193800, "rate": 0.20 },
+    { "limit": 269280, "rate": 0.31 },
+    { "limit": 560280, "rate": 0.35 },
+    { "limit": 721560, "rate": 0.47 },
+    { "limit": null, "rate": 0.50 }
+  ],
+  "pointValue": 2904,
+  "avgSalaryMonthly": 12536,
+  "bituah": {
+    "thresholdMonthly": 7522,
+    "maxMonthly": 49030,
+    "employee": {
+      "low": { "leumi": 0.004, "briout": 0.031 },
+      "high": { "leumi": 0.070, "briout": 0.050 }
+    },
+    "self": {
+      "low": { "leumi": 0.0287, "briout": 0.031 },
+      "high": { "leumi": 0.1283, "briout": 0.050 }
+    }
+  },
+  "selfPension": {
+    "lowRate": 0.0445,
+    "highRate": 0.1255
+  },
+  "eshel": {
+    "noLodgingUSDPerDay": 136,
+    "surchargeRate": 0.25
+  },
+  "fxFallback": {
+    "USD": 3.70,
+    "EUR": 4.00,
+    "GBP": 4.73,
+    "CHF": 4.18
+  }
+}
