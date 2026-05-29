@@ -12,6 +12,16 @@ export type TaxpayerStatus = 'employee' | 'self';
 /** Devises supportées (a minima). */
 export type Currency = 'ILS' | 'USD' | 'EUR' | 'GBP' | 'CHF';
 
+/** Une ligne de revenu avec sa propre devise (multi-devises). */
+export interface IncomeLine {
+  id: string;
+  label: string;
+  amount: number;
+  currency: Currency;
+  fxManualEnabled: boolean;
+  fxManualRate: number;
+}
+
 /**
  * Une tranche d'imposition annuelle.
  * `limit` est le plafond annuel en ILS de la tranche (null => dernière tranche,

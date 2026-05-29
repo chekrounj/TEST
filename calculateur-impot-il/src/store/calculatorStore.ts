@@ -7,7 +7,7 @@
  */
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import type { Currency, DeductionLine, PeriodMode, TaxpayerStatus, TravelPeriod } from '@/types';
+import type { Currency, DeductionLine, IncomeLine, PeriodMode, TaxpayerStatus, TravelPeriod } from '@/types';
 
 export interface CalculatorState {
   year: number;
@@ -44,6 +44,9 @@ export interface CalculatorState {
 
   manualDeductions: DeductionLine[];
 
+  /** Lignes de revenus supplémentaires (multi-devises). */
+  extraIncomeLines: IncomeLine[];
+
   set: <K extends keyof CalculatorState>(key: K, value: CalculatorState[K]) => void;
   addDeduction: () => void;
   updateDeduction: (id: string, patch: Partial<Omit<DeductionLine, 'id' | 'auto'>>) => void;
@@ -51,6 +54,9 @@ export interface CalculatorState {
   addTravelPeriod: () => void;
   updateTravelPeriod: (id: string, patch: Partial<Omit<TravelPeriod, 'id'>>) => void;
   removeTravelPeriod: (id: string) => void;
+  addIncomeLine: () => void;
+  updateIncomeLine: (id: string, patch: Partial<Omit<IncomeLine, 'id'>>) => void;
+  removeIncomeLine: (id: string) => void;
   reset: () => void;
 }
 
@@ -82,6 +88,7 @@ const initialState = {
   eshelDays: 0,
   eshelCountry: 'USA',
   manualDeductions: [] as DeductionLine[],
+  extraIncomeLines: [] as IncomeLine[],
 };
 
 let idCounter = 0;
@@ -137,6 +144,26 @@ export const useCalculatorStore = create<CalculatorState>()(
       removeTravelPeriod: (id) =>
         set((s) => ({
           travelPeriods: s.travelPeriods.filter((p) => p.id !== id),
+        })),
+
+      addIncomeLine: () =>
+        set((s) => ({
+          extraIncomeLines: [
+            ...s.extraIncomeLines,
+            { id: newId(), label: 'Autre revenu', amount: 0, currency: 'USD' as Currency, fxManualEnabled: false, fxManualRate: 3.7 },
+          ],
+        })),
+
+      updateIncomeLine: (id, patch) =>
+        set((s) => ({
+          extraIncomeLines: s.extraIncomeLines.map((l) =>
+            l.id === id ? { ...l, ...patch } : l,
+          ),
+        })),
+
+      removeIncomeLine: (id) =>
+        set((s) => ({
+          extraIncomeLines: s.extraIncomeLines.filter((l) => l.id !== id),
         })),
 
       reset: () => set({ ...initialState }),

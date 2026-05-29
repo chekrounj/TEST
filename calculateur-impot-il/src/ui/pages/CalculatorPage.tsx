@@ -4,6 +4,7 @@ import { useCalculatorStore } from '@/store/calculatorStore';
 import { useFxRates } from '@/hooks/useFxRates';
 import { calculate } from '@/domain/orchestrator';
 import { SELECTABLE_YEARS, isProvisionalYear } from '@/domain/tax/rules';
+import { getFallbackRate } from '@/domain/fx/providers';
 import { countWorkdays } from '@/domain/workdays/counter';
 import { getIsraeliHolidays } from '@/domain/workdays/holidays';
 import { COUNTRIES, isExpensiveCountry } from '@/domain/eshel/countries';
@@ -92,12 +93,27 @@ export function CalculatorPage() {
     ? travelComputed.map((t) => ({ daysAbroad: t.calDays, country: t.country }))
     : undefined;
 
+  // Revenus multi-devises : chaque ligne est convertie en ILS et sommée avec le revenu principal.
+  const extraLinesILS = useMemo(() => {
+    return s.extraIncomeLines.map((l) => {
+      const rate = l.fxManualEnabled
+        ? l.fxManualRate
+        : (l.currency === 'ILS' ? 1 : getFallbackRate(l.currency, s.year));
+      return { ...l, rate, amountILS: l.amount * rate };
+    });
+  }, [s.extraIncomeLines, s.year]);
+
+  const primaryILS = s.amount * incomeRate;
+  const extraTotalILS = extraLinesILS.reduce((sum, l) => sum + l.amountILS, 0);
+  const totalPeriodILS = primaryILS + extraTotalILS;
+
   const input: CalculationInput = {
     year: s.year,
     status: s.status,
     period: { mode: s.periodMode, months: s.periodMonths },
-    income: { amount: s.amount, currency: s.currency },
-    incomeFxRate: incomeRate,
+    // Revenu total pré-converti en ILS (somme de toutes les devises).
+    income: { amount: totalPeriodILS, currency: 'ILS' },
+    incomeFxRate: 1,
     usdFxRate: usdRate,
     workdays: { total: workTotal, abroad: workAbroad },
     eshel: {
@@ -249,10 +265,92 @@ export function CalculatorPage() {
                   )}
                   <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
                     Converti à {incomeRate.toFixed(3)} {s.currency}/ILS ({incomeSource})
-                    → {ils(s.amount * incomeRate)}
+                    → {ils(primaryILS)}
                   </p>
                 </>
               )}
+              {/* Récapitulatif si revenus multi-devises */}
+              {s.extraIncomeLines.length > 0 && (
+                <p className="mt-2 rounded-md bg-slate-100 px-3 py-2 text-xs text-slate-700 dark:bg-slate-800 dark:text-slate-300">
+                  Total revenus toutes devises :&nbsp;
+                  <strong>{ils(totalPeriodILS)}</strong>
+                  {s.periodMode === 'monthly' ? ' /mois → ' + ils(totalPeriodILS * 12) + ' /an'
+                   : s.periodMode === 'partial' ? ` sur ${s.periodMonths} mois → ` + ils(totalPeriodILS / s.periodMonths * 12) + ' /an annualisé'
+                   : ''}
+                </p>
+              )}
+            </Card>
+
+            <Card title="Autres revenus (multi-devises)">
+              {s.extraIncomeLines.length === 0 && (
+                <p className="text-sm text-slate-500 dark:text-slate-400">
+                  Ajoutez d'autres sources de revenus dans leur propre devise (salaire étranger, dividendes, location…).
+                </p>
+              )}
+              <div className="flex flex-col gap-3">
+                {extraLinesILS.map((l) => (
+                  <div key={l.id} className="rounded-md border border-slate-200 p-3 dark:border-slate-700">
+                    <div className="grid grid-cols-2 gap-3">
+                      <Field label="Libellé">
+                        <input
+                          className={`${inputCls} col-span-2`}
+                          value={l.label}
+                          onChange={(e) => s.updateIncomeLine(l.id, { label: e.target.value })}
+                        />
+                      </Field>
+                      <Field label="Devise">
+                        <select className={inputCls} value={l.currency}
+                          onChange={(e) => s.updateIncomeLine(l.id, { currency: e.target.value as Currency })}>
+                          {CURRENCIES.map((c) => <option key={c} value={c}>{c}</option>)}
+                        </select>
+                      </Field>
+                      <Field label={`Montant (${s.periodMode === 'annual' ? 'annuel' : s.periodMode === 'monthly' ? 'mensuel' : 'période'})`}>
+                        <CalcInput
+                          value={l.amount}
+                          onChange={(v) => s.updateIncomeLine(l.id, { amount: v })}
+                          min={0}
+                          className={inputCls}
+                          formatResult={(v) => `${Math.round(v).toLocaleString('fr-FR')} ${l.currency}`}
+                        />
+                      </Field>
+                      {l.currency !== 'ILS' && (
+                        <>
+                          <div className="col-span-2 flex items-center gap-2 text-sm">
+                            <label className="flex items-center gap-2">
+                              <input type="checkbox" checked={l.fxManualEnabled}
+                                onChange={(e) => s.updateIncomeLine(l.id, { fxManualEnabled: e.target.checked })} />
+                              Cours manuel
+                            </label>
+                            {l.fxManualEnabled && (
+                              <CalcInput
+                                value={l.fxManualRate}
+                                onChange={(v) => s.updateIncomeLine(l.id, { fxManualRate: v })}
+                                min={0}
+                                className={`${inputCls} w-28`}
+                                formatResult={(v) => `${v.toFixed(4)} ₪`}
+                              />
+                            )}
+                          </div>
+                          <p className="col-span-2 text-xs text-slate-500 dark:text-slate-400">
+                            {l.rate.toFixed(3)} {l.currency}/ILS{l.fxManualEnabled ? ' (manuel)' : ' (repli)'}
+                            {' → '}<strong>{ils(l.amountILS)}</strong>
+                          </p>
+                        </>
+                      )}
+                    </div>
+                    <div className="mt-2 flex justify-end">
+                      <button onClick={() => s.removeIncomeLine(l.id)}
+                        className="rounded-md border border-red-300 px-3 py-1 text-sm text-red-600 dark:border-red-800">
+                        Supprimer
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <button onClick={s.addIncomeLine}
+                className="mt-3 rounded-md border border-slate-300 px-3 py-2 text-sm dark:border-slate-700">
+                + Ajouter un revenu
+              </button>
             </Card>
 
             <Card title="Jours ouvrés et déplacements">

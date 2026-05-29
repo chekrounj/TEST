@@ -5,10 +5,12 @@ import { BracketsBreakdown } from '@/ui/components/BracketsBreakdown';
 function Metric({
   label,
   value,
+  detail,
   tone,
 }: {
   label: string;
   value: string;
+  detail?: string;
   tone?: 'metric' | 'total';
 }) {
   const bg =
@@ -17,11 +19,12 @@ function Metric({
       : tone === 'metric'
         ? 'bg-metric text-white'
         : 'bg-white dark:bg-slate-900';
-  const sub = tone ? 'text-white/80' : 'text-slate-500 dark:text-slate-400';
+  const sub = tone ? 'text-white/70' : 'text-slate-500 dark:text-slate-400';
   return (
     <div className={`rounded-card p-4 shadow-sm ${bg}`}>
       <div className={`text-xs ${sub}`}>{label}</div>
       <div className="mt-1 text-lg font-bold">{value}</div>
+      {detail && <div className={`mt-0.5 text-xs ${sub}`}>{detail}</div>}
     </div>
   );
 }
@@ -29,12 +32,21 @@ function Metric({
 /** Panneau de résultats : métriques, Bituah, déductions et détail par tranche. */
 export function ResultsPanel({ result }: { result: CalculationResult }) {
   const b = result.bituah;
+
+  // Impôt : on affiche le BRUT (avant crédits) pour ne jamais écrire « 0 ₪ »
+  // à tort. Le crédit de points et le net sont affichés en sous-texte.
+  const taxBrut = result.incomeTax.totalTax;
+  const taxDetail =
+    result.pointsCredit > 0
+      ? `crédit − ${ils(result.pointsCredit)} → net ${ils(result.incomeTaxAfterCredits)}`
+      : undefined;
+
   return (
     <div className="flex flex-col gap-6">
       <section className="grid grid-cols-2 gap-4 sm:grid-cols-3">
         <Metric label="Revenu annualisé" value={ils(result.annualizedIncome)} />
         <Metric label="Revenu imposable" value={ils(result.taxableFinal)} />
-        <Metric label="Impôt sur le revenu" value={ils(result.incomeTaxAfterCredits)} />
+        <Metric label="Impôt sur le revenu" value={ils(taxBrut)} detail={taxDetail} />
         <Metric label="Bituah total" value={ils(b.total)} tone="metric" />
         <Metric label="TOTAL annuel" value={ils(result.totalAnnual)} tone="total" />
         <Metric label="TOTAL mensuel" value={ils2(result.totalMonthly)} tone="total" />
@@ -102,7 +114,8 @@ export function ResultsPanel({ result }: { result: CalculationResult }) {
         </h2>
         <BracketsBreakdown result={result.incomeTax} />
         <p className="px-5 py-2 text-xs text-slate-500 dark:text-slate-400">
-          Crédit de points : − {ils(result.pointsCredit)} → impôt net {ils(result.incomeTaxAfterCredits)}
+          Impôt brut {ils(taxBrut)}
+          {result.pointsCredit > 0 && ` · crédit de points − ${ils(result.pointsCredit)} → net ${ils(result.incomeTaxAfterCredits)}`}
         </p>
       </section>
     </div>
