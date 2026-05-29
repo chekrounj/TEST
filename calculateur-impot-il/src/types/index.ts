@@ -111,3 +111,95 @@ export interface TaxRules {
   eshel: EshelRules;
   fxFallback: Record<string, number>;
 }
+
+/** Résultat de la cotisation retraite obligatoire des indépendants. */
+export interface PensionResult {
+  amount: number;
+  lowPortion: number;
+  highPortion: number;
+  lowRate: number;
+  highRate: number;
+  /** Cotisation entièrement déductible du revenu imposable. */
+  deductible: number;
+}
+
+/** Résultat du calcul eshel (indemnité de mission sans frais de logement). */
+export interface EshelResult {
+  totalUSD: number;
+  totalILS: number;
+  effectiveRatePerDay: number;
+  surcharge: 1.0 | 1.25;
+  isExpensiveCountry: boolean;
+  daysAbroad: number;
+  usdFxRate: number;
+}
+
+/** Résultat du décompte des jours ouvrés. */
+export interface WorkdaysResult {
+  totalWorkdays: number;
+  holidays: Array<{ date: string; name: string }>;
+  calendar: 'israel' | 'foreign';
+}
+
+/** Résultat du calcul de prorata « jours étranger / jours ouvrés ». */
+export interface ProrataResult {
+  ratio: number;
+  deductionAmount: number;
+}
+
+/** Résultat d'un service de change. */
+export interface FxResult {
+  rate: number;
+  source: 'boi' | 'exchangerate' | 'fallback';
+  samplesCount: number;
+}
+
+/** Une ligne de déduction (manuelle ou automatique). */
+export interface DeductionLine {
+  id: string;
+  label: string;
+  amount: number;
+  /** true si générée automatiquement (eshel, retraite, 52% Leumi…). */
+  auto: boolean;
+}
+
+/** Mode de périodicité de la saisie du revenu. */
+export type PeriodMode = 'annual' | 'monthly' | 'partial';
+
+/** Données d'entrée de l'orchestrateur de calcul. */
+export interface CalculationInput {
+  year: number;
+  status: TaxpayerStatus;
+  period: { mode: PeriodMode; months?: number };
+  income: { amount: number; currency: Currency };
+  /** Taux de change devise du revenu -> ILS (1 si déjà en ILS). */
+  incomeFxRate: number;
+  /** Taux de change USD -> ILS (pour eshel). */
+  usdFxRate: number;
+  workdays: { total: number; abroad: number };
+  eshel: { enabled: boolean; daysAbroad: number; country: string };
+  points: number;
+  /** Déductions manuelles saisies par l'utilisateur. */
+  manualDeductions: DeductionLine[];
+}
+
+/** Résultat complet du calcul (toutes les métriques). */
+export interface CalculationResult {
+  annualizedIncome: number;
+  eshel: EshelResult | null;
+  pension: PensionResult | null;
+  bituah: BituahResult;
+  /** Toutes les déductions appliquées (manuelles + automatiques). */
+  deductions: DeductionLine[];
+  totalDeductions: number;
+  taxableProvisional: number;
+  prorata: ProrataResult;
+  taxableFinal: number;
+  incomeTax: TaxResult;
+  pointsCredit: number;
+  incomeTaxAfterCredits: number;
+  /** Total annuel = impôt sur le revenu + Bituah Leumi + Briout. */
+  totalAnnual: number;
+  /** Total mensuel = total annuel / 12. */
+  totalMonthly: number;
+}

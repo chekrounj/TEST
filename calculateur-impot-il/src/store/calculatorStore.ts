@@ -1,0 +1,101 @@
+/**
+ * Store Zustand — état de saisie du calculateur, persisté dans localStorage.
+ *
+ * Le store ne contient que les **entrées** de l'utilisateur. Les taux de change
+ * (hook useFxRates) et le résultat du calcul (orchestrateur) sont dérivés dans
+ * l'UI à partir de cet état.
+ */
+import { create } from 'zustand';
+import { persist } from 'zustand/middleware';
+import type { Currency, DeductionLine, PeriodMode, TaxpayerStatus } from '@/types';
+
+export interface CalculatorState {
+  year: number;
+  status: TaxpayerStatus;
+  periodMode: PeriodMode;
+  periodMonths: number;
+
+  currency: Currency;
+  amount: number;
+  points: number;
+
+  // Jours ouvrés / déplacements
+  startDate: string;
+  endDate: string;
+  calendar: 'israel' | 'foreign';
+  autoWorkdays: boolean;
+  workTotal: number;
+  workAbroad: number;
+
+  // Eshel
+  eshelEnabled: boolean;
+  eshelDays: number;
+  eshelCountry: string;
+
+  manualDeductions: DeductionLine[];
+
+  set: <K extends keyof CalculatorState>(key: K, value: CalculatorState[K]) => void;
+  addDeduction: () => void;
+  updateDeduction: (id: string, patch: Partial<Omit<DeductionLine, 'id' | 'auto'>>) => void;
+  removeDeduction: (id: string) => void;
+  reset: () => void;
+}
+
+const currentYear = new Date().getFullYear();
+const defaultYear = currentYear >= 2022 && currentYear <= 2025 ? currentYear : 2025;
+
+const initialState = {
+  year: defaultYear,
+  status: 'employee' as TaxpayerStatus,
+  periodMode: 'annual' as PeriodMode,
+  periodMonths: 12,
+  currency: 'ILS' as Currency,
+  amount: 200_000,
+  points: 2.25,
+  startDate: `${defaultYear}-01-01`,
+  endDate: `${defaultYear}-12-31`,
+  calendar: 'israel' as const,
+  autoWorkdays: true,
+  workTotal: 240,
+  workAbroad: 0,
+  eshelEnabled: false,
+  eshelDays: 0,
+  eshelCountry: 'USA',
+  manualDeductions: [] as DeductionLine[],
+};
+
+let idCounter = 0;
+const newId = () => `man-${Date.now()}-${idCounter++}`;
+
+export const useCalculatorStore = create<CalculatorState>()(
+  persist(
+    (set) => ({
+      ...initialState,
+
+      set: (key, value) => set({ [key]: value } as Partial<CalculatorState>),
+
+      addDeduction: () =>
+        set((s) => ({
+          manualDeductions: [
+            ...s.manualDeductions,
+            { id: newId(), label: 'Nouvelle déduction', amount: 0, auto: false },
+          ],
+        })),
+
+      updateDeduction: (id, patch) =>
+        set((s) => ({
+          manualDeductions: s.manualDeductions.map((d) =>
+            d.id === id ? { ...d, ...patch } : d,
+          ),
+        })),
+
+      removeDeduction: (id) =>
+        set((s) => ({
+          manualDeductions: s.manualDeductions.filter((d) => d.id !== id),
+        })),
+
+      reset: () => set({ ...initialState }),
+    }),
+    { name: 'calculateur-impot-il' },
+  ),
+);

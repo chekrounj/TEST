@@ -25,21 +25,53 @@ npm run preview
 
 ## État d'avancement (roadmap)
 
-Phase 1 — MVP (en cours) :
+Phase 1 — MVP :
 
 - [x] Setup Vite + React + TS + Tailwind + Vitest
 - [x] Module `domain/tax/brackets` (impôt progressif) + tests (5 cas/année,
       2022–2025)
 - [x] Module `domain/tax/points` (points de crédit) + tests
-- [x] Données fiscales 2022–2025 externalisées (`src/data/tax-rules-*.json`)
-- [x] UI single-page minimale (impôt sur le revenu + détail par tranche)
 - [x] Module `domain/bituah` (Leumi + Briout, salarié/indépendant, 52%
       déductible) + tests
-- [ ] Modules pension / eshel / workdays
-- [ ] Orchestrateur, FX, persistance localStorage, email Outlook, impression
+- [x] Module `domain/pension/self` (retraite obligatoire indépendants) + tests
+- [x] Module `domain/eshel` (indemnité mission + pays majorés +25%) + tests
+- [x] Module `domain/workdays` (décompte jours ouvrés, fêtes via `@hebcal/core`,
+      prorata étranger) + tests
+- [x] Module `domain/fx` (taux moyen, providers + fallback, cache 24h) + tests
+- [x] `domain/orchestrator` (composition en 15 étapes) + tests d'intégration
+- [x] Données fiscales 2022–2025 externalisées (`src/data/tax-rules-*.json`)
+- [x] UI complète (toutes les sections), persistance localStorage (Zustand),
+      impression, deeplink Outlook
+- [x] 84 tests verts · typecheck OK · build prod OK
 
-Voir le document d'instructions pour la roadmap complète (Phases 2 et 3) et
-`docs/` pour les sources officielles et les cas de validation.
+Phase 2/3 — extensions optionnelles (non incluses) :
+
+- [ ] Microsoft 365 Graph API (envoi authentifié + PDF) — nécessite Azure
+- [ ] Bank of Israel comme provider FX primaire (API à stabiliser)
+- [ ] i18n hébreu / anglais (RTL)
+- [ ] Backend multi-device, comparaison d'années, export Excel
+
+Voir le document d'instructions pour la roadmap complète et `docs/` pour les
+sources officielles et les cas de validation.
+
+## Mettre à jour l'application sur un serveur
+
+Après chaque nouvelle version du code :
+
+```bash
+# 1. récupérer le code à jour (ou re-télécharger le ZIP de la branche)
+git pull origin claude/optimistic-ramanujan-eJvgH
+# 2. installer les éventuelles nouvelles dépendances
+npm install
+# 3. reconstruire
+npm run build
+# 4. relancer
+npm run preview
+```
+
+> Astuce : sur un disque réseau (ex. `J:`), utilisez `npm run build` + `npm run
+> preview` (et non `npm run dev`, dont la surveillance de fichiers échoue sur
+> ces disques).
 
 ## Architecture
 
