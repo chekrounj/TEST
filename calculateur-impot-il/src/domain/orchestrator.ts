@@ -134,17 +134,30 @@ export function calculate(input: CalculationInput): CalculationResult {
   }
 
   const deductions: DeductionLine[] = [...autoDeductions, ...input.manualDeductions];
-  const totalDeductions = deductions.reduce((acc, d) => acc + Math.max(0, safe(d.amount)), 0);
 
-  // 9 — imposable provisoire
-  const taxableProvisional = Math.max(0, annualizedIncome - totalDeductions);
+  // 9 — imposable provisoire (avant prorata)
+  const baseDeductions = deductions.reduce((acc, d) => acc + Math.max(0, safe(d.amount)), 0);
+  const taxableProvisional = Math.max(0, annualizedIncome - baseDeductions);
 
-  // 10 — prorata étranger
+  // 10 — prorata étranger : dispense d'impôt au prorata des jours ouvrés à
+  // l'étranger = revenu imposable provisoire × (jours étranger / total jours).
   const prorata = computeProrata(
     input.workdays.abroad,
     input.workdays.total,
     taxableProvisional,
   );
+
+  // La dispense prorata est elle-même une déduction (affichée comme telle).
+  if (prorata.deductionAmount > 0) {
+    deductions.push({
+      id: 'auto-prorata',
+      label: `Dispense prorata des jours ouvrés à l'étranger (${(prorata.ratio * 100).toFixed(1)} %)`,
+      amount: prorata.deductionAmount,
+      auto: true,
+    });
+  }
+
+  const totalDeductions = deductions.reduce((acc, d) => acc + Math.max(0, safe(d.amount)), 0);
 
   // 11 — imposable final
   const taxableFinal = Math.max(0, taxableProvisional - prorata.deductionAmount);

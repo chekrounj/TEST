@@ -70,6 +70,53 @@ export function ResultsPanel({ result }: { result: CalculationResult }) {
         </p>
       </section>
 
+      {result.eshel && result.eshel.totalILS > 0 && (
+        <section className="overflow-hidden rounded-card bg-white shadow-sm dark:bg-slate-900">
+          <h2 className="border-b border-slate-200 px-5 py-3 font-semibold dark:border-slate-800">
+            Détail du calcul eshel
+          </h2>
+          <div className="px-5 py-3 text-sm">
+            <p className="text-slate-600 dark:text-slate-300">
+              {result.eshel.daysAbroad} jour(s) ×{' '}
+              {result.eshel.effectiveRatePerDay.toLocaleString('fr-FR', { maximumFractionDigits: 2 })} $/j
+              {result.eshel.surcharge === 1.25 ? ' (majoré +25%)' : ''} ={' '}
+              <strong>{result.eshel.totalUSD.toLocaleString('fr-FR', { maximumFractionDigits: 2 })} $</strong>
+            </p>
+            <p className="mt-1 text-slate-600 dark:text-slate-300">
+              Converti à {result.eshel.usdFxRate.toFixed(3)} USD/ILS →{' '}
+              <strong>{ils(result.eshel.totalILS)}</strong>
+            </p>
+            {result.eshel.segments && result.eshel.segments.length > 1 && (
+              <table className="mt-3 w-full text-xs">
+                <thead>
+                  <tr className="text-left text-slate-400">
+                    <th className="py-1">Période</th>
+                    <th className="py-1 text-right">Jours</th>
+                    <th className="py-1 text-right">$/jour</th>
+                    <th className="py-1 text-right">Total ₪</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {result.eshel.segments.map((seg, i) => (
+                    <tr key={i} className="border-t border-slate-100 dark:border-slate-800">
+                      <td className="py-1">
+                        #{i + 1}
+                        {seg.isExpensiveCountry ? ' (+25%)' : ''}
+                      </td>
+                      <td className="py-1 text-right">{seg.daysAbroad}</td>
+                      <td className="py-1 text-right">
+                        {seg.effectiveRatePerDay.toLocaleString('fr-FR', { maximumFractionDigits: 2 })} $
+                      </td>
+                      <td className="py-1 text-right">{ils(seg.totalILS)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </div>
+        </section>
+      )}
+
       <section className="overflow-hidden rounded-card bg-white shadow-sm dark:bg-slate-900">
         <h2 className="border-b border-slate-200 px-5 py-3 font-semibold dark:border-slate-800">
           Déductions appliquées
@@ -104,7 +151,8 @@ export function ResultsPanel({ result }: { result: CalculationResult }) {
           </table>
         )}
         <p className="px-5 py-2 text-xs text-slate-500 dark:text-slate-400">
-          Prorata étranger : {pct(result.prorata.ratio)} (déduction {ils(result.prorata.deductionAmount)})
+          Dispense prorata : {pct(result.prorata.ratio)} du revenu imposable provisoire{' '}
+          ({ils(result.taxableProvisional)}) = {ils(result.prorata.deductionAmount)}
         </p>
       </section>
 

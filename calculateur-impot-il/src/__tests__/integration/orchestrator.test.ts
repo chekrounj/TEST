@@ -32,6 +32,14 @@ describe('orchestrateur — salarié, 200 000 ₪, prorata 10%', () => {
     expect(r.taxableFinal).toBeCloseTo(180_000, 6);
   });
 
+  it('la dispense prorata apparaît comme une déduction (revenu × %)', () => {
+    const prorata = r.deductions.find((d) => d.id === 'auto-prorata');
+    expect(prorata).toBeDefined();
+    expect(prorata!.label).toContain('Dispense prorata des jours ouvrés à l\'étranger');
+    expect(prorata!.amount).toBeCloseTo(20_000, 6); // 200 000 × 10%
+    expect(prorata!.auto).toBe(true);
+  });
+
   it('impôt sur le revenu = 25 392 ₪ avant crédits', () => {
     expect(r.incomeTax.totalTax).toBeCloseTo(25_392, 2);
   });
