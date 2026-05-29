@@ -8,6 +8,7 @@ import { countWorkdays } from '@/domain/workdays/counter';
 import { getIsraeliHolidays } from '@/domain/workdays/holidays';
 import { COUNTRIES, isExpensiveCountry } from '@/domain/eshel/countries';
 import { ResultsPanel } from '@/ui/components/ResultsPanel';
+import { CalcInput } from '@/ui/components/CalcInput';
 import { ils } from '@/ui/shared/format';
 import { openOutlookCompose } from '@/services/outlook';
 import { printReport } from '@/services/print';
@@ -158,8 +159,13 @@ export function CalculatorPage() {
                   </select>
                 </Field>
                 <Field label={`Montant (${s.periodMode === 'annual' ? 'annuel' : s.periodMode === 'monthly' ? 'mensuel' : 'période'})`}>
-                  <input type="number" min={0} step={1000} className={inputCls} value={s.amount}
-                    onChange={(e) => s.set('amount', Number(e.target.value))} />
+                  <CalcInput
+                    value={s.amount}
+                    onChange={(v) => s.set('amount', v)}
+                    min={0}
+                    className={inputCls}
+                    formatResult={(v) => `${Math.round(v).toLocaleString('fr-FR')} ${s.currency}`}
+                  />
                 </Field>
               </div>
               {s.currency !== 'ILS' && (
@@ -185,7 +191,14 @@ export function CalculatorPage() {
                   </select>
                 </Field>
                 <Field label="Jours ouvrés à l'étranger">
-                  <input type="number" min={0} className={inputCls} value={s.workAbroad} onChange={(e) => s.set('workAbroad', Number(e.target.value))} />
+                  <CalcInput
+                    value={s.workAbroad}
+                    onChange={(v) => s.set('workAbroad', v)}
+                    min={0}
+                    integer
+                    className={inputCls}
+                    formatResult={(v) => `${v} j`}
+                  />
                 </Field>
               </div>
               <label className="mt-3 flex items-center gap-2 text-sm">
@@ -195,7 +208,14 @@ export function CalculatorPage() {
               {!s.autoWorkdays && (
                 <div className="mt-3">
                   <Field label="Total jours ouvrés (manuel)">
-                    <input type="number" min={0} className={inputCls} value={s.workTotal} onChange={(e) => s.set('workTotal', Number(e.target.value))} />
+                    <CalcInput
+                      value={s.workTotal}
+                      onChange={(v) => s.set('workTotal', v)}
+                      min={0}
+                      integer
+                      className={inputCls}
+                      formatResult={(v) => `${v} j`}
+                    />
                   </Field>
                 </div>
               )}
@@ -219,7 +239,14 @@ export function CalculatorPage() {
               {s.eshelEnabled && (
                 <div className="mt-3 grid grid-cols-2 gap-4">
                   <Field label="Jours entiers à l'étranger">
-                    <input type="number" min={0} className={inputCls} value={s.eshelDays} onChange={(e) => s.set('eshelDays', Number(e.target.value))} />
+                    <CalcInput
+                      value={s.eshelDays}
+                      onChange={(v) => s.set('eshelDays', v)}
+                      min={0}
+                      integer
+                      className={inputCls}
+                      formatResult={(v) => `${v} j`}
+                    />
                   </Field>
                   <Field label="Pays">
                     <select className={inputCls} value={s.eshelCountry} onChange={(e) => s.set('eshelCountry', e.target.value)}>
@@ -244,8 +271,13 @@ export function CalculatorPage() {
                   <div key={d.id} className="flex gap-2">
                     <input className={`${inputCls} flex-1`} value={d.label}
                       onChange={(e) => s.updateDeduction(d.id, { label: e.target.value })} />
-                    <input type="number" className={`${inputCls} w-32`} value={d.amount}
-                      onChange={(e) => s.updateDeduction(d.id, { amount: Number(e.target.value) })} />
+                    <CalcInput
+                      value={d.amount}
+                      onChange={(v) => s.updateDeduction(d.id, { amount: v })}
+                      min={0}
+                      className={`${inputCls} w-32`}
+                      formatResult={ils}
+                    />
                     <button onClick={() => s.removeDeduction(d.id)} className="rounded-md border border-red-300 px-3 text-red-600 dark:border-red-800">✕</button>
                   </div>
                 ))}
