@@ -1,52 +1,88 @@
 /**
  * Module Eshel — pays « chers » majorés de +25%.
  *
- * Liste issue des תקנות מס הכנסה (ניכוי הוצאות מסוימות), תשל"ב-1972.
- * À revoir si publication d'un nouvel arrêté ministériel.
+ * Liste issue des תקנות מס הכנסה (ניכוי הוצאות מסוימות), תשל"ב-1972, telle
+ * que publiée par les conseillers fiscaux pour 2024-2025 : 28 pays pour
+ * lesquels le plafond des frais de séjour/hébergement à l'étranger est
+ * majoré de 25% (125%).
  *
- * NB : liste à confirmer sur l'annexe officielle à jour
- * (statut `approximate-pending-regulation-check` dans les JSON).
+ * NB importante : les États-Unis ne figurent PAS dans cette liste (tarif
+ * standard), contrairement à une idée répandue. La France, en revanche, EST
+ * majorée. À revérifier à chaque publication d'un arrêté mis à jour.
+ *
+ * Sources :
+ *   - https://oritax.co.il/הוצאות-נסיעה-לחול/
+ *   - https://www.dnk-cpa.co.il/?item=576&section=23
+ *   - https://claltax.com/הוצאות-מוכרות-בחוץ-לארץ/
  */
 
-/** Pays bénéficiant de la majoration eshel +25% (clés canoniques). */
+/** Pays bénéficiant de la majoration eshel +25% (clés canoniques FR). */
 export const EXPENSIVE_COUNTRIES = [
-  'USA',
-  'UK',
-  'Suisse',
-  'Japon',
+  'Allemagne',
+  'Angola',
   'Australie',
+  'Autriche',
+  'Belgique',
+  'Cameroun',
   'Canada',
-  'Suède',
-  'Norvège',
+  'Corée du Sud',
   'Danemark',
-  'Islande',
-  'Irlande',
+  'Dubaï',
+  'Émirats arabes unis',
+  'Espagne',
   'Finlande',
+  'France',
+  'Grèce',
+  'Hong Kong',
+  'Irlande',
+  'Islande',
+  'Italie',
+  'Japon',
   'Luxembourg',
+  'Norvège',
+  'Oman',
+  'Pays-Bas',
+  'Qatar',
+  'Royaume-Uni',
+  'UK',
+  'Suède',
+  'Suisse',
+  'Taïwan',
 ] as const;
 
 /** Liste de pays proposés dans l'interface (libellé FR + majoration). */
 export const COUNTRIES: Array<{ name: string; expensive: boolean }> = [
   { name: 'Israël', expensive: false },
-  { name: 'France', expensive: false },
-  { name: 'USA', expensive: true },
-  { name: 'UK', expensive: true },
-  { name: 'Suisse', expensive: true },
-  { name: 'Japon', expensive: true },
+  { name: 'USA', expensive: false },
+  { name: 'Allemagne', expensive: true },
+  { name: 'Angola', expensive: true },
   { name: 'Australie', expensive: true },
+  { name: 'Autriche', expensive: true },
+  { name: 'Belgique', expensive: true },
+  { name: 'Cameroun', expensive: true },
   { name: 'Canada', expensive: true },
-  { name: 'Suède', expensive: true },
-  { name: 'Norvège', expensive: true },
+  { name: 'Corée du Sud', expensive: true },
   { name: 'Danemark', expensive: true },
-  { name: 'Islande', expensive: true },
-  { name: 'Irlande', expensive: true },
+  { name: 'Dubaï', expensive: true },
+  { name: 'Émirats arabes unis', expensive: true },
+  { name: 'Espagne', expensive: true },
   { name: 'Finlande', expensive: true },
+  { name: 'France', expensive: true },
+  { name: 'Grèce', expensive: true },
+  { name: 'Hong Kong', expensive: true },
+  { name: 'Irlande', expensive: true },
+  { name: 'Islande', expensive: true },
+  { name: 'Italie', expensive: true },
+  { name: 'Japon', expensive: true },
   { name: 'Luxembourg', expensive: true },
-  { name: 'Allemagne', expensive: false },
-  { name: 'Italie', expensive: false },
-  { name: 'Espagne', expensive: false },
-  { name: 'Belgique', expensive: false },
-  { name: 'Pays-Bas', expensive: false },
+  { name: 'Norvège', expensive: true },
+  { name: 'Oman', expensive: true },
+  { name: 'Pays-Bas', expensive: true },
+  { name: 'Qatar', expensive: true },
+  { name: 'Royaume-Uni', expensive: true },
+  { name: 'Suède', expensive: true },
+  { name: 'Suisse', expensive: true },
+  { name: 'Taïwan', expensive: true },
   { name: 'Autre', expensive: false },
 ];
 

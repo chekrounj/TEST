@@ -59,7 +59,7 @@ describe('orchestrateur — indépendant : lignes auto déductibles', () => {
   const r = calculate({
     ...base,
     status: 'self',
-    eshel: { enabled: true, daysAbroad: 10, country: 'USA' },
+    eshel: { enabled: true, daysAbroad: 10, country: 'France' },
   });
 
   it('ajoute les déductions automatiques (eshel, retraite, 52% Leumi)', () => {
@@ -74,7 +74,7 @@ describe('orchestrateur — indépendant : lignes auto déductibles', () => {
     expect(r.pension!.deductible).toBeGreaterThan(0);
   });
 
-  it('eshel USA (+25%) : 10 j × 175 $ × 3,6 = 6 300 ₪', () => {
+  it('eshel France (+25%) : 10 j × 175 $ × 3,6 = 6 300 ₪', () => {
     expect(r.eshel!.totalILS).toBeCloseTo(6_300, 2);
   });
 
