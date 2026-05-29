@@ -37,9 +37,26 @@ annuels et reproduits dans `src/__tests__/unit/brackets.test.ts`. La colonne
 > zikui. Pour comparer au simulateur officiel, retrancher
 > `points × valeur_du_point` (ex. 2025 : 2 976 ₪/point).
 
+## Bituah Leumi + Briout (2025)
+
+Config 2025 : seuil annuel 90 264 ₪ (7 522 ₪/mois) · plafond annuel 588 360 ₪
+(49 030 ₪/mois). Attendus calculés à la main, reproduits dans
+`src/__tests__/unit/bituah.test.ts`. Colonne « Officiel » à compléter via le
+simulateur ביטוח לאומי (https://b2b.btl.gov.il/btlcalculators/).
+
+| Statut | Revenu annuel (₪) | Leumi (₪) | Briout (₪) | Total (₪) | 52% déductible (₪) |
+|---|---|---|---|---|---|
+| Salarié | 60 000 | 240,00 | 1 860,00 | 2 100,00 | — |
+| Salarié | 120 000 | 2 442,58 | 4 284,98 | 6 727,56 | — |
+| Indép. | 120 000 | 6 405,71 | 4 284,98 | 10 690,69 | 3 330,97 |
+| Indép. | 700 000 | 66 496,29 | 27 702,98 | 94 199,28 | 34 578,07 |
+
+> Limitations connues à lever ultérieurement : cotisation **minimale** des
+> indépendants à faible revenu non modélisée ; pas de distinction des taux
+> applicables aux revenus passifs.
+
 ## À ajouter au fil des modules
 
-- Bituah Leumi + Briout : salarié vs indépendant, sous/au-dessus du seuil.
 - Eshel : pays standard vs pays majoré (+25%).
 - Pension obligatoire indépendants.
 - Workflow complet (orchestrateur) : revenu USD → total mensuel.

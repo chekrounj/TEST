@@ -33,7 +33,9 @@ Phase 1 — MVP (en cours) :
 - [x] Module `domain/tax/points` (points de crédit) + tests
 - [x] Données fiscales 2022–2025 externalisées (`src/data/tax-rules-*.json`)
 - [x] UI single-page minimale (impôt sur le revenu + détail par tranche)
-- [ ] Modules bituah / pension / eshel / workdays
+- [x] Module `domain/bituah` (Leumi + Briout, salarié/indépendant, 52%
+      déductible) + tests
+- [ ] Modules pension / eshel / workdays
 - [ ] Orchestrateur, FX, persistance localStorage, email Outlook, impression
 
 Voir le document d'instructions pour la roadmap complète (Phases 2 et 3) et

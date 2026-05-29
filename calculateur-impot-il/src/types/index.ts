@@ -51,6 +51,40 @@ export interface BituahRules {
   self: { low: BituahTier; high: BituahTier };
 }
 
+/** Détail d'une composante Bituah (Leumi ou Briout). */
+export interface BituahComponent {
+  amount: number;
+  lowPortion: number;
+  highPortion: number;
+  rateLow: number;
+  rateHigh: number;
+}
+
+/** Résultat du calcul Bituah Leumi + Briout sur un revenu annuel. */
+export interface BituahResult {
+  leumi: number;
+  briout: number;
+  total: number;
+  /** 52% du Bituah Leumi, déductible du revenu imposable (indépendants uniquement, sinon 0). */
+  leumiDeductible: number;
+  breakdown: {
+    thresholdAnnual: number;
+    maxAnnual: number;
+    /** Portion du revenu sous le seuil (taux réduit). */
+    lowPortion: number;
+    /** Portion du revenu entre le seuil et le plafond (taux plein). */
+    highPortion: number;
+    /** Portion du revenu au-dessus du plafond (non cotisée). */
+    cappedExcess: number;
+    rates: {
+      leumiLow: number;
+      leumiHigh: number;
+      brioutLow: number;
+      brioutHigh: number;
+    };
+  };
+}
+
 /** Cotisation retraite obligatoire des indépendants. */
 export interface SelfPensionRules {
   lowRate: number;
