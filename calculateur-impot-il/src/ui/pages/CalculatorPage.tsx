@@ -9,6 +9,7 @@ import { getIsraeliHolidays } from '@/domain/workdays/holidays';
 import { COUNTRIES, isExpensiveCountry } from '@/domain/eshel/countries';
 import { ResultsPanel } from '@/ui/components/ResultsPanel';
 import { CalcInput } from '@/ui/components/CalcInput';
+import { DateInput } from '@/ui/components/DateInput';
 import { ils } from '@/ui/shared/format';
 import { openOutlookCompose } from '@/services/outlook';
 import { printReport } from '@/services/print';
@@ -190,10 +191,10 @@ export function CalculatorPage() {
             <Card title="Jours ouvrés et déplacements">
               <div className="grid grid-cols-2 gap-4">
                 <Field label="Début de période">
-                  <input type="date" className={inputCls} value={s.startDate} onChange={(e) => s.set('startDate', e.target.value)} />
+                  <DateInput className={inputCls} value={s.startDate} onChange={(v) => s.set('startDate', v)} />
                 </Field>
                 <Field label="Fin de période">
-                  <input type="date" className={inputCls} value={s.endDate} onChange={(e) => s.set('endDate', e.target.value)} />
+                  <DateInput className={inputCls} value={s.endDate} onChange={(v) => s.set('endDate', v)} />
                 </Field>
                 <Field label="Semaine ouvrée">
                   <select className={inputCls} value={s.calendar} onChange={(e) => s.set('calendar', e.target.value as 'israel' | 'foreign')}>

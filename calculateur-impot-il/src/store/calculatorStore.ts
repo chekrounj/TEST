@@ -42,7 +42,9 @@ export interface CalculatorState {
 }
 
 const currentYear = new Date().getFullYear();
-const defaultYear = currentYear >= 2022 && currentYear <= 2025 ? currentYear : 2025;
+// Utilise l'année en cours si elle est dans la plage gérée (y compris les
+// années provisoires), sinon la dernière année avec données (2025).
+const defaultYear = currentYear >= 2022 ? currentYear : 2022;
 
 const initialState = {
   year: defaultYear,
