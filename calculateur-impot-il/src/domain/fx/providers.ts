@@ -9,7 +9,7 @@
  *   3. Fallback : valeurs par année (`tax-rules-{year}.json`, bloc fxFallback).
  */
 import type { Currency } from '@/types';
-import { getTaxRules, AVAILABLE_YEARS } from '@/domain/tax/rules';
+import { getTaxRules } from '@/domain/tax/rules';
 
 export interface ProviderResult {
   rate: number;
@@ -76,12 +76,14 @@ export const exchangerateProvider: FxProvider = {
 /** Liste ordonnée des fournisseurs (primaire d'abord). */
 export const DEFAULT_PROVIDERS: FxProvider[] = [boiProvider, exchangerateProvider];
 
-/** Valeur de repli (fallback) pour une devise, à partir des règles annuelles. */
+/**
+ * Valeur de repli (fallback) pour une devise, à partir des règles annuelles.
+ * Pour une année provisoire (sans données), `getTaxRules` renvoie déjà les
+ * règles de la dernière année connue : on utilise donc le change connu le plus
+ * récent (« celui connu l'année en cours »).
+ */
 export function getFallbackRate(currency: Currency, year: number): number {
   if (currency === 'ILS') return 1;
-  const safeYear = AVAILABLE_YEARS.includes(year)
-    ? year
-    : AVAILABLE_YEARS[AVAILABLE_YEARS.length - 1];
-  const fallback = getTaxRules(safeYear).fxFallback;
+  const fallback = getTaxRules(year).fxFallback;
   return fallback[currency] ?? 1;
 }

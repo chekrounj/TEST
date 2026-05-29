@@ -1,6 +1,13 @@
 import { describe, it, expect } from 'vitest';
 import { computeProgressiveTax } from '@/domain/tax/brackets';
-import { getTaxRules, AVAILABLE_YEARS } from '@/domain/tax/rules';
+import {
+  getTaxRules,
+  AVAILABLE_YEARS,
+  DATA_YEARS,
+  SELECTABLE_YEARS,
+  isProvisionalYear,
+  resolveDataYear,
+} from '@/domain/tax/rules';
 
 /**
  * Cas de référence — impôt sur le revenu progressif.
@@ -126,18 +133,40 @@ describe('computeProgressiveTax — cas limites', () => {
 });
 
 describe('getTaxRules', () => {
-  it('expose les années 2022 à 2025', () => {
+  it('expose les années de données 2022 à 2025', () => {
+    expect(DATA_YEARS).toEqual([2022, 2023, 2024, 2025]);
     expect(AVAILABLE_YEARS).toEqual([2022, 2023, 2024, 2025]);
   });
 
-  it('lève une erreur pour une année non supportée', () => {
+  it('lève une erreur pour une année antérieure aux données', () => {
     expect(() => getTaxRules(2019)).toThrow();
   });
 
   it('chaque barème se termine par une tranche sans plafond (limit null)', () => {
-    for (const year of AVAILABLE_YEARS) {
+    for (const year of DATA_YEARS) {
       const { brackets } = getTaxRules(year);
       expect(brackets[brackets.length - 1].limit).toBeNull();
     }
+  });
+});
+
+describe('année provisoire (sans données)', () => {
+  it('inclut les années provisoires jusqu\'à l\'année en cours', () => {
+    const currentYear = new Date().getFullYear();
+    expect(SELECTABLE_YEARS).toContain(2025);
+    if (currentYear > 2025) {
+      expect(SELECTABLE_YEARS).toContain(currentYear);
+      expect(isProvisionalYear(currentYear)).toBe(true);
+    }
+  });
+
+  it('une année future utilise les tranches de la dernière année connue', () => {
+    expect(resolveDataYear(2030)).toBe(2025);
+    expect(getTaxRules(2030).brackets).toEqual(getTaxRules(2025).brackets);
+  });
+
+  it('une année avec données n\'est pas provisoire', () => {
+    expect(isProvisionalYear(2024)).toBe(false);
+    expect(resolveDataYear(2024)).toBe(2024);
   });
 });

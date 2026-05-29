@@ -3,7 +3,7 @@ import type { CalculationInput, Currency } from '@/types';
 import { useCalculatorStore } from '@/store/calculatorStore';
 import { useFxRates } from '@/hooks/useFxRates';
 import { calculate } from '@/domain/orchestrator';
-import { AVAILABLE_YEARS } from '@/domain/tax/rules';
+import { SELECTABLE_YEARS, isProvisionalYear } from '@/domain/tax/rules';
 import { countWorkdays } from '@/domain/workdays/counter';
 import { getIsraeliHolidays } from '@/domain/workdays/holidays';
 import { COUNTRIES, isExpensiveCountry } from '@/domain/eshel/countries';
@@ -15,8 +15,10 @@ import { printReport } from '@/services/print';
 
 const CURRENCIES: Currency[] = ['ILS', 'USD', 'EUR', 'GBP', 'CHF'];
 
+// Fond + texte explicites : évite l'effet « blanc sur blanc » des menus
+// déroulants natifs (les <option> héritaient d'un fond transparent).
 const inputCls =
-  'rounded-md border border-slate-300 bg-transparent p-2 dark:border-slate-700';
+  'rounded-md border border-slate-300 bg-white p-2 text-slate-900 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100';
 
 function Field({ label, children }: { label: string; children: ReactNode }) {
   return (
@@ -114,8 +116,10 @@ export function CalculatorPage() {
               <div className="grid grid-cols-2 gap-4">
                 <Field label="Année fiscale">
                   <select className={inputCls} value={s.year} onChange={(e) => s.set('year', Number(e.target.value))}>
-                    {AVAILABLE_YEARS.map((y) => (
-                      <option key={y} value={y}>{y}</option>
+                    {SELECTABLE_YEARS.map((y) => (
+                      <option key={y} value={y}>
+                        {y}{isProvisionalYear(y) ? ' (provisoire)' : ''}
+                      </option>
                     ))}
                   </select>
                 </Field>
@@ -148,6 +152,13 @@ export function CalculatorPage() {
                       onChange={(e) => s.set('periodMonths', Number(e.target.value))} />
                   </Field>
                 </div>
+              )}
+              {isProvisionalYear(s.year) && (
+                <p className="mt-3 rounded-md bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:bg-amber-950/40 dark:text-amber-200">
+                  Année <strong>{s.year}</strong> provisoire : barème officiel non
+                  encore publié. Calcul basé sur les tranches de l'année précédente
+                  et le dernier taux de change connu.
+                </p>
               )}
             </Card>
 
