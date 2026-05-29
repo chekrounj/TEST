@@ -50,5 +50,6 @@ export function computeEshel(
     isExpensiveCountry: expensive,
     daysAbroad: days,
     usdFxRate: rate,
+    country,
   };
 }

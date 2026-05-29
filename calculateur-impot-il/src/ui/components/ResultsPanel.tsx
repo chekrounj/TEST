@@ -1,6 +1,7 @@
 import type { CalculationResult } from '@/types';
 import { ils, ils2, pct } from '@/ui/shared/format';
 import { BracketsBreakdown } from '@/ui/components/BracketsBreakdown';
+import { EXPENSIVE_COUNTRIES } from '@/domain/eshel/countries';
 
 function Metric({
   label,
@@ -76,32 +77,58 @@ export function ResultsPanel({ result }: { result: CalculationResult }) {
             Détail du calcul eshel
           </h2>
           <div className="px-5 py-3 text-sm">
-            <p className="text-slate-600 dark:text-slate-300">
-              {result.eshel.daysAbroad} jour(s) ×{' '}
-              {result.eshel.effectiveRatePerDay.toLocaleString('fr-FR', { maximumFractionDigits: 2 })} $/j
-              {result.eshel.surcharge === 1.25 ? ' (majoré +25%)' : ''} ={' '}
-              <strong>{result.eshel.totalUSD.toLocaleString('fr-FR', { maximumFractionDigits: 2 })} $</strong>
-            </p>
-            <p className="mt-1 text-slate-600 dark:text-slate-300">
-              Converti à {result.eshel.usdFxRate.toFixed(3)} USD/ILS →{' '}
-              <strong>{ils(result.eshel.totalILS)}</strong>
-            </p>
+            {/* Cas simple : une seule période / un seul pays */}
+            {(!result.eshel.segments || result.eshel.segments.length <= 1) && (
+              <>
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="font-medium">{result.eshel.country}</span>
+                  {result.eshel.isExpensiveCountry ? (
+                    <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-800 dark:bg-amber-900/40 dark:text-amber-300">
+                      Pays majoré +25%
+                    </span>
+                  ) : (
+                    <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs text-slate-500 dark:bg-slate-800">
+                      Taux standard
+                    </span>
+                  )}
+                </div>
+                <p className="mt-2 text-slate-600 dark:text-slate-300">
+                  {result.eshel.daysAbroad} jour(s) ×{' '}
+                  {result.eshel.effectiveRatePerDay.toLocaleString('fr-FR', { maximumFractionDigits: 2 })} $/j
+                  {result.eshel.isExpensiveCountry && (
+                    <span className="ml-1 text-amber-700 dark:text-amber-400">
+                      (tarif de base ×1,25)
+                    </span>
+                  )}{' '}
+                  = <strong>{result.eshel.totalUSD.toLocaleString('fr-FR', { maximumFractionDigits: 2 })} $</strong>
+                </p>
+              </>
+            )}
+
+            {/* Cas multi-périodes : tableau par segment */}
             {result.eshel.segments && result.eshel.segments.length > 1 && (
-              <table className="mt-3 w-full text-xs">
+              <table className="w-full text-xs">
                 <thead>
                   <tr className="text-left text-slate-400">
-                    <th className="py-1">Période</th>
-                    <th className="py-1 text-right">Jours</th>
-                    <th className="py-1 text-right">$/jour</th>
-                    <th className="py-1 text-right">Total ₪</th>
+                    <th className="pb-1">Pays</th>
+                    <th className="pb-1">Majoration</th>
+                    <th className="pb-1 text-right">Jours</th>
+                    <th className="pb-1 text-right">$/jour</th>
+                    <th className="pb-1 text-right">Total ₪</th>
                   </tr>
                 </thead>
                 <tbody>
                   {result.eshel.segments.map((seg, i) => (
                     <tr key={i} className="border-t border-slate-100 dark:border-slate-800">
+                      <td className="py-1 font-medium">{seg.country}</td>
                       <td className="py-1">
-                        #{i + 1}
-                        {seg.isExpensiveCountry ? ' (+25%)' : ''}
+                        {seg.isExpensiveCountry ? (
+                          <span className="rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold text-amber-800 dark:bg-amber-900/40 dark:text-amber-300">
+                            +25%
+                          </span>
+                        ) : (
+                          <span className="text-slate-400">standard</span>
+                        )}
                       </td>
                       <td className="py-1 text-right">{seg.daysAbroad}</td>
                       <td className="py-1 text-right">
@@ -113,6 +140,21 @@ export function ResultsPanel({ result }: { result: CalculationResult }) {
                 </tbody>
               </table>
             )}
+
+            <p className="mt-2 text-slate-600 dark:text-slate-300">
+              Converti à {result.eshel.usdFxRate.toFixed(3)} USD/ILS →{' '}
+              <strong>{ils(result.eshel.totalILS)}</strong>
+            </p>
+
+            {/* Liste des pays majorés +25% */}
+            <details className="mt-3">
+              <summary className="cursor-pointer text-xs text-slate-400 hover:text-slate-600 dark:hover:text-slate-300">
+                Pays bénéficiant de la majoration +25%…
+              </summary>
+              <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                {EXPENSIVE_COUNTRIES.join(' · ')}
+              </p>
+            </details>
           </div>
         </section>
       )}

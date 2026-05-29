@@ -142,6 +142,8 @@ export interface EshelResult {
   isExpensiveCountry: boolean;
   daysAbroad: number;
   usdFxRate: number;
+  /** Pays de la mission (libellé FR). */
+  country: string;
   /** Détail par période de voyage (présent si plusieurs périodes agrégées). */
   segments?: EshelResult[];
 }

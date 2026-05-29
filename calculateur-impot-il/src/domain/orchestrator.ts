@@ -76,6 +76,7 @@ function computeEshelTotal(
   const totalILS = results.reduce((a, e) => a + e.totalILS, 0);
   const daysAbroad = results.reduce((a, e) => a + e.daysAbroad, 0);
 
+  const uniqueCountries = [...new Set(results.map((e) => e.country))];
   return {
     totalUSD,
     totalILS,
@@ -84,6 +85,7 @@ function computeEshelTotal(
     isExpensiveCountry: results.some((e) => e.isExpensiveCountry),
     daysAbroad,
     usdFxRate,
+    country: uniqueCountries.join(', '),
     segments: results,
   };
 }
