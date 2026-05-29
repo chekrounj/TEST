@@ -19,9 +19,13 @@ export interface CalculatorState {
   amount: number;
   points: number;
 
-  // Change manuel (override du taux automatique)
+  // Change manuel (override du taux automatique pour le revenu)
   fxManualEnabled: boolean;
   fxManualRate: number;
+
+  // Cours USD/ILS manuel spécifiquement pour le calcul eshel
+  usdManualEnabled: boolean;
+  usdManualRate: number;
 
   // Jours ouvrés / déplacements
   startDate: string;
@@ -75,6 +79,8 @@ const initialState = {
   points: 2.25,
   fxManualEnabled: false,
   fxManualRate: 3.7,
+  usdManualEnabled: false,
+  usdManualRate: 3.7,
   startDate: `${defaultYear}-01-01`,
   endDate: `${defaultYear}-12-31`,
   calendar: 'israel' as const,

@@ -55,8 +55,13 @@ export function CalculatorPage() {
   // Taux de change effectifs : automatiques ou saisis manuellement.
   const incomeRate = s.fxManualEnabled ? s.fxManualRate : fx.income.rate;
   const incomeSource = s.fxManualEnabled ? 'manuel' : fx.income.source;
-  const usdRate =
-    s.fxManualEnabled && s.currency === 'USD' ? s.fxManualRate : fx.usd.rate;
+  // Cours USD/ILS : priorité au taux eshel manuel, sinon taux revenu si USD, sinon auto.
+  const usdRate = s.usdManualEnabled
+    ? s.usdManualRate
+    : s.fxManualEnabled && s.currency === 'USD'
+      ? s.fxManualRate
+      : fx.usd.rate;
+  const usdSource = s.usdManualEnabled ? 'manuel' : s.fxManualEnabled && s.currency === 'USD' ? 'manuel' : fx.usd.source;
 
   // Décompte automatique des jours ouvrés (ou valeur manuelle). En mode
   // mensuel, l'option « estimer à l'année » compte l'année civile entière.
@@ -159,7 +164,7 @@ export function CalculatorPage() {
           </div>
           <div className="flex flex-wrap items-center gap-3 text-xs">
             <span className="rounded-full bg-slate-200 px-3 py-1 dark:bg-slate-800">
-              USD/ILS {usdRate.toFixed(2)} · {s.fxManualEnabled && s.currency === 'USD' ? 'manuel' : fx.usd.source}
+              USD/ILS {usdRate.toFixed(2)} · {usdSource}
             </span>
             {s.currency !== 'ILS' && s.currency !== 'USD' && (
               <span className="rounded-full bg-slate-200 px-3 py-1 dark:bg-slate-800">
@@ -502,6 +507,35 @@ export function CalculatorPage() {
                     </span>
                   </p>
                 </div>
+              )}
+              {s.eshelEnabled && (
+                <>
+                  <label className="mt-3 flex items-center gap-2 text-sm">
+                    <input
+                      type="checkbox"
+                      checked={s.usdManualEnabled}
+                      onChange={(e) => s.set('usdManualEnabled', e.target.checked)}
+                    />
+                    Saisir le cours USD/ILS pour l'eshel manuellement
+                  </label>
+                  {s.usdManualEnabled ? (
+                    <div className="mt-2">
+                      <Field label="Cours USD/ILS (1 $ = ? ₪)">
+                        <CalcInput
+                          value={s.usdManualRate}
+                          onChange={(v) => s.set('usdManualRate', v)}
+                          min={0}
+                          className={inputCls}
+                          formatResult={(v) => `${v.toFixed(4)} ₪`}
+                        />
+                      </Field>
+                    </div>
+                  ) : (
+                    <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                      Cours utilisé : {usdRate.toFixed(3)} USD/ILS ({usdSource})
+                    </p>
+                  )}
+                </>
               )}
             </Card>
 
