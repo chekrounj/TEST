@@ -7,7 +7,7 @@
  */
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import type { Currency, DeductionLine, PeriodMode, TaxpayerStatus } from '@/types';
+import type { Currency, DeductionLine, PeriodMode, TaxpayerStatus, TravelPeriod } from '@/types';
 
 export interface CalculatorState {
   year: number;
@@ -19,6 +19,10 @@ export interface CalculatorState {
   amount: number;
   points: number;
 
+  // Change manuel (override du taux automatique)
+  fxManualEnabled: boolean;
+  fxManualRate: number;
+
   // Jours ouvrés / déplacements
   startDate: string;
   endDate: string;
@@ -26,6 +30,12 @@ export interface CalculatorState {
   autoWorkdays: boolean;
   workTotal: number;
   workAbroad: number;
+  /** Estimer les jours ouvrés sur l'année entière (mode mensuel). */
+  annualizeWorkdays: boolean;
+  /** Déduire automatiquement les jours à l'étranger des périodes de voyage. */
+  autoAbroad: boolean;
+  /** Périodes de voyage / missions à l'étranger. */
+  travelPeriods: TravelPeriod[];
 
   // Eshel
   eshelEnabled: boolean;
@@ -38,6 +48,9 @@ export interface CalculatorState {
   addDeduction: () => void;
   updateDeduction: (id: string, patch: Partial<Omit<DeductionLine, 'id' | 'auto'>>) => void;
   removeDeduction: (id: string) => void;
+  addTravelPeriod: () => void;
+  updateTravelPeriod: (id: string, patch: Partial<Omit<TravelPeriod, 'id'>>) => void;
+  removeTravelPeriod: (id: string) => void;
   reset: () => void;
 }
 
@@ -54,12 +67,17 @@ const initialState = {
   currency: 'ILS' as Currency,
   amount: 200_000,
   points: 2.25,
+  fxManualEnabled: false,
+  fxManualRate: 3.7,
   startDate: `${defaultYear}-01-01`,
   endDate: `${defaultYear}-12-31`,
   calendar: 'israel' as const,
   autoWorkdays: true,
   workTotal: 240,
   workAbroad: 0,
+  annualizeWorkdays: false,
+  autoAbroad: true,
+  travelPeriods: [] as TravelPeriod[],
   eshelEnabled: false,
   eshelDays: 0,
   eshelCountry: 'USA',
@@ -94,6 +112,31 @@ export const useCalculatorStore = create<CalculatorState>()(
       removeDeduction: (id) =>
         set((s) => ({
           manualDeductions: s.manualDeductions.filter((d) => d.id !== id),
+        })),
+
+      addTravelPeriod: () =>
+        set((s) => ({
+          travelPeriods: [
+            ...s.travelPeriods,
+            {
+              id: newId(),
+              startDate: s.startDate,
+              endDate: s.startDate,
+              country: s.eshelCountry,
+            },
+          ],
+        })),
+
+      updateTravelPeriod: (id, patch) =>
+        set((s) => ({
+          travelPeriods: s.travelPeriods.map((p) =>
+            p.id === id ? { ...p, ...patch } : p,
+          ),
+        })),
+
+      removeTravelPeriod: (id) =>
+        set((s) => ({
+          travelPeriods: s.travelPeriods.filter((p) => p.id !== id),
         })),
 
       reset: () => set({ ...initialState }),

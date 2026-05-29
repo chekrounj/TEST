@@ -43,27 +43,61 @@ export function CalculatorPage() {
   const s = useCalculatorStore();
   const fx = useFxRates(s.year, s.currency);
 
-  // Décompte automatique des jours ouvrés (ou valeur manuelle).
+  // Taux de change effectifs : automatiques ou saisis manuellement.
+  const incomeRate = s.fxManualEnabled ? s.fxManualRate : fx.income.rate;
+  const incomeSource = s.fxManualEnabled ? 'manuel' : fx.income.source;
+  const usdRate =
+    s.fxManualEnabled && s.currency === 'USD' ? s.fxManualRate : fx.usd.rate;
+
+  // Décompte automatique des jours ouvrés (ou valeur manuelle). En mode
+  // mensuel, l'option « estimer à l'année » compte l'année civile entière.
   const workTotal = useMemo(() => {
     if (!s.autoWorkdays) return s.workTotal;
+    const fullYear = s.periodMode === 'monthly' && s.annualizeWorkdays;
+    const start = fullYear ? `${s.year}-01-01` : s.startDate;
+    const end = fullYear ? `${s.year}-12-31` : s.endDate;
     const holidays = s.calendar === 'israel' ? getIsraeliHolidays(s.year) : [];
-    return countWorkdays({
-      startDate: s.startDate,
-      endDate: s.endDate,
-      calendar: s.calendar,
-      holidays,
-    }).totalWorkdays;
-  }, [s.autoWorkdays, s.workTotal, s.calendar, s.year, s.startDate, s.endDate]);
+    return countWorkdays({ startDate: start, endDate: end, calendar: s.calendar, holidays }).totalWorkdays;
+  }, [s.autoWorkdays, s.workTotal, s.calendar, s.year, s.startDate, s.endDate, s.periodMode, s.annualizeWorkdays]);
+
+  // Périodes de voyage : jours ouvrés + jours calendaires par période.
+  const travelComputed = useMemo(() => {
+    const holidays = s.calendar === 'israel' ? getIsraeliHolidays(s.year) : [];
+    return s.travelPeriods.map((p) => ({
+      ...p,
+      workdays: countWorkdays({
+        startDate: p.startDate,
+        endDate: p.endDate,
+        calendar: s.calendar,
+        holidays,
+      }).totalWorkdays,
+      calDays: calendarDays(p.startDate, p.endDate),
+    }));
+  }, [s.travelPeriods, s.calendar, s.year]);
+
+  const hasTravel = s.travelPeriods.length > 0;
+  const abroadFromTravel = travelComputed.reduce((a, t) => a + t.workdays, 0);
+  const workAbroad = s.autoAbroad && hasTravel ? abroadFromTravel : s.workAbroad;
+
+  // Segments eshel : un par période de voyage (jours calendaires × pays).
+  const eshelSegments = hasTravel
+    ? travelComputed.map((t) => ({ daysAbroad: t.calDays, country: t.country }))
+    : undefined;
 
   const input: CalculationInput = {
     year: s.year,
     status: s.status,
     period: { mode: s.periodMode, months: s.periodMonths },
     income: { amount: s.amount, currency: s.currency },
-    incomeFxRate: fx.income.rate,
-    usdFxRate: fx.usd.rate,
-    workdays: { total: workTotal, abroad: s.workAbroad },
-    eshel: { enabled: s.eshelEnabled, daysAbroad: s.eshelDays, country: s.eshelCountry },
+    incomeFxRate: incomeRate,
+    usdFxRate: usdRate,
+    workdays: { total: workTotal, abroad: workAbroad },
+    eshel: {
+      enabled: s.eshelEnabled,
+      daysAbroad: s.eshelDays,
+      country: s.eshelCountry,
+      segments: eshelSegments,
+    },
     points: s.points,
     manualDeductions: s.manualDeductions,
   };
@@ -81,9 +115,11 @@ export function CalculatorPage() {
       `TOTAL annuel : ${ils(result.totalAnnual)}`,
       `TOTAL mensuel : ${ils(result.totalMonthly)}`,
       '',
+      'Pièce jointe : le rapport PDF que vous venez d\'enregistrer (à joindre au message).',
+      '',
       'Estimation indicative — ne remplace pas un comptable agréé (רואה חשבון).',
     ];
-    openOutlookCompose(`Estimation impôt ${s.year}`, lines.join('\n'));
+    emailReport({ subject: `Estimation impôt ${s.year}`, body: lines.join('\n'), withPdf: true });
   };
 
   return (
@@ -99,14 +135,14 @@ export function CalculatorPage() {
           </div>
           <div className="flex flex-wrap items-center gap-3 text-xs">
             <span className="rounded-full bg-slate-200 px-3 py-1 dark:bg-slate-800">
-              USD/ILS {fx.usd.rate.toFixed(2)} · {fx.usd.source}
+              USD/ILS {usdRate.toFixed(2)} · {s.fxManualEnabled && s.currency === 'USD' ? 'manuel' : fx.usd.source}
             </span>
             {s.currency !== 'ILS' && s.currency !== 'USD' && (
               <span className="rounded-full bg-slate-200 px-3 py-1 dark:bg-slate-800">
-                {s.currency}/ILS {fx.income.rate.toFixed(2)} · {fx.income.source}
+                {s.currency}/ILS {incomeRate.toFixed(2)} · {incomeSource}
               </span>
             )}
-            {fx.loading && <span className="text-slate-400">maj…</span>}
+            {fx.loading && !s.fxManualEnabled && <span className="text-slate-400">maj…</span>}
           </div>
         </header>
 
@@ -181,10 +217,33 @@ export function CalculatorPage() {
                 </Field>
               </div>
               {s.currency !== 'ILS' && (
-                <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
-                  Converti à {fx.income.rate.toFixed(3)} {s.currency}/ILS ({fx.income.source})
-                  → {ils(s.amount * fx.income.rate)}
-                </p>
+                <>
+                  <label className="mt-3 flex items-center gap-2 text-sm">
+                    <input
+                      type="checkbox"
+                      checked={s.fxManualEnabled}
+                      onChange={(e) => s.set('fxManualEnabled', e.target.checked)}
+                    />
+                    Saisir le cours de la devise manuellement
+                  </label>
+                  {s.fxManualEnabled && (
+                    <div className="mt-2">
+                      <Field label={`Cours ${s.currency}/ILS (1 ${s.currency} = ? ₪)`}>
+                        <CalcInput
+                          value={s.fxManualRate}
+                          onChange={(v) => s.set('fxManualRate', v)}
+                          min={0}
+                          className={inputCls}
+                          formatResult={(v) => `${v.toFixed(4)} ₪`}
+                        />
+                      </Field>
+                    </div>
+                  )}
+                  <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
+                    Converti à {incomeRate.toFixed(3)} {s.currency}/ILS ({incomeSource})
+                    → {ils(s.amount * incomeRate)}
+                  </p>
+                </>
               )}
             </Card>
 
@@ -203,20 +262,34 @@ export function CalculatorPage() {
                   </select>
                 </Field>
                 <Field label="Jours ouvrés à l'étranger">
-                  <CalcInput
-                    value={s.workAbroad}
-                    onChange={(v) => s.set('workAbroad', v)}
-                    min={0}
-                    integer
-                    className={inputCls}
-                    formatResult={(v) => `${v} j`}
-                  />
+                  {s.autoAbroad && hasTravel ? (
+                    <input className={`${inputCls} opacity-70`} value={`${workAbroad} j (auto)`} readOnly />
+                  ) : (
+                    <CalcInput
+                      value={s.workAbroad}
+                      onChange={(v) => s.set('workAbroad', v)}
+                      min={0}
+                      integer
+                      className={inputCls}
+                      formatResult={(v) => `${v} j`}
+                    />
+                  )}
                 </Field>
               </div>
               <label className="mt-3 flex items-center gap-2 text-sm">
                 <input type="checkbox" checked={s.autoWorkdays} onChange={(e) => s.set('autoWorkdays', e.target.checked)} />
                 Calculer automatiquement le total des jours ouvrés (fêtes incluses)
               </label>
+              {s.periodMode === 'monthly' && (
+                <label className="mt-2 flex items-center gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={s.annualizeWorkdays}
+                    onChange={(e) => s.set('annualizeWorkdays', e.target.checked)}
+                  />
+                  Estimer les jours ouvrés sur l'année entière (mode mensuel ×12)
+                </label>
+              )}
               {!s.autoWorkdays && (
                 <div className="mt-3">
                   <Field label="Total jours ouvrés (manuel)">
@@ -232,9 +305,54 @@ export function CalculatorPage() {
                 </div>
               )}
               <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
-                Total jours ouvrés retenu : <strong>{workTotal}</strong> · prorata étranger{' '}
-                {workTotal > 0 ? ((s.workAbroad / workTotal) * 100).toFixed(1) : '0'} %
+                Total jours ouvrés retenu : <strong>{workTotal}</strong> · jours à l'étranger{' '}
+                <strong>{workAbroad}</strong> · prorata étranger{' '}
+                {workTotal > 0 ? ((workAbroad / workTotal) * 100).toFixed(1) : '0'} %
               </p>
+            </Card>
+
+            <Card title="Périodes de voyage">
+              {!hasTravel && (
+                <p className="text-sm text-slate-500 dark:text-slate-400">
+                  Aucune période de voyage. Ajoutez vos missions à l'étranger : les
+                  jours ouvrés et l'eshel sont calculés sur l'ensemble des périodes.
+                </p>
+              )}
+              <div className="flex flex-col gap-3">
+                {travelComputed.map((p) => (
+                  <div key={p.id} className="rounded-md border border-slate-200 p-3 dark:border-slate-700">
+                    <div className="grid grid-cols-2 gap-3">
+                      <Field label="Début">
+                        <DateInput className={inputCls} value={p.startDate} onChange={(v) => s.updateTravelPeriod(p.id, { startDate: v })} />
+                      </Field>
+                      <Field label="Fin">
+                        <DateInput className={inputCls} value={p.endDate} onChange={(v) => s.updateTravelPeriod(p.id, { endDate: v })} />
+                      </Field>
+                      <Field label="Pays">
+                        <select className={inputCls} value={p.country} onChange={(e) => s.updateTravelPeriod(p.id, { country: e.target.value })}>
+                          {COUNTRIES.map((c) => <option key={c.name} value={c.name}>{c.name}</option>)}
+                        </select>
+                      </Field>
+                      <div className="flex items-end justify-between gap-2">
+                        <p className="text-xs text-slate-500 dark:text-slate-400">
+                          {p.calDays} j · {p.workdays} ouvrés
+                          {isExpensiveCountry(p.country) ? ' · +25%' : ''}
+                        </p>
+                        <button onClick={() => s.removeTravelPeriod(p.id)} className="rounded-md border border-red-300 px-3 py-1 text-red-600 dark:border-red-800">✕</button>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <button onClick={s.addTravelPeriod} className="mt-3 rounded-md border border-slate-300 px-3 py-2 text-sm dark:border-slate-700">
+                + Ajouter une période de voyage
+              </button>
+              {hasTravel && (
+                <label className="mt-3 flex items-center gap-2 text-sm">
+                  <input type="checkbox" checked={s.autoAbroad} onChange={(e) => s.set('autoAbroad', e.target.checked)} />
+                  Déduire automatiquement les jours ouvrés à l'étranger ({abroadFromTravel} j)
+                </label>
+              )}
             </Card>
 
             <Card title="Points de crédit">
@@ -248,7 +366,14 @@ export function CalculatorPage() {
                 <input type="checkbox" checked={s.eshelEnabled} onChange={(e) => s.set('eshelEnabled', e.target.checked)} />
                 Réclamer l'indemnité eshel (sans frais de logement)
               </label>
-              {s.eshelEnabled && (
+              {s.eshelEnabled && hasTravel && (
+                <p className="mt-3 rounded-md bg-slate-100 px-3 py-2 text-xs text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+                  Eshel calculé automatiquement à partir des {s.travelPeriods.length} période(s)
+                  de voyage (jours et pays de chaque période).
+                  {result.eshel ? ` Total : ${result.eshel.days} j → ${ils(result.eshel.total)}.` : ''}
+                </p>
+              )}
+              {s.eshelEnabled && !hasTravel && (
                 <div className="mt-3 grid grid-cols-2 gap-4">
                   <Field label="Jours entiers à l'étranger">
                     <CalcInput
@@ -309,7 +434,7 @@ export function CalculatorPage() {
                 Imprimer / PDF
               </button>
               <button onClick={handleEmail} className="rounded-md bg-bituah px-4 py-2 text-sm text-white">
-                Email (Outlook)
+                Email + PDF (Outlook)
               </button>
               <button onClick={s.reset} className="rounded-md border border-slate-300 px-4 py-2 text-sm dark:border-slate-700">
                 Réinitialiser
