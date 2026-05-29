@@ -21,6 +21,7 @@ import type {
   CalculationInput,
   CalculationResult,
   DeductionLine,
+  EshelResult,
   PeriodMode,
 } from '@/types';
 import { computeProgressiveTax } from '@/domain/tax/brackets';
@@ -49,6 +50,44 @@ function annualize(amountILS: number, period: { mode: PeriodMode; months?: numbe
 
 const safe = (n: number): number => (Number.isFinite(n) ? n : 0);
 
+/**
+ * Calcule l'eshel total. Si des segments (périodes de voyage) sont fournis, on
+ * calcule l'indemnité par période (chacune avec son pays) puis on agrège.
+ */
+function computeEshelTotal(
+  eshelInput: CalculationInput['eshel'],
+  year: number,
+  usdFxRate: number,
+): EshelResult | null {
+  if (!eshelInput.enabled) return null;
+
+  const segmentsInput =
+    eshelInput.segments && eshelInput.segments.length > 0
+      ? eshelInput.segments
+      : [{ daysAbroad: eshelInput.daysAbroad, country: eshelInput.country }];
+
+  const results = segmentsInput.map((seg) =>
+    computeEshel(seg.daysAbroad, year, seg.country, usdFxRate),
+  );
+
+  if (results.length === 1) return results[0];
+
+  const totalUSD = results.reduce((a, e) => a + e.totalUSD, 0);
+  const totalILS = results.reduce((a, e) => a + e.totalILS, 0);
+  const daysAbroad = results.reduce((a, e) => a + e.daysAbroad, 0);
+
+  return {
+    totalUSD,
+    totalILS,
+    effectiveRatePerDay: daysAbroad > 0 ? totalUSD / daysAbroad : 0,
+    surcharge: results.some((e) => e.surcharge === 1.25) ? 1.25 : 1.0,
+    isExpensiveCountry: results.some((e) => e.isExpensiveCountry),
+    daysAbroad,
+    usdFxRate,
+    segments: results,
+  };
+}
+
 /** Exécute le calcul complet à partir des données d'entrée. */
 export function calculate(input: CalculationInput): CalculationResult {
   const rules = getTaxRules(input.year);
@@ -57,10 +96,8 @@ export function calculate(input: CalculationInput): CalculationResult {
   const incomeILS = safe(input.income.amount) * safe(input.incomeFxRate);
   const annualizedIncome = Math.max(0, annualize(incomeILS, input.period));
 
-  // 4 — eshel (déductible)
-  const eshel = input.eshel.enabled
-    ? computeEshel(input.eshel.daysAbroad, input.year, input.eshel.country, input.usdFxRate)
-    : null;
+  // 4 — eshel (déductible) — une ou plusieurs périodes de voyage
+  const eshel = computeEshelTotal(input.eshel, input.year, input.usdFxRate);
 
   // 5 — retraite obligatoire des indépendants (déductible)
   const pension =

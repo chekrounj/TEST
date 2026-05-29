@@ -11,7 +11,7 @@ import { ResultsPanel } from '@/ui/components/ResultsPanel';
 import { CalcInput } from '@/ui/components/CalcInput';
 import { DateInput } from '@/ui/components/DateInput';
 import { ils } from '@/ui/shared/format';
-import { openOutlookCompose } from '@/services/outlook';
+import { emailReport } from '@/services/email';
 import { printReport } from '@/services/print';
 
 const CURRENCIES: Currency[] = ['ILS', 'USD', 'EUR', 'GBP', 'CHF'];
@@ -20,6 +20,14 @@ const CURRENCIES: Currency[] = ['ILS', 'USD', 'EUR', 'GBP', 'CHF'];
 // déroulants natifs (les <option> héritaient d'un fond transparent).
 const inputCls =
   'rounded-md border border-slate-300 bg-white p-2 text-slate-900 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100';
+
+/** Nombre de jours calendaires entre deux dates ISO (bornes incluses). */
+function calendarDays(start: string, end: string): number {
+  const ms = new Date(end).getTime() - new Date(start).getTime();
+  if (!Number.isFinite(ms)) return 0;
+  const d = Math.round(ms / 86_400_000) + 1;
+  return d > 0 ? d : 0;
+}
 
 function Field({ label, children }: { label: string; children: ReactNode }) {
   return (
@@ -370,7 +378,7 @@ export function CalculatorPage() {
                 <p className="mt-3 rounded-md bg-slate-100 px-3 py-2 text-xs text-slate-600 dark:bg-slate-800 dark:text-slate-300">
                   Eshel calculé automatiquement à partir des {s.travelPeriods.length} période(s)
                   de voyage (jours et pays de chaque période).
-                  {result.eshel ? ` Total : ${result.eshel.days} j → ${ils(result.eshel.total)}.` : ''}
+                  {result.eshel ? ` Total : ${result.eshel.daysAbroad} j → ${ils(result.eshel.totalILS)}.` : ''}
                 </p>
               )}
               {s.eshelEnabled && !hasTravel && (

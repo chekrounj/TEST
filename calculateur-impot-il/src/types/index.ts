@@ -132,6 +132,19 @@ export interface EshelResult {
   isExpensiveCountry: boolean;
   daysAbroad: number;
   usdFxRate: number;
+  /** Détail par période de voyage (présent si plusieurs périodes agrégées). */
+  segments?: EshelResult[];
+}
+
+/** Une période de voyage / mission à l'étranger. */
+export interface TravelPeriod {
+  id: string;
+  /** Date de début (ISO yyyy-mm-dd). */
+  startDate: string;
+  /** Date de fin (ISO yyyy-mm-dd). */
+  endDate: string;
+  /** Pays de la mission (clé eshel). */
+  country: string;
 }
 
 /** Résultat du décompte des jours ouvrés. */
@@ -177,7 +190,13 @@ export interface CalculationInput {
   /** Taux de change USD -> ILS (pour eshel). */
   usdFxRate: number;
   workdays: { total: number; abroad: number };
-  eshel: { enabled: boolean; daysAbroad: number; country: string };
+  eshel: {
+    enabled: boolean;
+    daysAbroad: number;
+    country: string;
+    /** Segments par période de voyage (prioritaire sur daysAbroad/country). */
+    segments?: { daysAbroad: number; country: string }[];
+  };
   points: number;
   /** Déductions manuelles saisies par l'utilisateur. */
   manualDeductions: DeductionLine[];
