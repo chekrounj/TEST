@@ -1,0 +1,271 @@
+/**
+ * Types TypeScript globaux du calculateur d'impôt israélien.
+ *
+ * Ces types décrivent les structures partagées entre les modules `domain/*`,
+ * le store et l'UI. Les règles fiscales annuelles sont chargées depuis
+ * `src/data/tax-rules-{year}.json` (voir `domain/tax/rules.ts`).
+ */
+
+/** Statut du contribuable. */
+export type TaxpayerStatus = 'employee' | 'self';
+
+/** Devises supportées (a minima). */
+export type Currency = 'ILS' | 'USD' | 'EUR' | 'GBP' | 'CHF';
+
+/** Une ligne de revenu avec sa propre devise (multi-devises). */
+export interface IncomeLine {
+  id: string;
+  label: string;
+  amount: number;
+  currency: Currency;
+  fxManualEnabled: boolean;
+  fxManualRate: number;
+}
+
+/**
+ * Une tranche d'imposition annuelle.
+ * `limit` est le plafond annuel en ILS de la tranche (null => dernière tranche,
+ * sans plafond). `rate` est le taux marginal exprimé entre 0 et 1.
+ */
+export interface Bracket {
+  limit: number | null;
+  rate: number;
+}
+
+/** Détail d'une tranche effectivement utilisée dans un calcul. */
+export interface BracketDetail {
+  from: number;
+  to: number;
+  rate: number;
+  taxedAmount: number;
+  tax: number;
+}
+
+/** Résultat du calcul progressif de l'impôt sur le revenu. */
+export interface TaxResult {
+  totalTax: number;
+  breakdown: BracketDetail[];
+}
+
+/** Taux Bituah Leumi + Briout pour un palier (bas / haut). */
+export interface BituahTier {
+  leumi: number;
+  briout: number;
+}
+
+/** Bloc Bituah d'une année. */
+export interface BituahRules {
+  thresholdMonthly: number;
+  maxMonthly: number;
+  employee: { low: BituahTier; high: BituahTier };
+  self: { low: BituahTier; high: BituahTier };
+}
+
+/** Détail d'une composante Bituah (Leumi ou Briout). */
+export interface BituahComponent {
+  amount: number;
+  lowPortion: number;
+  highPortion: number;
+  rateLow: number;
+  rateHigh: number;
+}
+
+/** Résultat du calcul Bituah Leumi + Briout sur un revenu annuel. */
+export interface BituahResult {
+  leumi: number;
+  briout: number;
+  total: number;
+  /** 52% du Bituah Leumi, déductible du revenu imposable (indépendants uniquement, sinon 0). */
+  leumiDeductible: number;
+  breakdown: {
+    thresholdAnnual: number;
+    maxAnnual: number;
+    /** Portion du revenu sous le seuil (taux réduit). */
+    lowPortion: number;
+    /** Portion du revenu entre le seuil et le plafond (taux plein). */
+    highPortion: number;
+    /** Portion du revenu au-dessus du plafond (non cotisée). */
+    cappedExcess: number;
+    rates: {
+      leumiLow: number;
+      leumiHigh: number;
+      brioutLow: number;
+      brioutHigh: number;
+    };
+  };
+}
+
+/** Cotisation retraite obligatoire des indépendants. */
+export interface SelfPensionRules {
+  lowRate: number;
+  highRate: number;
+}
+
+/** Paramètres eshel (indemnité de mission sans frais de logement). */
+export interface EshelRules {
+  noLodgingUSDPerDay: number;
+  surchargeRate: number;
+}
+
+/**
+ * Surtaxe sur les hauts revenus (מס יסף, art. 121ב). Taux additionnel
+ * appliqué à la part du revenu imposable annuel dépassant le seuil.
+ */
+export interface SurtaxRules {
+  /** Seuil annuel au-dessus duquel la surtaxe s'applique (₪). */
+  threshold: number;
+  /** Taux additionnel (ex. 0.03 = +3%). */
+  rate: number;
+}
+
+/** Résultat du calcul de la surtaxe hauts revenus (מס יסף). */
+export interface SurtaxResult {
+  /** Montant de la surtaxe (₪). */
+  amount: number;
+  /** Part du revenu au-dessus du seuil, effectivement surtaxée. */
+  taxedAmount: number;
+  /** Seuil annuel appliqué (₪). */
+  threshold: number;
+  /** Taux additionnel appliqué. */
+  rate: number;
+}
+
+/** Règles fiscales complètes d'une année. */
+export interface TaxRules {
+  year: number;
+  source: string;
+  lastVerified: string;
+  verificationStatus?: Record<string, string>;
+  brackets: Bracket[];
+  pointValue: number;
+  avgSalaryMonthly: number;
+  bituah: BituahRules;
+  selfPension: SelfPensionRules;
+  eshel: EshelRules;
+  /** Surtaxe hauts revenus (מס יסף). Optionnelle pour rétro-compat. */
+  surtax?: SurtaxRules;
+  fxFallback: Record<string, number>;
+}
+
+/** Résultat de la cotisation retraite obligatoire des indépendants. */
+export interface PensionResult {
+  amount: number;
+  lowPortion: number;
+  highPortion: number;
+  lowRate: number;
+  highRate: number;
+  /** Cotisation entièrement déductible du revenu imposable. */
+  deductible: number;
+}
+
+/** Résultat du calcul eshel (indemnité de mission sans frais de logement). */
+export interface EshelResult {
+  totalUSD: number;
+  totalILS: number;
+  effectiveRatePerDay: number;
+  surcharge: 1.0 | 1.25;
+  isExpensiveCountry: boolean;
+  daysAbroad: number;
+  usdFxRate: number;
+  /** Pays de la mission (libellé FR). */
+  country: string;
+  /** Détail par période de voyage (présent si plusieurs périodes agrégées). */
+  segments?: EshelResult[];
+}
+
+/** Une période de voyage / mission à l'étranger. */
+export interface TravelPeriod {
+  id: string;
+  /** Date de début (ISO yyyy-mm-dd). */
+  startDate: string;
+  /** Date de fin (ISO yyyy-mm-dd). */
+  endDate: string;
+  /** Pays de la mission (clé eshel). */
+  country: string;
+}
+
+/** Résultat du décompte des jours ouvrés. */
+export interface WorkdaysResult {
+  totalWorkdays: number;
+  holidays: Array<{ date: string; name: string }>;
+  calendar: 'israel' | 'foreign';
+}
+
+/** Résultat du calcul de prorata « jours étranger / jours ouvrés ». */
+export interface ProrataResult {
+  ratio: number;
+  deductionAmount: number;
+}
+
+/** Résultat d'un service de change. */
+export interface FxResult {
+  rate: number;
+  source: 'boi' | 'exchangerate' | 'fallback';
+  samplesCount: number;
+}
+
+/** Une ligne de déduction (manuelle ou automatique). */
+export interface DeductionLine {
+  id: string;
+  label: string;
+  amount: number;
+  /** true si générée automatiquement (eshel, retraite, 52% Leumi…). */
+  auto: boolean;
+}
+
+/** Mode de périodicité de la saisie du revenu. */
+export type PeriodMode = 'annual' | 'monthly' | 'partial';
+
+/** Données d'entrée de l'orchestrateur de calcul. */
+export interface CalculationInput {
+  year: number;
+  status: TaxpayerStatus;
+  period: { mode: PeriodMode; months?: number };
+  income: { amount: number; currency: Currency };
+  /** Taux de change devise du revenu -> ILS (1 si déjà en ILS). */
+  incomeFxRate: number;
+  /** Taux de change USD -> ILS (pour eshel). */
+  usdFxRate: number;
+  workdays: { total: number; abroad: number };
+  eshel: {
+    enabled: boolean;
+    daysAbroad: number;
+    country: string;
+    /** Segments par période de voyage (prioritaire sur daysAbroad/country). */
+    segments?: { daysAbroad: number; country: string }[];
+  };
+  points: number;
+  /**
+   * Valeur du point de crédit forcée (₪/point). Utile pour les cas
+   * particuliers (ex. travailleur étranger sur Tofes 106). Si absent, on
+   * utilise la valeur officielle de l'année.
+   */
+  pointValueOverride?: number;
+  /** Déductions manuelles saisies par l'utilisateur. */
+  manualDeductions: DeductionLine[];
+}
+
+/** Résultat complet du calcul (toutes les métriques). */
+export interface CalculationResult {
+  annualizedIncome: number;
+  eshel: EshelResult | null;
+  pension: PensionResult | null;
+  bituah: BituahResult;
+  /** Toutes les déductions appliquées (manuelles + automatiques). */
+  deductions: DeductionLine[];
+  totalDeductions: number;
+  taxableProvisional: number;
+  prorata: ProrataResult;
+  taxableFinal: number;
+  incomeTax: TaxResult;
+  /** Surtaxe hauts revenus (מס יסף) appliquée au revenu imposable final. */
+  surtax: SurtaxResult;
+  pointsCredit: number;
+  /** Impôt progressif + surtaxe, avant crédits de points. */
+  incomeTaxBeforeCredits: number;
+  incomeTaxAfterCredits: number;
+  /** Total annuel = impôt sur le revenu + Bituah Leumi + Briout. */
+  totalAnnual: number;
+  /** Total mensuel = total annuel / 12. */
+  totalMonthly: number;
+}
