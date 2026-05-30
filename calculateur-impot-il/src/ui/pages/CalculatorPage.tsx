@@ -9,6 +9,7 @@ import { countWorkdays } from '@/domain/workdays/counter';
 import { getIsraeliHolidays } from '@/domain/workdays/holidays';
 import { COUNTRIES, isExpensiveCountry } from '@/domain/eshel/countries';
 import { ResultsPanel } from '@/ui/components/ResultsPanel';
+import { Tofes106Panel } from '@/ui/components/Tofes106Panel';
 import { CalcInput } from '@/ui/components/CalcInput';
 import { DateInput } from '@/ui/components/DateInput';
 import { ils } from '@/ui/shared/format';
@@ -134,21 +135,9 @@ export function CalculatorPage() {
   const result = calculate(input);
 
   const handleEmail = () => {
-    const lines = [
-      `Estimation d'impôt israélien — année ${s.year} (${s.status === 'self' ? 'indépendant' : 'salarié'})`,
-      '',
-      `Revenu annualisé : ${ils(result.annualizedIncome)}`,
-      `Revenu imposable : ${ils(result.taxableFinal)}`,
-      `Impôt sur le revenu : ${ils(result.incomeTaxAfterCredits)}`,
-      `Bituah Leumi + Briout : ${ils(result.bituah.total)}`,
-      `TOTAL annuel : ${ils(result.totalAnnual)}`,
-      `TOTAL mensuel : ${ils(result.totalMonthly)}`,
-      '',
-      'Pièce jointe : le rapport PDF que vous venez d\'enregistrer (à joindre au message).',
-      '',
-      'Estimation indicative — ne remplace pas un comptable agréé (רואה חשבון).',
-    ];
-    emailReport({ subject: `Estimation impôt ${s.year}`, body: lines.join('\n'), withPdf: true });
+    // Le corps du mail reste VIDE : seul le PDF (imprimé puis enregistré)
+    // doit être joint au message — aucune donnée écrite dans le corps.
+    emailReport({ subject: `Estimation impôt ${s.year}`, body: '', withPdf: true });
   };
 
   return (
@@ -471,6 +460,20 @@ export function CalculatorPage() {
                 onChange={(e) => s.set('points', Number(e.target.value))} />
               <p className="mt-1 text-sm">{s.points.toFixed(2)} point(s)</p>
             </Card>
+
+            {s.status === 'employee' && (
+              <Card title="Tofes 106 — vérifier la case 042">
+                <label className="flex items-center gap-2 text-sm">
+                  <input type="checkbox" checked={s.tofes106Enabled} onChange={(e) => s.set('tofes106Enabled', e.target.checked)} />
+                  Saisir les champs du Tofes 106 pour reconstituer l'impôt (case 042)
+                </label>
+                {s.tofes106Enabled && (
+                  <div className="mt-4">
+                    <Tofes106Panel />
+                  </div>
+                )}
+              </Card>
+            )}
 
             <Card title="Eshel — mission à l'étranger">
               <label className="flex items-center gap-2 text-sm">

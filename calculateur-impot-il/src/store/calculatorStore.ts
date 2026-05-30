@@ -46,6 +46,16 @@ export interface CalculatorState {
   eshelDays: number;
   eshelCountry: string;
 
+  // Mode Tofes 106 (salarié) — reconstitution de la case 042
+  tofes106Enabled: boolean;
+  t106TaxableSalary: number;
+  t106Deductions: number;
+  t106Points: number;
+  t106PointValue: number;
+  t106ExtraCredits: number;
+  /** Case 042 officielle (impôt retenu) saisie pour comparaison. */
+  t106Official042: number;
+
   manualDeductions: DeductionLine[];
 
   /** Lignes de revenus supplémentaires (multi-devises). */
@@ -93,6 +103,13 @@ const initialState = {
   eshelEnabled: false,
   eshelDays: 0,
   eshelCountry: 'USA',
+  tofes106Enabled: false,
+  t106TaxableSalary: 0,
+  t106Deductions: 0,
+  t106Points: 2.25,
+  t106PointValue: 2976,
+  t106ExtraCredits: 0,
+  t106Official042: 0,
   manualDeductions: [] as DeductionLine[],
   extraIncomeLines: [] as IncomeLine[],
 };

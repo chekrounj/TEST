@@ -26,6 +26,7 @@ import type {
 } from '@/types';
 import { computeProgressiveTax } from '@/domain/tax/brackets';
 import { computePointsCredit } from '@/domain/tax/points';
+import { computeSurtax } from '@/domain/tax/surtax';
 import { getTaxRules } from '@/domain/tax/rules';
 import { computeBituah } from '@/domain/bituah';
 import { computeSelfPension } from '@/domain/pension/self';
@@ -164,12 +165,20 @@ export function calculate(input: CalculationInput): CalculationResult {
   // 11 — imposable final
   const taxableFinal = Math.max(0, taxableProvisional - prorata.deductionAmount);
 
-  // 12 — impôt sur le revenu
+  // 12 — impôt sur le revenu (barème progressif)
   const incomeTax = computeProgressiveTax(taxableFinal, rules.brackets);
 
-  // 13 — crédits de points
-  const pointsCredit = computePointsCredit(input.points, rules.pointValue);
-  const incomeTaxAfterCredits = Math.max(0, incomeTax.totalTax - pointsCredit);
+  // 12b — surtaxe hauts revenus (מס יסף) sur le revenu imposable final
+  const surtax = computeSurtax(taxableFinal, rules.surtax);
+  const incomeTaxBeforeCredits = incomeTax.totalTax + surtax.amount;
+
+  // 13 — crédits de points (valeur du point : override éventuel, sinon année)
+  const pointValue =
+    input.pointValueOverride && input.pointValueOverride > 0
+      ? input.pointValueOverride
+      : rules.pointValue;
+  const pointsCredit = computePointsCredit(input.points, pointValue);
+  const incomeTaxAfterCredits = Math.max(0, incomeTaxBeforeCredits - pointsCredit);
 
   // 14 — total annuel
   const totalAnnual = incomeTaxAfterCredits + bituah.total;
@@ -188,7 +197,9 @@ export function calculate(input: CalculationInput): CalculationResult {
     prorata,
     taxableFinal,
     incomeTax,
+    surtax,
     pointsCredit,
+    incomeTaxBeforeCredits,
     incomeTaxAfterCredits,
     totalAnnual,
     totalMonthly,

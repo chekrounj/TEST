@@ -107,6 +107,29 @@ export interface EshelRules {
   surchargeRate: number;
 }
 
+/**
+ * Surtaxe sur les hauts revenus (מס יסף, art. 121ב). Taux additionnel
+ * appliqué à la part du revenu imposable annuel dépassant le seuil.
+ */
+export interface SurtaxRules {
+  /** Seuil annuel au-dessus duquel la surtaxe s'applique (₪). */
+  threshold: number;
+  /** Taux additionnel (ex. 0.03 = +3%). */
+  rate: number;
+}
+
+/** Résultat du calcul de la surtaxe hauts revenus (מס יסף). */
+export interface SurtaxResult {
+  /** Montant de la surtaxe (₪). */
+  amount: number;
+  /** Part du revenu au-dessus du seuil, effectivement surtaxée. */
+  taxedAmount: number;
+  /** Seuil annuel appliqué (₪). */
+  threshold: number;
+  /** Taux additionnel appliqué. */
+  rate: number;
+}
+
 /** Règles fiscales complètes d'une année. */
 export interface TaxRules {
   year: number;
@@ -119,6 +142,8 @@ export interface TaxRules {
   bituah: BituahRules;
   selfPension: SelfPensionRules;
   eshel: EshelRules;
+  /** Surtaxe hauts revenus (מס יסף). Optionnelle pour rétro-compat. */
+  surtax?: SurtaxRules;
   fxFallback: Record<string, number>;
 }
 
@@ -210,6 +235,12 @@ export interface CalculationInput {
     segments?: { daysAbroad: number; country: string }[];
   };
   points: number;
+  /**
+   * Valeur du point de crédit forcée (₪/point). Utile pour les cas
+   * particuliers (ex. travailleur étranger sur Tofes 106). Si absent, on
+   * utilise la valeur officielle de l'année.
+   */
+  pointValueOverride?: number;
   /** Déductions manuelles saisies par l'utilisateur. */
   manualDeductions: DeductionLine[];
 }
@@ -227,7 +258,11 @@ export interface CalculationResult {
   prorata: ProrataResult;
   taxableFinal: number;
   incomeTax: TaxResult;
+  /** Surtaxe hauts revenus (מס יסף) appliquée au revenu imposable final. */
+  surtax: SurtaxResult;
   pointsCredit: number;
+  /** Impôt progressif + surtaxe, avant crédits de points. */
+  incomeTaxBeforeCredits: number;
   incomeTaxAfterCredits: number;
   /** Total annuel = impôt sur le revenu + Bituah Leumi + Briout. */
   totalAnnual: number;

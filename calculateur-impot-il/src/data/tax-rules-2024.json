@@ -41,6 +41,10 @@
     "noLodgingUSDPerDay": 136,
     "surchargeRate": 0.25
   },
+  "surtax": {
+    "threshold": 721560,
+    "rate": 0.03
+  },
   "fxFallback": {
     "USD": 3.70,
     "EUR": 4.00,

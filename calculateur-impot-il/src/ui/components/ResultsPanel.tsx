@@ -204,8 +204,11 @@ export function ResultsPanel({ result }: { result: CalculationResult }) {
         </h2>
         <BracketsBreakdown result={result.incomeTax} />
         <p className="px-5 py-2 text-xs text-slate-500 dark:text-slate-400">
-          Impôt brut {ils(taxBrut)}
-          {result.pointsCredit > 0 && ` · crédit de points − ${ils(result.pointsCredit)} → net ${ils(result.incomeTaxAfterCredits)}`}
+          Impôt barème {ils(taxBrut)}
+          {result.surtax.amount > 0 &&
+            ` · surtaxe מס יסף + ${ils(result.surtax.amount)} (${(result.surtax.rate * 100).toFixed(0)}% au-delà de ${ils(result.surtax.threshold)})`}
+          {result.pointsCredit > 0 && ` · crédit de points − ${ils(result.pointsCredit)}`}
+          {` → net ${ils(result.incomeTaxAfterCredits)}`}
         </p>
       </section>
     </div>
