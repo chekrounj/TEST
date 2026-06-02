@@ -303,6 +303,14 @@ const DEFAULT_CATEGORIES = [
   { id: 'non_categorise',          name: 'Non catégorisé',                 color: 'gray',    icon: 'HelpCircle',type: 'expense', isDefault: true },
   // Income categories
   { id: 'honoraires_clients',      name: 'Honoraires clients',             color: 'emerald', icon: 'Briefcase', type: 'income',  isDefault: true },
+  { id: 'tenue_comptable',         name: 'Tenue comptable mensuelle',      color: 'blue',    icon: 'Package',   type: 'income',  isDefault: true },
+  { id: 'bilan_liasse',            name: 'Bilan / Liasse fiscale',         color: 'violet',  icon: 'Landmark',  type: 'income',  isDefault: true },
+  { id: 'audit_conseil',           name: 'Audit / Conseil',                color: 'purple',  icon: 'Shield',    type: 'income',  isDefault: true },
+  { id: 'creation_entreprise',     name: "Création d'entreprise",          color: 'cyan',    icon: 'Briefcase', type: 'income',  isDefault: true },
+  { id: 'remboursement_maam',      name: 'Remboursement Maam (TVA)',       color: 'rose',    icon: 'Landmark',  type: 'income',  isDefault: true },
+  { id: 'subventions',             name: 'Subventions / aides',            color: 'amber',   icon: 'Shield',    type: 'income',  isDefault: true },
+  { id: 'refacturation_frais',     name: 'Refacturation de frais',         color: 'orange',  icon: 'Package',   type: 'income',  isDefault: true },
+  { id: 'produits_financiers',     name: 'Produits financiers (intérêts)', color: 'stone',   icon: 'Building2', type: 'income',  isDefault: true },
   { id: 'autres_revenus',          name: 'Autres revenus',                 color: 'sky',     icon: 'TrendingUp',type: 'income',  isDefault: true },
   { id: 'non_categorise_in',       name: 'Non catégorisé',                 color: 'gray',    icon: 'HelpCircle',type: 'income',  isDefault: true },
 ];
@@ -315,7 +323,17 @@ const loadCategories = () => {
       return DEFAULT_CATEGORIES.slice();
     }
     const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) && parsed.length > 0 ? parsed : DEFAULT_CATEGORIES.slice();
+    if (!Array.isArray(parsed) || parsed.length === 0) return DEFAULT_CATEGORIES.slice();
+    // Migration : ajouter les nouvelles catégories par défaut absentes (ne touche
+    // jamais aux catégories que l'utilisateur a ajoutées ou éditées).
+    const existingIds = new Set(parsed.map(c => c.id));
+    const missing = DEFAULT_CATEGORIES.filter(d => !existingIds.has(d.id));
+    if (missing.length > 0) {
+      const merged = [...parsed, ...missing];
+      saveCategories(merged);
+      return merged;
+    }
+    return parsed;
   } catch { return DEFAULT_CATEGORIES.slice(); }
 };
 const saveCategories = (cats) => {
@@ -1653,7 +1671,7 @@ const ExpensesTable = ({ expenses, onAdd, onUpdate, onRemove, onRemoveMany, onRe
 /* =========================================================
    Incomes table
    ========================================================= */
-const IncomesTable = ({ incomes, onAdd, onUpdate, onRemove, onRemoveMany, rulesById, onCopyToMonth }) => {
+const IncomesTable = ({ incomes, onAdd, onUpdate, onRemove, onRemoveMany, rulesById, onCopyToMonth, categories, categoriesById, onAddCategory }) => {
   const [selected, setSelected] = useState(() => new Set());
   const [sort, onSort] = useSort();
   useEffect(() => {
@@ -1782,6 +1800,7 @@ const IncomesTable = ({ incomes, onAdd, onUpdate, onRemove, onRemoveMany, rulesB
               <SortableTh field="name"     label="Description" sort={sort} onSort={onSort} className="text-left"/>
               <SortableTh field="amount"   label="Prévu"       sort={sort} onSort={onSort} className="text-right w-28"/>
               <SortableTh field="day"      label="Jour"        sort={sort} onSort={onSort} className="text-right w-16"/>
+              <th className="text-left font-medium px-2 py-2 w-36">Catégorie</th>
               <SortableTh field="received" label="Reçu"        sort={sort} onSort={onSort} className="text-right w-36"/>
               <SortableTh field="status"   label="Statut"      sort={sort} onSort={onSort} className="text-left w-28"/>
               <th className="w-10"></th>
@@ -1789,7 +1808,7 @@ const IncomesTable = ({ incomes, onAdd, onUpdate, onRemove, onRemoveMany, rulesB
           </thead>
           <tbody className="divide-y divide-stone-100">
             {incomes.length === 0 && (
-              <tr><td colSpan="8" className="px-4 py-6 text-center text-sm text-stone-400">
+              <tr><td colSpan="9" className="px-4 py-6 text-center text-sm text-stone-400">
                 Aucun encaissement prévu pour ce mois.
               </td></tr>
             )}
@@ -1817,6 +1836,16 @@ const IncomesTable = ({ incomes, onAdd, onUpdate, onRemove, onRemoveMany, rulesB
                 </td>
                 <td className="px-2 py-1">
                   <NumInput value={i.day} onChange={v => onUpdate(i.id, { day: Math.max(1, Math.min(31, v || 1)) })} min={1} max={31}/>
+                </td>
+                <td className="px-2 py-1">
+                  {categories && (
+                    <CategoryPicker
+                      categories={categories} type="income"
+                      value={i.category}
+                      onChange={v => onUpdate(i.id, { category: v })}
+                      onAddCategory={onAddCategory}
+                    />
+                  )}
                 </td>
                 <td className="px-2 py-1">
                   <div className="flex items-center gap-1">
@@ -1849,6 +1878,7 @@ const IncomesTable = ({ incomes, onAdd, onUpdate, onRemove, onRemoveMany, rulesB
                 <td></td>
                 <td className="px-2 py-2 text-stone-600">Totaux</td>
                 <td className="px-2 py-2 text-right tabular-nums">{formatILS(totalPlanned)}</td>
+                <td></td>
                 <td></td>
                 <td className="px-2 py-2 text-right tabular-nums">{formatILS(totalReceived)}</td>
                 <td className="px-2 py-2 text-emerald-700 tabular-nums">Reste {formatILS(totalRemaining)}</td>
@@ -7040,6 +7070,9 @@ function App() {
                   onRemoveMany={removeManyIncomes}
                   rulesById={rulesById}
                   onCopyToMonth={(items) => setCopyToMonth({ kind: 'income', postes: items })}
+                  categories={categories}
+                  categoriesById={categoriesById}
+                  onAddCategory={addCategory}
                 />
               </>
             )}
