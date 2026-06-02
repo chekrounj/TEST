@@ -4514,10 +4514,17 @@ const CashflowAnalysisSection = ({ year, month, categories, categoriesById }) =>
       if (!map.has(k)) map.set(k, {
         key: k, name, kind,
         category: item.category || null,
+        type: item.type || '',
+        mode: item.mode || (kind === 'income' ? null : 'bank'),
+        cardNumber: item.cardNumber || '',
         byMonth: {}, totalAmount: 0, totalPaid: 0,
       });
       const row = map.get(k);
-      if (item.category) row.category = item.category;
+      // On garde les dernières valeurs non vides pour catégorie / type / mode
+      if (item.category)    row.category   = item.category;
+      if (item.type)        row.type       = item.type;
+      if (item.mode)        row.mode       = item.mode;
+      if (item.cardNumber)  row.cardNumber = item.cardNumber;
       const a = Number(item.amount) || 0;
       const p = Number(getPaid(item)) || 0;
       if (!row.byMonth[mKey]) row.byMonth[mKey] = { amount: 0, paid: 0 };
@@ -4597,6 +4604,27 @@ const CashflowAnalysisSection = ({ year, month, categories, categoriesById }) =>
     : direction === 'income' ? incCats
     : [...expCats, ...incCats];
 
+  // Clé et libellé de groupe — disponibles pour le bouton bulk ET le rendu
+  const analysisGroupKey = (r) => {
+    if (groupBy === 'category') return r.category || '__none';
+    if (groupBy === 'type')     return (r.type || '').trim() || '__notype';
+    if (groupBy === 'mode') {
+      if (r.kind === 'income') return '__income';
+      return r.mode === 'card' ? `Carte ${r.cardNumber || 'CB'}` : 'Banque';
+    }
+    if (groupBy === 'name')     return ((r.name || '?').charAt(0) || '?').toUpperCase();
+    return null;
+  };
+  const analysisGroupName = (id) => {
+    if (id === '__none')    return 'Non catégorisé';
+    if (id === '__notype')  return '— Sans type —';
+    if (id === '__income')  return 'Encaissements';
+    if (groupBy === 'category' && categoriesById && categoriesById.has(id))
+      return categoriesById.get(id).name;
+    if (groupBy === 'name')  return `${id}…`;
+    return String(id);
+  };
+
   return (
     <section className="bg-white rounded-xl ring-1 ring-stone-200 overflow-hidden">
       <header className="px-4 py-3 border-b border-stone-200 flex items-center justify-between gap-3 flex-wrap">
@@ -4633,8 +4661,32 @@ const CashflowAnalysisSection = ({ year, month, categories, categoriesById }) =>
             className={"bg-transparent outline-none cursor-pointer " + (groupBy ? "text-white" : "text-stone-800")}>
             <option value="" className="text-stone-800">Aucun</option>
             <option value="category" className="text-stone-800">Catégorie</option>
+            <option value="type"     className="text-stone-800">Type</option>
+            <option value="mode"     className="text-stone-800">Mode (Banque/CB)</option>
+            <option value="name"     className="text-stone-800">Fournisseur (1re lettre)</option>
           </select>
         </label>
+        {groupBy && (() => {
+          // Calcule tous les groupes pour le bouton bulk
+          const keys = new Set();
+          for (const r of filtered) {
+            const gk = analysisGroupKey(r);
+            keys.add(r.kind + ':' + (gk || '__none'));
+          }
+          if (keys.size === 0) return null;
+          const allCollapsed = [...keys].every(k => collapsedGroups.has(k));
+          const expandAll   = () => setCollapsedGroups(new Set());
+          const collapseAll = () => setCollapsedGroups(keys);
+          return (
+            <button onClick={allCollapsed ? expandAll : collapseAll}
+              title={allCollapsed ? "Tout déplier" : "Tout replier"}
+              className="inline-flex items-center gap-1 px-2 py-1 rounded ring-1 ring-stone-200 bg-white text-stone-700 hover:bg-stone-50">
+              {allCollapsed
+                ? <><ChevronDown className="w-3.5 h-3.5"/><span className="hidden sm:inline">Tout déplier</span></>
+                : <><ChevronUp   className="w-3.5 h-3.5"/><span className="hidden sm:inline">Tout replier</span></>}
+            </button>
+          );
+        })()}
         <input type="text" dir="auto" value={search}
           onChange={e => setSearch(e.target.value)}
           placeholder="Filtrer par libellé…"
@@ -4735,14 +4787,11 @@ const CashflowAnalysisSection = ({ year, month, categories, categoriesById }) =>
               return sections.map(sec => {
                 const sTot = sectionTotals(sec.rows);
                 let groups = null;
-                if (groupBy === 'category') {
+                if (groupBy) {
                   const map = new Map();
                   for (const r of sec.rows) {
-                    const id = r.category || '__none';
-                    const name = (categoriesById && id !== '__none' && categoriesById.get(id))
-                                   ? categoriesById.get(id).name
-                                   : 'Non catégorisé';
-                    if (!map.has(id)) map.set(id, { id, name, items: [], byMonth: {}, total: 0 });
+                    const id = analysisGroupKey(r) || '__none';
+                    if (!map.has(id)) map.set(id, { id, name: analysisGroupName(id), items: [], byMonth: {}, total: 0 });
                     const g = map.get(id);
                     g.items.push(r);
                     for (const m of months) {
@@ -4751,7 +4800,11 @@ const CashflowAnalysisSection = ({ year, month, categories, categoriesById }) =>
                     }
                     g.total += totalFor(r);
                   }
-                  groups = [...map.values()].sort((a, b) => b.total - a.total);
+                  groups = [...map.values()].sort((a, b) => {
+                    // Tri alphabétique pour "name" (1re lettre), par total décroissant sinon
+                    if (groupBy === 'name') return String(a.id).localeCompare(String(b.id), 'fr');
+                    return b.total - a.total;
+                  });
                 }
                 const groupKey = (gid) => sec.kind + ':' + gid;
                 const toggle = (gid) => setCollapsedGroups(prev => {
