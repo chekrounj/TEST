@@ -1,9 +1,11 @@
 # cashflow-backend
 
 Sync minimal pour `cashflow.html` :
-**Express + SQLite + Google SSO + 1 blob JSON par utilisateur, last-write-wins.**
+**Express + fichier JSON + Google SSO + 1 blob par utilisateur, last-write-wins.**
 
-À peu près 200 lignes de code, zéro état serveur partagé hors la base SQLite locale.
+À peu près 200 lignes de code, zéro état serveur partagé hors `data.json` local.
+Aucune compilation native (depuis la v0.3.0) — fonctionne sur n'importe quel
+Windows / macOS / Linux avec juste Node.js installé.
 
 ## Installation
 
@@ -49,7 +51,7 @@ node -e "console.log(require('crypto').randomBytes(48).toString('base64'))"
 ## Modèle de données
 
 Une table `users(id, email, provider, data, updated_at, created_at)` dans
-`backend/data.db`. Le champ `data` est le blob JSON complet de l'app
+`backend/data.json`. Le champ `data` est le blob JSON complet de l'app
 (toutes les clés `month:*`, `categories`, `recurrenceRules`, etc.) sérialisé.
 
 ## Conflit de version
@@ -73,7 +75,7 @@ PORT=3000          # auto sur la plupart des plateformes
 ALLOW_DEV_LOGIN=0  # désactive en prod !
 ```
 
-`data.db` est écrit dans le dossier `backend/`. Sur les plateformes
+`data.json` est écrit dans le dossier `backend/`. Sur les plateformes
 serverless, ajoute un volume persistant (Fly volumes / Railway volumes).
 
 Pour Render gratuit, le service "Web Service" ne persiste pas le filesystem :

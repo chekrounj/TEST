@@ -167,12 +167,12 @@ Si vous voulez que le serveur démarre tout seul à chaque allumage de PC :
 
 ## Sauvegarder vos données
 
-**Tout** est dans le fichier `backend\data.db`. Pour sauvegarder :
+**Tout** est dans le fichier `backend\data.json` (depuis la v0.3.0 — auparavant c'était `data.db`). Pour sauvegarder :
 
 - Copiez ce fichier sur un disque externe / OneDrive / Dropbox de temps en temps.
 - OU dans l'app : **Données → Sauvegarder (JSON)** → un fichier `.json` se télécharge, vous pouvez le mettre où vous voulez.
 
-Pour restaurer plus tard : **Données → Restaurer (JSON)**.
+Pour restaurer plus tard : **Données → Restaurer (JSON)** (export/import via l'app), ou simplement recopier `data.json` à sa place.
 
 ---
 
@@ -183,6 +183,7 @@ Pour restaurer plus tard : **Données → Restaurer (JSON)**.
 | La fenêtre noire se ferme immédiatement | Une erreur fatale juste après le lancement | Ouvrez cmd manuellement (Démarrer → cmd), tapez `cd /d "J:\Appli TAZRIM\backend"` puis `start.bat`. La fenêtre reste ouverte, vous voyez l'erreur. |
 | `'node' n'est pas reconnu` | Node.js n'est pas dans le PATH | Refermez TOUTES les fenêtres cmd, ouvrez-en une nouvelle, retentez. Si ça ne marche toujours pas, réinstaller Node.js. |
 | `npm install a echoue` | Antivirus / pas d'internet / proxy d'entreprise | Désactiver l'antivirus 2 min le temps de l'install, OU passer en partage de connexion mobile. |
+| `gyp ERR! find Python` ou erreur Visual Studio | Vous avez une version ancienne du backend (pre-0.3.0) qui essaie de compiler SQLite | Récupérer la dernière version. Depuis la 0.3.0 plus de compilation native, plus besoin de Python ni Visual Studio. |
 | `port 3000 already in use` | Un autre programme utilise le port 3000 | Ouvrir `backend\.env` dans le bloc-notes, remplacer `PORT=3000` par `PORT=3001`. Puis relancer `start.bat`. L'app sera sur http://localhost:3001 |
 | Le navigateur s'ouvre mais blanc | Vous avez ouvert la page **avant** que le serveur ne soit prêt | Attendez que la fenêtre noire affiche `▶ http://localhost:3000`, puis rafraîchissez la page (F5) |
 | `Cannot find package 'express'` | `node_modules` est corrompu | Dans cmd : `cd /d "J:\Appli TAZRIM\backend"` puis `rd /s /q node_modules` puis `del package-lock.json` puis `npm install` |

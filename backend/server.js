@@ -1,21 +1,26 @@
 /**
  * cashflow-backend — sync minimal pour cashflow.html
  *
- * Stack : Express + better-sqlite3 + google-auth-library + jsonwebtoken.
- * Modèle : un blob JSON par utilisateur (état complet de l'app), last-write-wins
- *          avec détection de conflit basique via lastSeenUpdatedAt.
+ * Stack : Express + google-auth-library + jsonwebtoken + fichier JSON.
+ *
+ * Stockage : data.json à côté de server.js. Une seule "table" virtuelle :
+ *     { users: { [uid]: { email, provider, data, updated_at, created_at } } }
+ *
+ * Pourquoi pas SQLite ? better-sqlite3 nécessite Python + Visual Studio
+ * Build Tools pour se compiler sur Windows si les binaires prébuilds
+ * ne sont pas disponibles. Un fichier JSON simple suffit largement
+ * pour un backend mono-utilisateur ou petite équipe (~quelques Mo),
+ * sans aucune compilation native.
  *
  * Endpoints :
  *   POST /api/auth/google  { credential }  → { token, user }
  *   POST /api/auth/dev     { email }       → { token, user }   (si ALLOW_DEV_LOGIN=1)
- *   GET  /api/sync         (Bearer token)  → { data, updatedAt }
- *   PUT  /api/sync         (Bearer token, { data, lastSeenUpdatedAt? })
- *                                          → { updatedAt, bytes }
- *                                          ou 409 + { serverData, serverUpdatedAt }
- *   GET  /api/health                       → { ok, ts }
+ *   GET  /api/sync         (Bearer)        → { data, updatedAt }
+ *   PUT  /api/sync         (Bearer)        → { updatedAt, bytes } ou 409 + serverData
+ *   GET  /api/health                       → { ok, ts, version }
+ *   GET  /api/version                      → { backend, cashflowHtml }
  */
 import express from 'express';
-import Database from 'better-sqlite3';
 import { OAuth2Client } from 'google-auth-library';
 import jwt from 'jsonwebtoken';
 import cors from 'cors';
@@ -27,8 +32,6 @@ import { exec } from 'node:child_process';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-// Lit la version de package.json pour l'exposer sur /api/version (utile pour
-// confirmer côté navigateur qu'on tourne bien la dernière version après un pull).
 const PKG = (() => {
   try { return JSON.parse(fs.readFileSync(path.join(__dirname, 'package.json'), 'utf-8')); }
   catch { return { version: 'unknown' }; }
@@ -49,18 +52,45 @@ if (JWT_SECRET === 'dev-secret-change-me') {
 }
 
 const googleClient = new OAuth2Client(GOOGLE_CLIENT_ID);
-const db = new Database(path.join(__dirname, 'data.db'));
-db.pragma('journal_mode = WAL');
-db.exec(`
-  CREATE TABLE IF NOT EXISTS users (
-    id          TEXT PRIMARY KEY,
-    email       TEXT,
-    provider    TEXT,
-    data        TEXT,
-    updated_at  TEXT,
-    created_at  TEXT
-  );
-`);
+
+/* ---------- JSON file store ---------- */
+const DATA_PATH = path.join(__dirname, 'data.json');
+let store = { users: {} };
+const loadStore = () => {
+  try {
+    const raw = fs.readFileSync(DATA_PATH, 'utf-8');
+    const parsed = JSON.parse(raw);
+    store = parsed && typeof parsed === 'object' ? parsed : { users: {} };
+    if (!store.users || typeof store.users !== 'object') store.users = {};
+  } catch (err) {
+    if (err.code !== 'ENOENT') {
+      console.warn('[cashflow-backend] data.json illisible :', err.message);
+    }
+    store = { users: {} };
+  }
+};
+const saveStore = () => {
+  // Écriture atomique : on écrit dans un fichier .tmp puis on renomme.
+  const tmp = DATA_PATH + '.tmp';
+  fs.writeFileSync(tmp, JSON.stringify(store, null, 2));
+  fs.renameSync(tmp, DATA_PATH);
+};
+const getUser = (id) => store.users[id] || null;
+const upsertUser = (id, fields) => {
+  const now = new Date().toISOString();
+  if (!store.users[id]) {
+    store.users[id] = {
+      email: '', provider: '', data: null,
+      updated_at: null, created_at: now,
+      ...fields,
+    };
+  } else {
+    Object.assign(store.users[id], fields);
+  }
+  saveStore();
+  return store.users[id];
+};
+loadStore();
 
 const app = express();
 app.use(cors());
@@ -77,9 +107,6 @@ const auth = (req, res, next) => {
   }
 };
 
-// Le frontend obtient un ID-token via Google Identity Services et le POST ici.
-// On vérifie l'audience contre notre client_id, on (re)crée l'utilisateur, on
-// renvoie un JWT applicatif (à transporter en Bearer pour /api/sync).
 app.post('/api/auth/google', async (req, res) => {
   try {
     if (!GOOGLE_CLIENT_ID) {
@@ -93,14 +120,7 @@ app.post('/api/auth/google', async (req, res) => {
     const payload = ticket.getPayload();
     const userId = `google:${payload.sub}`;
     const email  = payload.email || '';
-    const now    = new Date().toISOString();
-    const existing = db.prepare('SELECT id FROM users WHERE id = ?').get(userId);
-    if (!existing) {
-      db.prepare(`INSERT INTO users (id, email, provider, created_at) VALUES (?, ?, 'google', ?)`)
-        .run(userId, email, now);
-    } else {
-      db.prepare('UPDATE users SET email = ? WHERE id = ?').run(email, userId);
-    }
+    upsertUser(userId, { email, provider: 'google' });
     const token = jwt.sign({ uid: userId, email }, JWT_SECRET, { expiresIn: '30d' });
     res.json({ token, user: { id: userId, email } });
   } catch (err) {
@@ -109,18 +129,11 @@ app.post('/api/auth/google', async (req, res) => {
   }
 });
 
-// Login de développement (sans OAuth) — utile pour tester en local
-// avant de configurer le client Google. À NE PAS activer en prod.
 if (process.env.ALLOW_DEV_LOGIN === '1') {
   app.post('/api/auth/dev', (req, res) => {
     const email  = String(req.body?.email || 'dev@example.com').slice(0, 200);
     const userId = `dev:${email}`;
-    const now    = new Date().toISOString();
-    const existing = db.prepare('SELECT id FROM users WHERE id = ?').get(userId);
-    if (!existing) {
-      db.prepare(`INSERT INTO users (id, email, provider, created_at) VALUES (?, ?, 'dev', ?)`)
-        .run(userId, email, now);
-    }
+    upsertUser(userId, { email, provider: 'dev' });
     const token = jwt.sign({ uid: userId, email }, JWT_SECRET, { expiresIn: '30d' });
     res.json({ token, user: { id: userId, email } });
   });
@@ -128,10 +141,10 @@ if (process.env.ALLOW_DEV_LOGIN === '1') {
 }
 
 app.get('/api/sync', auth, (req, res) => {
-  const row = db.prepare('SELECT data, updated_at FROM users WHERE id = ?').get(req.user.uid);
+  const u = getUser(req.user.uid);
   res.json({
-    data: row?.data ? JSON.parse(row.data) : null,
-    updatedAt: row?.updated_at || null,
+    data: u?.data || null,
+    updatedAt: u?.updated_at || null,
   });
 });
 
@@ -140,33 +153,25 @@ app.put('/api/sync', auth, (req, res) => {
   if (!data || typeof data !== 'object') {
     return res.status(400).json({ error: 'Missing or invalid `data`' });
   }
-  const row = db.prepare('SELECT data, updated_at FROM users WHERE id = ?').get(req.user.uid);
-  // Conflit naïve : le client envoie la version qu'il avait vue ;
-  // si le serveur a évolué entre temps, on renvoie 409 + l'état serveur.
-  if (lastSeenUpdatedAt && row?.updated_at && row.updated_at !== lastSeenUpdatedAt) {
+  const u = getUser(req.user.uid);
+  if (lastSeenUpdatedAt && u?.updated_at && u.updated_at !== lastSeenUpdatedAt) {
     return res.status(409).json({
       error: 'conflict',
       message: 'Le serveur a une version plus récente.',
-      serverData:      row?.data ? JSON.parse(row.data) : null,
-      serverUpdatedAt: row?.updated_at || null,
+      serverData:      u.data || null,
+      serverUpdatedAt: u.updated_at,
     });
   }
-  const json = JSON.stringify(data);
-  const now  = new Date().toISOString();
-  db.prepare('UPDATE users SET data = ?, updated_at = ? WHERE id = ?')
-    .run(json, now, req.user.uid);
-  res.json({ updatedAt: now, bytes: json.length });
+  const now = new Date().toISOString();
+  upsertUser(req.user.uid, { data, updated_at: now });
+  res.json({ updatedAt: now, bytes: JSON.stringify(data).length });
 });
 
 app.get('/api/health', (req, res) => res.json({
-  ok: true,
-  ts: new Date().toISOString(),
-  version: PKG.version,
+  ok: true, ts: new Date().toISOString(), version: PKG.version,
 }));
 
 app.get('/api/version', (req, res) => {
-  // Lit la longueur de cashflow.html comme empreinte légère pour différencier
-  // les versions sans avoir à recalculer un hash complet à chaque hit.
   let bytes = null, mtime = null;
   try {
     const st = fs.statSync(cashflowPath);
@@ -176,10 +181,10 @@ app.get('/api/version', (req, res) => {
   res.json({
     backend: PKG.version,
     cashflowHtml: { exists: cashflowExists, bytes, mtime, path: cashflowPath },
+    users: Object.keys(store.users).length,
   });
 });
 
-// Vérifie qu'on trouve cashflow.html — sinon journal clair au démarrage.
 const cashflowPath = path.join(STATIC_DIR, 'cashflow.html');
 const cashflowExists = fs.existsSync(cashflowPath);
 if (!cashflowExists) {
@@ -188,18 +193,13 @@ if (!cashflowExists) {
   console.warn(`[cashflow-backend]   Place cashflow.html dans ${STATIC_DIR}, ou définis STATIC_DIR dans .env.`);
 }
 
-// Route explicite "/" → cashflow.html (sinon express.static peut servir un
-// index.html résiduel et donner l'impression que rien ne fonctionne).
 app.get('/', (req, res, next) => {
   if (!cashflowExists) return next();
   res.sendFile(cashflowPath);
 });
 
-// En dev, sert le reste de cashflow.html et ses voisins. En prod, faites
-// servir les statiques par nginx/caddy et gardez /api/* sur ce backend.
 app.use(express.static(STATIC_DIR));
 
-// 404 explicite avec un message utile.
 app.use((req, res) => {
   const msg = cashflowExists
     ? "cette URL ne correspond à aucun fichier."
@@ -219,10 +219,11 @@ const openBrowser = (url) => {
 };
 
 app.listen(PORT, () => {
-  console.log(`[cashflow-backend] ▶ http://localhost:${PORT}`);
-  console.log(`[cashflow-backend] static dir: ${STATIC_DIR}`);
+  console.log(`[cashflow-backend] ▶ http://localhost:${PORT}    (v${PKG.version})`);
+  console.log(`[cashflow-backend] static dir   : ${STATIC_DIR}`);
   console.log(`[cashflow-backend] cashflow.html : ${cashflowExists ? 'OK' : 'MANQUANT'}`);
-  console.log(`[cashflow-backend] db: ${path.join(__dirname, 'data.db')}`);
+  console.log(`[cashflow-backend] data file    : ${DATA_PATH}`);
+  console.log(`[cashflow-backend] utilisateurs : ${Object.keys(store.users).length}`);
   if (process.env.OPEN_BROWSER !== '0' && cashflowExists) {
     setTimeout(() => openBrowser(`http://localhost:${PORT}/`), 300);
   }
