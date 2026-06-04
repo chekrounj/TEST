@@ -7576,6 +7576,7 @@ const cloudSync = (() => {
   const lastSeenKey = '__cf_lastSeen';
 
   let pushDebounce = null;
+  let lastPushedHash = null;   // évite de pousser quand rien n'a changé
   const listeners = new Set();
   const emit = () => listeners.forEach(fn => { try { fn(); } catch {} });
 
@@ -7687,12 +7688,18 @@ const cloudSync = (() => {
   const pushNow = async () => {
     if (!isLogged()) return null;
     const data = snapshot();
+    // Skip si le snapshot est identique au dernier push réussi : évite la boucle
+    // de push qu'on récupérait quand setLastSeen() ré-écrit dans localStorage.
+    const h = JSON.stringify(data);
+    if (h === lastPushedHash) return null;
     const r = await fetchJSON('/api/sync', {
       method: 'PUT',
       body: JSON.stringify({ data, lastSeenUpdatedAt: getLastSeen() }),
     });
+    lastPushedHash = h;
     setLastSeen(r.updatedAt || '');
-    emit();
+    // Pas d'emit() ici : seul lastSeen a changé, ça ne mérite pas un re-render
+    // (sinon AccountButton se redessine inutilement à chaque cycle).
     return r;
   };
 
@@ -7730,16 +7737,16 @@ const cloudSync = (() => {
 })();
 
 // Branche cloudSync.queuePush() sur le mirror localStorage existant (qui réplique
-// déjà chaque écriture vers IndexedDB). On enfile aussi un push serveur debouncé.
+// déjà chaque écriture vers IndexedDB). On enfile aussi un push serveur debouncé,
+// SAUF pour nos propres métadonnées (__cf_*) — sinon l'écriture de __cf_lastSeen
+// après chaque push réussi re-déclenche un push, et on boucle à l'infini.
 (() => {
-  const orig = installLocalStorageMirror;
-  // installLocalStorageMirror est idempotent (drapeau __cashflowMirror) ;
-  // ici on enrichit setItem/removeItem/clear pour chaîner cloudSync.queuePush().
   const oset = localStorage.setItem.bind(localStorage);
   const orem = localStorage.removeItem.bind(localStorage);
   const oclr = localStorage.clear.bind(localStorage);
-  localStorage.setItem = (k, v) => { oset(k, v); cloudSync.queuePush(); };
-  localStorage.removeItem = (k) => { orem(k); cloudSync.queuePush(); };
+  const shouldPush = (k) => typeof k === 'string' && !k.startsWith('__cf_');
+  localStorage.setItem = (k, v) => { oset(k, v); if (shouldPush(k)) cloudSync.queuePush(); };
+  localStorage.removeItem = (k) => { orem(k); if (shouldPush(k)) cloudSync.queuePush(); };
   localStorage.clear = () => { oclr(); cloudSync.queuePush(); };
 })();
 
