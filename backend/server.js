@@ -27,6 +27,13 @@ import { exec } from 'node:child_process';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
+// Lit la version de package.json pour l'exposer sur /api/version (utile pour
+// confirmer côté navigateur qu'on tourne bien la dernière version après un pull).
+const PKG = (() => {
+  try { return JSON.parse(fs.readFileSync(path.join(__dirname, 'package.json'), 'utf-8')); }
+  catch { return { version: 'unknown' }; }
+})();
+
 const PORT             = Number(process.env.PORT) || 3000;
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID || '';
 const JWT_SECRET       = process.env.JWT_SECRET || 'dev-secret-change-me';
@@ -151,7 +158,26 @@ app.put('/api/sync', auth, (req, res) => {
   res.json({ updatedAt: now, bytes: json.length });
 });
 
-app.get('/api/health', (req, res) => res.json({ ok: true, ts: new Date().toISOString() }));
+app.get('/api/health', (req, res) => res.json({
+  ok: true,
+  ts: new Date().toISOString(),
+  version: PKG.version,
+}));
+
+app.get('/api/version', (req, res) => {
+  // Lit la longueur de cashflow.html comme empreinte légère pour différencier
+  // les versions sans avoir à recalculer un hash complet à chaque hit.
+  let bytes = null, mtime = null;
+  try {
+    const st = fs.statSync(cashflowPath);
+    bytes = st.size;
+    mtime = st.mtime.toISOString();
+  } catch {}
+  res.json({
+    backend: PKG.version,
+    cashflowHtml: { exists: cashflowExists, bytes, mtime, path: cashflowPath },
+  });
+});
 
 // Vérifie qu'on trouve cashflow.html — sinon journal clair au démarrage.
 const cashflowPath = path.join(STATIC_DIR, 'cashflow.html');
