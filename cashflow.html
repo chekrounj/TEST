@@ -4511,12 +4511,29 @@ const monthLabelShort = (y, m) => {
 
 const CashflowAnalysisSection = ({ year, month, categories, categoriesById }) => {
   const [direction, setDirection] = useState('both'); // both | expense | income
-  const [showMode, setShowMode]   = useState('paid'); // paid | amount
+  const [monthModes, setMonthModes] = useState({});   // { monthKey: 'paid' | 'amount' }
   const [search, setSearch]       = useState('');
   const [catFilter, setCatFilter] = useState('');
   const [sort, setSort]           = useState({ by: 'total', dir: 'desc' });
   const [groupBy, setGroupBy]     = useState(null);   // null | 'category'
   const [collapsedGroups, setCollapsedGroups] = useState(() => new Set());
+
+  // Défaut intelligent : mois passé + courant = Payé, mois futur = Prévu.
+  // L'utilisateur peut basculer chaque mois individuellement.
+  const defaultModeFor = (mKey) => {
+    const [my, mm] = mKey.split('-').map(Number);
+    const now = new Date();
+    const cur = now.getFullYear() * 12 + now.getMonth();
+    const idx = my * 12 + (mm - 1);
+    return idx > cur ? 'amount' : 'paid';
+  };
+  const modeFor = (mKey) => (mKey in monthModes) ? monthModes[mKey] : defaultModeFor(mKey);
+  const toggleMode = (mKey) => setMonthModes(m => ({ ...m, [mKey]: modeFor(mKey) === 'paid' ? 'amount' : 'paid' }));
+  const setAllMode = (mode) => {
+    const next = {};
+    for (const m of months) next[m.key] = mode;
+    setMonthModes(next);
+  };
 
   // Fenêtre des 12 mois se terminant à (year, month)
   const months = useMemo(() => {
@@ -4577,9 +4594,14 @@ const CashflowAnalysisSection = ({ year, month, categories, categoriesById }) =>
   const valFor = (row, mKey) => {
     const v = row.byMonth[mKey];
     if (!v) return 0;
-    return showMode === 'amount' ? v.amount : v.paid;
+    return modeFor(mKey) === 'amount' ? v.amount : v.paid;
   };
-  const totalFor = (row) => showMode === 'amount' ? row.totalAmount : row.totalPaid;
+  // Total ligne = somme mois-par-mois en respectant le mode choisi pour chacun
+  const totalFor = (row) => {
+    let t = 0;
+    for (const m of months) t += valFor(row, m.key);
+    return t;
+  };
 
   const filtered = useMemo(() => {
     let list = rows;
@@ -4604,7 +4626,7 @@ const CashflowAnalysisSection = ({ year, month, categories, categoriesById }) =>
       return sort.dir === 'asc' ? r : -r;
     });
     return sorted;
-  }, [rows, search, catFilter, sort, showMode]);
+  }, [rows, search, catFilter, sort, monthModes]);
 
   const colTotals = useMemo(() => {
     const t = { total: 0 };
@@ -4614,7 +4636,7 @@ const CashflowAnalysisSection = ({ year, month, categories, categoriesById }) =>
       for (const m of months) t[m.key] += valFor(r, m.key);
     }
     return t;
-  }, [filtered, months, showMode]);
+  }, [filtered, months, monthModes]);
 
   const cycleSort = (by) => setSort(s => {
     if (s.by !== by) return { by, dir: by === 'name' || by === 'category' || by === 'kind' ? 'asc' : 'desc' };
@@ -4676,9 +4698,17 @@ const CashflowAnalysisSection = ({ year, month, categories, categoriesById }) =>
         <Pill active={direction === 'expense'} onClick={() => setDirection('expense')}>Sorties</Pill>
         <Pill active={direction === 'income'}  onClick={() => setDirection('income')}>Entrées</Pill>
         <span className="text-stone-300 mx-1">·</span>
-        <span className="text-stone-500 uppercase tracking-wide font-medium mr-1">Valeur</span>
-        <Pill active={showMode === 'paid'}   onClick={() => setShowMode('paid')}>Payé/Reçu</Pill>
-        <Pill active={showMode === 'amount'} onClick={() => setShowMode('amount')}>Prévu</Pill>
+        <span className="text-stone-500 uppercase tracking-wide font-medium mr-1">Tout en</span>
+        <button onClick={() => setAllMode('paid')}
+          title="Mettre toutes les colonnes en Payé/Reçu"
+          className="px-2 py-1 text-xs rounded ring-1 ring-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100">
+          Payé
+        </button>
+        <button onClick={() => setAllMode('amount')}
+          title="Mettre toutes les colonnes en Prévisionnel"
+          className="px-2 py-1 text-xs rounded ring-1 ring-amber-200 bg-amber-50 text-amber-700 hover:bg-amber-100">
+          Prévu
+        </button>
         <span className="text-stone-300 mx-1">·</span>
         <label className={
             "inline-flex items-center gap-1.5 px-2 py-1 rounded ring-1 " +
@@ -4741,12 +4771,28 @@ const CashflowAnalysisSection = ({ year, month, categories, categoriesById }) =>
                   onClick={() => cycleSort('category')}>
                 Catégorie<SortArrowMini field="category"/>
               </th>
-              {months.map(m => (
-                <th key={m.key} className="text-right font-medium px-2 py-2 cursor-pointer hover:text-stone-900 whitespace-nowrap"
-                    onClick={() => cycleSort('m:' + m.key)}>
-                  {monthLabelShort(m.year, m.month)}<SortArrowMini field={'m:' + m.key}/>
-                </th>
-              ))}
+              {months.map(m => {
+                const mode = modeFor(m.key);
+                const isAmount = mode === 'amount';
+                return (
+                  <th key={m.key} className="text-right font-medium px-2 py-2 whitespace-nowrap align-bottom">
+                    <button onClick={() => cycleSort('m:' + m.key)}
+                      className="hover:text-stone-900 cursor-pointer">
+                      {monthLabelShort(m.year, m.month)}<SortArrowMini field={'m:' + m.key}/>
+                    </button>
+                    <div className="mt-1">
+                      <button onClick={() => toggleMode(m.key)}
+                        title={isAmount ? "Cliquer pour passer en Payé" : "Cliquer pour passer en Prévisionnel"}
+                        className={"text-[9px] uppercase tracking-wide px-1.5 py-0.5 rounded font-medium transition " +
+                          (isAmount
+                            ? "bg-amber-100 text-amber-700 hover:bg-amber-200"
+                            : "bg-emerald-100 text-emerald-700 hover:bg-emerald-200")}>
+                        {isAmount ? 'Prévu' : 'Payé'}
+                      </button>
+                    </div>
+                  </th>
+                );
+              })}
               <th className="text-right font-medium px-2 py-2 cursor-pointer hover:text-stone-900 bg-stone-100"
                   onClick={() => cycleSort('total')}>
                 Total<SortArrowMini field="total"/>
