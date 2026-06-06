@@ -530,37 +530,91 @@ const matchBankTransactions = (newTransactions) => {
   return { matched, unmatched, cardDebits, ruleHits, orphanRuleIds: [...orphanRuleIds] };
 };
 
-const parseBankStatement = async (file) => {
+/* ---------- Modèles d'import bancaires (multi-banques) ---------- */
+// Template = nom de la banque + mapping des colonnes Excel.
+// Stocké dans localStorage 'bankTemplates' + synchronisé via cloudSync.
+const DEFAULT_BANK_TEMPLATES = [
+  {
+    id: 'hapoalim',
+    name: 'Hapoalim (par défaut)',
+    isDefault: true,
+    dataStartRow: 6,      // 1-indexé : la 1re ligne de données
+    columns: {
+      date: 0, description: 2, details: 3, reference: 4,
+      debit: 6, credit: 7, balance: 8,
+    },
+    createdAt: '2026-01-01T00:00:00Z',
+  },
+];
+const loadBankTemplates = () => {
+  try {
+    const raw = localStorage.getItem('bankTemplates');
+    if (!raw) {
+      saveBankTemplates(DEFAULT_BANK_TEMPLATES);
+      return DEFAULT_BANK_TEMPLATES.slice();
+    }
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed) || parsed.length === 0) return DEFAULT_BANK_TEMPLATES.slice();
+    // Migration : assurer la présence des templates par défaut
+    const existingIds = new Set(parsed.map(t => t.id));
+    const missing = DEFAULT_BANK_TEMPLATES.filter(d => !existingIds.has(d.id));
+    if (missing.length > 0) {
+      const merged = [...parsed, ...missing];
+      saveBankTemplates(merged);
+      return merged;
+    }
+    return parsed;
+  } catch { return DEFAULT_BANK_TEMPLATES.slice(); }
+};
+const saveBankTemplates = (list) => localStorage.setItem('bankTemplates', JSON.stringify(list));
+
+// Lit un fichier Excel et applique un template pour en extraire les transactions
+const parseBankStatement = async (file, template) => {
+  const tpl = template || DEFAULT_BANK_TEMPLATES[0];
   const buf = await file.arrayBuffer();
   const wb = XLSX.read(buf, { type: 'array', cellDates: true });
   const sheet = wb.Sheets[wb.SheetNames[0]];
   const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
 
-  // Lignes 1-5 = titres / en-têtes ; les transactions commencent à l'index 5 (ligne 6).
+  const startIdx = Math.max(0, (Number(tpl.dataStartRow) || 1) - 1);
+  const c = tpl.columns || {};
+  const colNum = (n, def) => (typeof n === 'number' && n >= 0) ? n : def;
+  const colDate = colNum(c.date, 0);
+  const colDesc = colNum(c.description, 2);
+  const colDet  = (typeof c.details   === 'number' && c.details   >= 0) ? c.details   : null;
+  const colRef  = (typeof c.reference === 'number' && c.reference >= 0) ? c.reference : null;
+  const colDeb  = colNum(c.debit,  6);
+  const colCre  = colNum(c.credit, 7);
+  const colBal  = (typeof c.balance   === 'number' && c.balance   >= 0) ? c.balance   : null;
+
   const transactions = [];
-  for (let i = 5; i < rows.length; i++) {
+  for (let i = startIdx; i < rows.length; i++) {
     const row = rows[i];
     if (!row || row.length === 0) continue;
 
     let date = null;
-    if (row[0] instanceof Date) date = dateToISO(row[0]);
-    else if (typeof row[0] === 'string') date = parseStringDate(row[0]);
+    const dRaw = row[colDate];
+    if (dRaw instanceof Date) date = dateToISO(dRaw);
+    else if (typeof dRaw === 'string') date = parseStringDate(dRaw);
     if (!date) continue;
 
-    const debit  = Number(row[6]) || 0;
-    const credit = Number(row[7]) || 0;
+    const debit  = Number(row[colDeb]) || 0;
+    const credit = Number(row[colCre]) || 0;
     if (debit === 0 && credit === 0) continue;
 
-    const reference = String(row[4] || '').trim();
-    const amount    = debit - credit; // positif = sortie, négatif = entrée
+    // Si pas de colonne référence dans le template, on en fabrique une stable
+    // à partir de la position de la ligne pour garantir l'unicité.
+    const reference = colRef != null
+      ? String(row[colRef] || '').trim() || `${date}-${i}`
+      : `${date}-${i}`;
+    const amount = debit - credit; // positif = sortie, négatif = entrée
 
     transactions.push({
-      reference,
-      date,
-      description: String(row[2] || '').trim(),
-      details:     String(row[3] || '').trim(),
+      reference, date,
+      description: String(row[colDesc] || '').trim(),
+      details:     colDet != null ? String(row[colDet] || '').trim() : '',
       debit, credit,
-      balance: Number(row[8]) || 0,
+      balance: colBal != null ? (Number(row[colBal]) || 0) : 0,
       amount,
       direction: debit > 0 ? 'out' : 'in',
       referenceKey: `${reference}|${date}|${amount}`,
@@ -586,6 +640,7 @@ const parseBankStatement = async (file) => {
   return {
     kind: 'bank',
     fileName: file.name,
+    templateName: tpl.name,
     summary: `${matched.length} matchées · ${unmatched.length} à traiter · ${cardDebits.length} débits cartes · ${duplicates.length} doublons`,
     rows: transactions,
     newTransactions,
@@ -5991,16 +6046,266 @@ const CardRecap = ({ result }) => {
 /* =========================================================
    Import wizard (bank statements + credit cards)
    ========================================================= */
+/* =========================================================
+   Bank template editor (création d'un modèle d'import)
+   ========================================================= */
+const colLetter = (n) => {
+  let s = '';
+  let x = n;
+  while (x >= 0) { s = String.fromCharCode(65 + (x % 26)) + s; x = Math.floor(x / 26) - 1; }
+  return s;
+};
+
+const BankTemplateEditor = ({ open, onCancel, onSave }) => {
+  const [file, setFile] = useState(null);
+  const [rows, setRows] = useState([]);          // premières 20 lignes du fichier
+  const [name, setName] = useState('');
+  const [dataStartRow, setDataStartRow] = useState(6);
+  const [cols, setCols] = useState({
+    date: 0, description: 2, details: 3, reference: 4,
+    debit: 6, credit: 7, balance: 8,
+  });
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState(null);
+  const fileRef = useRef(null);
+
+  useEffect(() => {
+    if (!open) {
+      setFile(null); setRows([]); setName(''); setErr(null);
+      setDataStartRow(6);
+      setCols({ date: 0, description: 2, details: 3, reference: 4, debit: 6, credit: 7, balance: 8 });
+    }
+  }, [open]);
+
+  const loadFile = async (f) => {
+    if (!f) return;
+    setBusy(true); setErr(null);
+    try {
+      const buf = await f.arrayBuffer();
+      const wb = XLSX.read(buf, { type: 'array', cellDates: true });
+      const sheet = wb.Sheets[wb.SheetNames[0]];
+      const all = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
+      setRows(all.slice(0, 20));
+      setFile(f);
+    } catch (e) {
+      setErr("Lecture du fichier impossible : " + e.message);
+    } finally { setBusy(false); }
+  };
+
+  const colCount = Math.max(0, ...rows.map(r => (r || []).length), 10);
+  const colOptions = [];
+  for (let i = 0; i < colCount; i++) colOptions.push({ value: i, label: `Col ${colLetter(i)}` });
+
+  // Aperçu : parse une ligne pour montrer ce que ça donnerait
+  const previewRow = rows[Math.min(dataStartRow - 1, rows.length - 1)] || [];
+  const previewParsed = (() => {
+    if (!file || !previewRow.length) return null;
+    const dRaw = previewRow[cols.date];
+    let date = null;
+    if (dRaw instanceof Date) date = dateToISO(dRaw);
+    else if (typeof dRaw === 'string') date = parseStringDate(dRaw);
+    return {
+      date,
+      description: String(previewRow[cols.description] || ''),
+      debit: Number(previewRow[cols.debit]) || 0,
+      credit: Number(previewRow[cols.credit]) || 0,
+    };
+  })();
+
+  const canSave = !!file && !!name.trim() && cols.date != null && cols.description != null
+    && cols.debit != null && cols.credit != null;
+
+  const doSave = () => {
+    const tpl = {
+      id: 'tpl_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 6),
+      name: name.trim(),
+      isDefault: false,
+      dataStartRow: Number(dataStartRow) || 1,
+      columns: {
+        date: Number(cols.date),
+        description: Number(cols.description),
+        details: cols.details === '' ? null : Number(cols.details),
+        reference: cols.reference === '' ? null : Number(cols.reference),
+        debit: Number(cols.debit),
+        credit: Number(cols.credit),
+        balance: cols.balance === '' ? null : Number(cols.balance),
+      },
+      createdAt: new Date().toISOString(),
+    };
+    onSave(tpl);
+  };
+
+  if (!open) return null;
+  return (
+    <div className="fixed inset-0 z-[60] bg-stone-900/60 flex items-center justify-center p-4" onClick={onCancel}>
+      <div className="bg-white rounded-xl shadow-xl ring-1 ring-stone-200 w-full max-w-3xl flex flex-col max-h-[90vh]"
+           onClick={e => e.stopPropagation()}>
+        <header className="px-5 py-4 border-b border-stone-200 flex items-center justify-between">
+          <div>
+            <h3 className="font-semibold text-stone-900 text-lg">Nouveau modèle d'import bancaire</h3>
+            <p className="text-xs text-stone-500 mt-0.5">
+              Charge un fichier d'exemple, indique les colonnes, sauvegarde — c'est tout.
+            </p>
+          </div>
+          <button onClick={onCancel} className="p-1.5 rounded hover:bg-stone-100 text-stone-400 hover:text-stone-700">
+            <X className="w-4 h-4"/>
+          </button>
+        </header>
+
+        <div className="px-5 py-4 overflow-auto flex-1 space-y-4">
+          {/* Step 1 : nom + fichier */}
+          <div className="grid grid-cols-2 gap-3">
+            <label className="text-xs font-medium text-stone-700">
+              Nom de la banque
+              <input type="text" value={name}
+                onChange={e => setName(e.target.value)}
+                placeholder="ex. Bank Leumi, Discount, BNP, Société Générale…"
+                className="mt-1 w-full px-2 py-1.5 text-sm ring-1 ring-stone-200 rounded outline-none focus:ring-stone-400"/>
+            </label>
+            <div className="text-xs font-medium text-stone-700">
+              Fichier d'exemple
+              <input ref={fileRef} type="file" accept=".xlsx,.xls,.csv" className="hidden"
+                onChange={e => loadFile(e.target.files?.[0])}/>
+              <button onClick={() => fileRef.current?.click()} disabled={busy}
+                className="mt-1 w-full px-2 py-1.5 text-sm rounded ring-1 ring-stone-200 bg-white hover:bg-stone-50 disabled:opacity-50">
+                {file ? `📎 ${file.name}` : "Choisir un .xlsx d'exemple…"}
+              </button>
+            </div>
+          </div>
+
+          {err && (
+            <div className="p-2 rounded bg-rose-50 ring-1 ring-rose-200 text-xs text-rose-700">{err}</div>
+          )}
+
+          {/* Step 2 : aperçu du fichier */}
+          {rows.length > 0 && (
+            <div>
+              <div className="text-xs font-medium text-stone-700 mb-1">
+                Aperçu des 20 premières lignes
+              </div>
+              <div className="overflow-auto rounded ring-1 ring-stone-200 max-h-56">
+                <table className="text-[11px]" style={{ borderCollapse: 'separate', borderSpacing: 0 }}>
+                  <thead className="bg-stone-50 text-stone-500">
+                    <tr>
+                      <th className="px-2 py-1 sticky left-0 bg-stone-50 z-10">#</th>
+                      {Array.from({ length: colCount }, (_, i) => (
+                        <th key={i} className="px-2 py-1 text-left font-medium whitespace-nowrap">
+                          Col {colLetter(i)}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-stone-100">
+                    {rows.map((r, i) => (
+                      <tr key={i} className={dataStartRow - 1 === i ? "bg-emerald-50" : ""}>
+                        <td className="px-2 py-1 text-stone-400 sticky left-0 z-10 bg-white">{i + 1}</td>
+                        {Array.from({ length: colCount }, (_, c) => {
+                          const v = r?.[c];
+                          let display = '';
+                          if (v instanceof Date) display = v.toLocaleDateString('fr-FR');
+                          else if (v != null && v !== '') display = String(v);
+                          return (
+                            <td key={c} className="px-2 py-1 text-stone-700 whitespace-nowrap max-w-[160px] truncate" dir="auto" title={display}>
+                              {display}
+                            </td>
+                          );
+                        })}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <p className="text-[10px] text-stone-400 mt-1">
+                La ligne en vert sera la première ligne lue. Ajuste « 1re ligne de données » si besoin.
+              </p>
+            </div>
+          )}
+
+          {/* Step 3 : mapping */}
+          {rows.length > 0 && (
+            <div className="grid grid-cols-2 gap-3">
+              <label className="col-span-2 text-xs font-medium text-stone-700">
+                1re ligne de données (en partant de 1)
+                <input type="number" min={1} value={dataStartRow}
+                  onChange={e => setDataStartRow(Math.max(1, Number(e.target.value) || 1))}
+                  className="mt-1 w-32 px-2 py-1 text-sm ring-1 ring-stone-200 rounded outline-none focus:ring-stone-400 tabular-nums"/>
+                <span className="ml-2 text-[11px] text-stone-500">
+                  Souvent : 6 (Hapoalim), 2 (Leumi/Discount export simple)
+                </span>
+              </label>
+
+              {[
+                ['date',        'Date',          true],
+                ['description', 'Libellé',       true],
+                ['debit',       'Débit (sortie)', true],
+                ['credit',      'Crédit (entrée)', true],
+                ['details',     'Détails (option.)', false],
+                ['reference',   'Référence (option.)', false],
+                ['balance',     'Solde (option.)', false],
+              ].map(([k, label, required]) => (
+                <label key={k} className="text-xs font-medium text-stone-700">
+                  {label}{required && <span className="text-rose-500 ml-0.5">*</span>}
+                  <select value={cols[k] != null ? cols[k] : ''}
+                    onChange={e => setCols(c => ({ ...c, [k]: e.target.value === '' ? '' : Number(e.target.value) }))}
+                    className="mt-1 w-full px-2 py-1.5 text-sm ring-1 ring-stone-200 rounded bg-white outline-none focus:ring-stone-400">
+                    {!required && <option value="">— Aucune —</option>}
+                    {colOptions.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                  </select>
+                </label>
+              ))}
+            </div>
+          )}
+
+          {/* Step 4 : test parse sur la 1re ligne */}
+          {previewParsed && (
+            <div className="p-3 rounded-lg bg-sky-50 ring-1 ring-sky-200 text-xs">
+              <div className="font-medium text-sky-900 mb-1">Test sur la 1re ligne de données</div>
+              <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-sky-800">
+                <div>Date :</div>           <div className="tabular-nums">{previewParsed.date || <span className="text-rose-600">Non parsée</span>}</div>
+                <div>Libellé :</div>        <div dir="auto" className="truncate">{previewParsed.description || '—'}</div>
+                <div>Débit :</div>          <div className="tabular-nums">{previewParsed.debit || '—'}</div>
+                <div>Crédit :</div>         <div className="tabular-nums">{previewParsed.credit || '—'}</div>
+              </div>
+              <p className="mt-2 text-[10px] text-sky-700">
+                Si les valeurs ne sont pas bonnes, ajuste « 1re ligne » ou les colonnes ci-dessus.
+              </p>
+            </div>
+          )}
+        </div>
+
+        <footer className="px-5 py-3 border-t border-stone-200 flex items-center justify-end gap-2">
+          <button onClick={onCancel}
+            className="px-3 py-1.5 text-sm rounded-lg ring-1 ring-stone-200 hover:bg-stone-50">
+            Annuler
+          </button>
+          <button onClick={doSave} disabled={!canSave}
+            className={"px-3 py-1.5 text-sm rounded-lg " +
+              (canSave ? "bg-stone-900 text-white hover:bg-stone-800"
+                       : "bg-stone-200 text-stone-400 cursor-not-allowed")}>
+            Enregistrer le modèle
+          </button>
+        </footer>
+      </div>
+    </div>
+  );
+};
+
 const ImportWizard = ({ open, onClose, onConfirmImport }) => {
   const [step, setStep] = useState(1);   // 1 = type, 2 = upload, 3 = parsing, 4 = recap
   const [type, setType] = useState(null); // 'bank' | 'card'
   const [file, setFile] = useState(null);
   const [parseResult, setParseResult] = useState(null);
   const [drag, setDrag] = useState(false);
+  const [bankTemplates, setBankTemplates] = useState([]);
+  const [templateId, setTemplateId] = useState('hapoalim');
+  const [templateEditor, setTemplateEditor] = useState(null); // null | { mode, file?, draft? }
   const fileRef = useRef(null);
 
   const reset = () => {
     setStep(1); setType(null); setFile(null); setParseResult(null); setDrag(false);
+    setBankTemplates(loadBankTemplates());
+    setTemplateId('hapoalim');
+    setTemplateEditor(null);
   };
   const cancelAll = () => { reset(); onClose(); };
 
@@ -6019,7 +6324,10 @@ const ImportWizard = ({ open, onClose, onConfirmImport }) => {
   useEffect(() => {
     if (!open || step !== 3 || !file || !type) return;
     let cancelled = false;
-    const parser = type === 'bank' ? parseBankStatement : parseCardStatement;
+    const tpl = bankTemplates.find(t => t.id === templateId) || bankTemplates[0];
+    const parser = type === 'bank'
+      ? (f) => parseBankStatement(f, tpl)
+      : parseCardStatement;
     parser(file).then(res => {
       if (cancelled) return;
       setParseResult(res);
@@ -6122,6 +6430,50 @@ const ImportWizard = ({ open, onClose, onConfirmImport }) => {
 
           {step === 2 && (
             <div>
+              {type === 'bank' && (
+                <div className="mb-3 p-3 rounded-lg bg-stone-50 ring-1 ring-stone-200">
+                  <div className="flex items-center justify-between gap-3">
+                    <label className="text-xs font-medium text-stone-700 flex-1">
+                      Modèle d'import
+                      <select value={templateId}
+                        onChange={e => setTemplateId(e.target.value)}
+                        className="mt-1 w-full px-2 py-1.5 text-sm ring-1 ring-stone-200 rounded bg-white outline-none focus:ring-stone-400">
+                        {bankTemplates.map(t => (
+                          <option key={t.id} value={t.id}>{t.name}{t.isDefault ? '' : ' (perso)'}</option>
+                        ))}
+                      </select>
+                    </label>
+                    <div className="flex gap-1 self-end">
+                      <button onClick={() => setTemplateEditor({ mode: 'new' })}
+                        title="Créer un nouveau modèle à partir d'un fichier"
+                        className="px-2 py-1.5 text-xs rounded ring-1 ring-stone-200 bg-white hover:bg-stone-50">
+                        + Nouveau
+                      </button>
+                      {(() => {
+                        const cur = bankTemplates.find(t => t.id === templateId);
+                        if (!cur || cur.isDefault) return null;
+                        return (
+                          <button onClick={() => {
+                              if (!confirm(`Supprimer le modèle « ${cur.name} » ?`)) return;
+                              const next = bankTemplates.filter(t => t.id !== templateId);
+                              saveBankTemplates(next);
+                              setBankTemplates(next);
+                              setTemplateId(next[0]?.id || 'hapoalim');
+                            }}
+                            title="Supprimer ce modèle"
+                            className="px-2 py-1.5 text-xs rounded ring-1 ring-stone-200 bg-white hover:bg-rose-50 hover:text-rose-700">
+                            🗑
+                          </button>
+                        );
+                      })()}
+                    </div>
+                  </div>
+                  <p className="mt-1.5 text-[11px] text-stone-500">
+                    Choisis le format de ta banque. Si elle n'est pas listée, clique <strong>+ Nouveau</strong> pour le configurer en quelques clics.
+                  </p>
+                </div>
+              )}
+
               <p className="text-sm text-stone-600">
                 Sélectionnez le fichier <span className="font-medium text-stone-900">{typeLabel}</span> à importer (.xlsx, .xls, .csv).
               </p>
@@ -6153,6 +6505,18 @@ const ImportWizard = ({ open, onClose, onConfirmImport }) => {
                   ← Changer de type
                 </button>
               </div>
+
+              <BankTemplateEditor
+                open={!!templateEditor}
+                onCancel={() => setTemplateEditor(null)}
+                onSave={(tpl) => {
+                  const list = [...bankTemplates, tpl];
+                  saveBankTemplates(list);
+                  setBankTemplates(list);
+                  setTemplateId(tpl.id);
+                  setTemplateEditor(null);
+                }}
+              />
             </div>
           )}
 
@@ -7612,7 +7976,7 @@ const BACKEND_URL      = (() => {
 })();
 const SYNC_KEYS_PREFIX_OR_EXACT = [
   /^month:/, 'transactions:imported', 'cards:current',
-  'matchRules', 'recurrenceRules', 'categories',
+  'matchRules', 'recurrenceRules', 'categories', 'bankTemplates',
   /^settings:/,
 ];
 
