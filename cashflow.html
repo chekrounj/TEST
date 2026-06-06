@@ -381,13 +381,35 @@ const dateToISO = (d) => {
   const day = String(d.getDate()).padStart(2, '0');
   return `${y}-${m}-${day}`;
 };
-const parseStringDate = (s) => {
+// Parse une date dans le format demandé. Le format influence l'ordre
+// d'interprétation des 3 nombres ; sinon on tombe sur l'auto-détection
+// (DD/MM/YYYY si jour <= 12 et mois <= 12, sinon on prend ce qui est plausible).
+const parseStringDate = (s, format = 'auto') => {
   if (typeof s !== 'string') return null;
-  const m = s.match(/^(\d{1,2})[\/.\-](\d{1,2})[\/.\-](\d{2,4})/);
+  const t = s.trim();
+  if (!t) return null;
+  // ISO direct : YYYY-MM-DD
+  if (format === 'YMD' || /^\d{4}[\/.\-]\d{1,2}[\/.\-]\d{1,2}/.test(t)) {
+    const m = t.match(/^(\d{4})[\/.\-](\d{1,2})[\/.\-](\d{1,2})/);
+    if (m) return `${m[1]}-${m[2].padStart(2,'0')}-${m[3].padStart(2,'0')}`;
+  }
+  const m = t.match(/^(\d{1,2})[\/.\-](\d{1,2})[\/.\-](\d{2,4})/);
   if (!m) return null;
-  let yy = m[3];
-  if (yy.length === 2) yy = (Number(yy) > 50 ? '19' : '20') + yy;
-  return `${yy}-${m[2].padStart(2,'0')}-${m[1].padStart(2,'0')}`;
+  let a = m[1], b = m[2], c = m[3];
+  let day, month, year;
+  if (format === 'MDY') { month = a; day = b; year = c; }
+  else if (format === 'DMY') { day = a; month = b; year = c; }
+  else {
+    // auto : si le 1er nombre > 12, c'est sûrement le jour
+    if (Number(a) > 12) { day = a; month = b; }
+    else if (Number(b) > 12) { day = b; month = a; }
+    else { day = a; month = b; } // ambigu → on choisit DMY par défaut (européen)
+    year = c;
+  }
+  if (year.length === 2) year = (Number(year) > 50 ? '19' : '20') + year;
+  const dN = Number(day), mN = Number(month), yN = Number(year);
+  if (!dN || !mN || !yN || dN < 1 || dN > 31 || mN < 1 || mN > 12) return null;
+  return `${yN}-${String(mN).padStart(2,'0')}-${String(dN).padStart(2,'0')}`;
 };
 
 /* ---------- Matching helpers (bank → expenses / incomes) ---------- */
@@ -583,9 +605,13 @@ const parseBankStatement = async (file, template) => {
   const colDesc = colNum(c.description, 2);
   const colDet  = (typeof c.details   === 'number' && c.details   >= 0) ? c.details   : null;
   const colRef  = (typeof c.reference === 'number' && c.reference >= 0) ? c.reference : null;
+  const colBal  = (typeof c.balance   === 'number' && c.balance   >= 0) ? c.balance   : null;
+  const dateFormat = tpl.dateFormat || 'auto';
+  const amountMode = tpl.amountMode === 'signed' ? 'signed' : 'split';
+  const signIsIn   = (tpl.signConvention || 'positive_in') === 'positive_in';
   const colDeb  = colNum(c.debit,  6);
   const colCre  = colNum(c.credit, 7);
-  const colBal  = (typeof c.balance   === 'number' && c.balance   >= 0) ? c.balance   : null;
+  const colAmt  = (typeof c.amount === 'number' && c.amount >= 0) ? c.amount : null;
 
   const transactions = [];
   for (let i = startIdx; i < rows.length; i++) {
@@ -595,11 +621,23 @@ const parseBankStatement = async (file, template) => {
     let date = null;
     const dRaw = row[colDate];
     if (dRaw instanceof Date) date = dateToISO(dRaw);
-    else if (typeof dRaw === 'string') date = parseStringDate(dRaw);
+    else if (typeof dRaw === 'string') date = parseStringDate(dRaw, dateFormat);
     if (!date) continue;
 
-    const debit  = Number(row[colDeb]) || 0;
-    const credit = Number(row[colCre]) || 0;
+    let debit = 0, credit = 0;
+    if (amountMode === 'signed' && colAmt != null) {
+      const v = Number(row[colAmt]) || 0;
+      if (signIsIn) {
+        // + = entrée, − = sortie
+        if (v >= 0) credit = v; else debit = -v;
+      } else {
+        // + = sortie, − = entrée
+        if (v >= 0) debit = v; else credit = -v;
+      }
+    } else {
+      debit  = Number(row[colDeb]) || 0;
+      credit = Number(row[colCre]) || 0;
+    }
     if (debit === 0 && credit === 0) continue;
 
     // Si pas de colonne référence dans le template, on en fabrique une stable
@@ -6056,26 +6094,45 @@ const colLetter = (n) => {
   return s;
 };
 
-const BankTemplateEditor = ({ open, onCancel, onSave }) => {
+const BankTemplateEditor = ({ open, initialTemplate, onCancel, onSave }) => {
+  const isEdit = !!initialTemplate;
   const [file, setFile] = useState(null);
   const [rows, setRows] = useState([]);          // premières 20 lignes du fichier
   const [name, setName] = useState('');
   const [dataStartRow, setDataStartRow] = useState(6);
+  const [dateFormat, setDateFormat] = useState('auto');
+  const [amountMode, setAmountMode] = useState('split');     // 'split' | 'signed'
+  const [signConvention, setSignConvention] = useState('positive_in'); // si 'signed'
   const [cols, setCols] = useState({
     date: 0, description: 2, details: 3, reference: 4,
-    debit: 6, credit: 7, balance: 8,
+    debit: 6, credit: 7, amount: 6, balance: 8,
   });
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState(null);
   const fileRef = useRef(null);
 
   useEffect(() => {
-    if (!open) {
-      setFile(null); setRows([]); setName(''); setErr(null);
-      setDataStartRow(6);
-      setCols({ date: 0, description: 2, details: 3, reference: 4, debit: 6, credit: 7, balance: 8 });
+    if (!open) return;
+    setFile(null); setRows([]); setErr(null);
+    if (initialTemplate) {
+      setName(initialTemplate.name || '');
+      setDataStartRow(initialTemplate.dataStartRow || 1);
+      setDateFormat(initialTemplate.dateFormat || 'auto');
+      setAmountMode(initialTemplate.amountMode === 'signed' ? 'signed' : 'split');
+      setSignConvention(initialTemplate.signConvention || 'positive_in');
+      const ic = initialTemplate.columns || {};
+      setCols({
+        date: ic.date ?? 0, description: ic.description ?? 2,
+        details: ic.details ?? '', reference: ic.reference ?? '',
+        debit: ic.debit ?? 6, credit: ic.credit ?? 7,
+        amount: ic.amount ?? 6, balance: ic.balance ?? '',
+      });
+    } else {
+      setName(''); setDataStartRow(6);
+      setDateFormat('auto'); setAmountMode('split'); setSignConvention('positive_in');
+      setCols({ date: 0, description: 2, details: 3, reference: 4, debit: 6, credit: 7, amount: 6, balance: 8 });
     }
-  }, [open]);
+  }, [open, initialTemplate]);
 
   const loadFile = async (f) => {
     if (!f) return;
@@ -6099,38 +6156,56 @@ const BankTemplateEditor = ({ open, onCancel, onSave }) => {
   // Aperçu : parse une ligne pour montrer ce que ça donnerait
   const previewRow = rows[Math.min(dataStartRow - 1, rows.length - 1)] || [];
   const previewParsed = (() => {
-    if (!file || !previewRow.length) return null;
+    if (!previewRow.length) return null;
     const dRaw = previewRow[cols.date];
     let date = null;
-    if (dRaw instanceof Date) date = dateToISO(dRaw);
-    else if (typeof dRaw === 'string') date = parseStringDate(dRaw);
+    let dateRaw = '';
+    if (dRaw instanceof Date) { date = dateToISO(dRaw); dateRaw = dRaw.toLocaleDateString('fr-FR'); }
+    else if (typeof dRaw === 'string') { date = parseStringDate(dRaw, dateFormat); dateRaw = dRaw; }
+    let debit = 0, credit = 0;
+    if (amountMode === 'signed' && cols.amount !== '') {
+      const v = Number(previewRow[cols.amount]) || 0;
+      const sIn = signConvention === 'positive_in';
+      if (sIn) { if (v >= 0) credit = v; else debit = -v; }
+      else     { if (v >= 0) debit = v;  else credit = -v; }
+    } else {
+      debit  = Number(previewRow[cols.debit])  || 0;
+      credit = Number(previewRow[cols.credit]) || 0;
+    }
     return {
-      date,
+      date, dateRaw,
       description: String(previewRow[cols.description] || ''),
-      debit: Number(previewRow[cols.debit]) || 0,
-      credit: Number(previewRow[cols.credit]) || 0,
+      debit, credit,
     };
   })();
 
-  const canSave = !!file && !!name.trim() && cols.date != null && cols.description != null
-    && cols.debit != null && cols.credit != null;
+  const canSave = !!name.trim() && cols.date !== '' && cols.description !== ''
+    && (amountMode === 'split'
+        ? (cols.debit !== '' && cols.credit !== '')
+        : cols.amount !== '');
 
   const doSave = () => {
     const tpl = {
-      id: 'tpl_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 6),
+      id: isEdit ? initialTemplate.id
+                 : ('tpl_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 6)),
       name: name.trim(),
-      isDefault: false,
+      isDefault: isEdit ? !!initialTemplate.isDefault : false,
       dataStartRow: Number(dataStartRow) || 1,
+      dateFormat,
+      amountMode,
+      ...(amountMode === 'signed' ? { signConvention } : {}),
       columns: {
         date: Number(cols.date),
         description: Number(cols.description),
         details: cols.details === '' ? null : Number(cols.details),
         reference: cols.reference === '' ? null : Number(cols.reference),
-        debit: Number(cols.debit),
-        credit: Number(cols.credit),
+        ...(amountMode === 'split'
+            ? { debit: Number(cols.debit), credit: Number(cols.credit) }
+            : { amount: Number(cols.amount) }),
         balance: cols.balance === '' ? null : Number(cols.balance),
       },
-      createdAt: new Date().toISOString(),
+      createdAt: isEdit ? (initialTemplate.createdAt || new Date().toISOString()) : new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
     };
     onSave(tpl);
   };
@@ -6142,9 +6217,13 @@ const BankTemplateEditor = ({ open, onCancel, onSave }) => {
            onClick={e => e.stopPropagation()}>
         <header className="px-5 py-4 border-b border-stone-200 flex items-center justify-between">
           <div>
-            <h3 className="font-semibold text-stone-900 text-lg">Nouveau modèle d'import bancaire</h3>
+            <h3 className="font-semibold text-stone-900 text-lg">
+              {isEdit ? `Modifier « ${initialTemplate.name} »` : "Nouveau modèle d'import bancaire"}
+            </h3>
             <p className="text-xs text-stone-500 mt-0.5">
-              Charge un fichier d'exemple, indique les colonnes, sauvegarde — c'est tout.
+              {isEdit
+                ? "Ajuste les colonnes, le format de date ou le mode de montant."
+                : "Charge un fichier d'exemple, indique les colonnes, sauvegarde — c'est tout."}
             </p>
           </div>
           <button onClick={onCancel} className="p-1.5 rounded hover:bg-stone-100 text-stone-400 hover:text-stone-700">
@@ -6221,40 +6300,115 @@ const BankTemplateEditor = ({ open, onCancel, onSave }) => {
             </div>
           )}
 
-          {/* Step 3 : mapping */}
-          {rows.length > 0 && (
-            <div className="grid grid-cols-2 gap-3">
-              <label className="col-span-2 text-xs font-medium text-stone-700">
-                1re ligne de données (en partant de 1)
-                <input type="number" min={1} value={dataStartRow}
-                  onChange={e => setDataStartRow(Math.max(1, Number(e.target.value) || 1))}
-                  className="mt-1 w-32 px-2 py-1 text-sm ring-1 ring-stone-200 rounded outline-none focus:ring-stone-400 tabular-nums"/>
-                <span className="ml-2 text-[11px] text-stone-500">
-                  Souvent : 6 (Hapoalim), 2 (Leumi/Discount export simple)
-                </span>
-              </label>
+          {/* Step 3 : mapping (toujours visible — utile aussi en mode édition sans nouveau fichier) */}
+          <div className="grid grid-cols-2 gap-3">
+            <label className="col-span-2 text-xs font-medium text-stone-700">
+              1re ligne de données (en partant de 1)
+              <input type="number" min={1} value={dataStartRow}
+                onChange={e => setDataStartRow(Math.max(1, Number(e.target.value) || 1))}
+                className="mt-1 w-32 px-2 py-1 text-sm ring-1 ring-stone-200 rounded outline-none focus:ring-stone-400 tabular-nums"/>
+              <span className="ml-2 text-[11px] text-stone-500">
+                Souvent : 6 (Hapoalim), 2 (Leumi/Discount export simple)
+              </span>
+            </label>
 
-              {[
-                ['date',        'Date',          true],
-                ['description', 'Libellé',       true],
-                ['debit',       'Débit (sortie)', true],
-                ['credit',      'Crédit (entrée)', true],
-                ['details',     'Détails (option.)', false],
-                ['reference',   'Référence (option.)', false],
-                ['balance',     'Solde (option.)', false],
-              ].map(([k, label, required]) => (
-                <label key={k} className="text-xs font-medium text-stone-700">
-                  {label}{required && <span className="text-rose-500 ml-0.5">*</span>}
-                  <select value={cols[k] != null ? cols[k] : ''}
-                    onChange={e => setCols(c => ({ ...c, [k]: e.target.value === '' ? '' : Number(e.target.value) }))}
+            <label className="text-xs font-medium text-stone-700">
+              Format de date
+              <select value={dateFormat} onChange={e => setDateFormat(e.target.value)}
+                className="mt-1 w-full px-2 py-1.5 text-sm ring-1 ring-stone-200 rounded bg-white outline-none focus:ring-stone-400">
+                <option value="auto">Auto-détection</option>
+                <option value="DMY">JJ/MM/AAAA  (européen)</option>
+                <option value="MDY">MM/JJ/AAAA  (US)</option>
+                <option value="YMD">AAAA-MM-JJ  (ISO)</option>
+              </select>
+            </label>
+
+            <label className="text-xs font-medium text-stone-700">
+              Mode des montants
+              <select value={amountMode} onChange={e => setAmountMode(e.target.value)}
+                className="mt-1 w-full px-2 py-1.5 text-sm ring-1 ring-stone-200 rounded bg-white outline-none focus:ring-stone-400">
+                <option value="split">Deux colonnes (Débit / Crédit)</option>
+                <option value="signed">Une seule colonne signée (+/−)</option>
+              </select>
+            </label>
+
+            {/* Date + Libellé : toujours */}
+            {[
+              ['date',        'Date',    true],
+              ['description', 'Libellé', true],
+            ].map(([k, label, required]) => (
+              <label key={k} className="text-xs font-medium text-stone-700">
+                {label}{required && <span className="text-rose-500 ml-0.5">*</span>}
+                <select value={cols[k] != null && cols[k] !== '' ? cols[k] : ''}
+                  onChange={e => setCols(c => ({ ...c, [k]: e.target.value === '' ? '' : Number(e.target.value) }))}
+                  className="mt-1 w-full px-2 py-1.5 text-sm ring-1 ring-stone-200 rounded bg-white outline-none focus:ring-stone-400">
+                  {!required && <option value="">— Aucune —</option>}
+                  {colOptions.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                </select>
+              </label>
+            ))}
+
+            {/* Mode split : 2 dropdowns Débit + Crédit */}
+            {amountMode === 'split' && (
+              <>
+                <label className="text-xs font-medium text-stone-700">
+                  Débit (sortie)<span className="text-rose-500 ml-0.5">*</span>
+                  <select value={cols.debit !== '' ? cols.debit : ''}
+                    onChange={e => setCols(c => ({ ...c, debit: e.target.value === '' ? '' : Number(e.target.value) }))}
                     className="mt-1 w-full px-2 py-1.5 text-sm ring-1 ring-stone-200 rounded bg-white outline-none focus:ring-stone-400">
-                    {!required && <option value="">— Aucune —</option>}
                     {colOptions.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
                   </select>
                 </label>
-              ))}
-            </div>
-          )}
+                <label className="text-xs font-medium text-stone-700">
+                  Crédit (entrée)<span className="text-rose-500 ml-0.5">*</span>
+                  <select value={cols.credit !== '' ? cols.credit : ''}
+                    onChange={e => setCols(c => ({ ...c, credit: e.target.value === '' ? '' : Number(e.target.value) }))}
+                    className="mt-1 w-full px-2 py-1.5 text-sm ring-1 ring-stone-200 rounded bg-white outline-none focus:ring-stone-400">
+                    {colOptions.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                  </select>
+                </label>
+              </>
+            )}
+
+            {/* Mode signed : 1 colonne montant + convention */}
+            {amountMode === 'signed' && (
+              <>
+                <label className="text-xs font-medium text-stone-700">
+                  Montant (signé)<span className="text-rose-500 ml-0.5">*</span>
+                  <select value={cols.amount !== '' ? cols.amount : ''}
+                    onChange={e => setCols(c => ({ ...c, amount: e.target.value === '' ? '' : Number(e.target.value) }))}
+                    className="mt-1 w-full px-2 py-1.5 text-sm ring-1 ring-stone-200 rounded bg-white outline-none focus:ring-stone-400">
+                    {colOptions.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                  </select>
+                </label>
+                <label className="text-xs font-medium text-stone-700">
+                  Convention de signe
+                  <select value={signConvention} onChange={e => setSignConvention(e.target.value)}
+                    className="mt-1 w-full px-2 py-1.5 text-sm ring-1 ring-stone-200 rounded bg-white outline-none focus:ring-stone-400">
+                    <option value="positive_in">+ = entrée &nbsp;·&nbsp; − = sortie</option>
+                    <option value="positive_out">+ = sortie &nbsp;·&nbsp; − = entrée</option>
+                  </select>
+                </label>
+              </>
+            )}
+
+            {/* Optionnels */}
+            {[
+              ['details',   'Détails (optionnel)'],
+              ['reference', 'Référence (optionnel)'],
+              ['balance',   'Solde (optionnel)'],
+            ].map(([k, label]) => (
+              <label key={k} className="text-xs font-medium text-stone-700">
+                {label}
+                <select value={cols[k] !== '' && cols[k] != null ? cols[k] : ''}
+                  onChange={e => setCols(c => ({ ...c, [k]: e.target.value === '' ? '' : Number(e.target.value) }))}
+                  className="mt-1 w-full px-2 py-1.5 text-sm ring-1 ring-stone-200 rounded bg-white outline-none focus:ring-stone-400">
+                  <option value="">— Aucune —</option>
+                  {colOptions.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                </select>
+              </label>
+            ))}
+          </div>
 
           {/* Step 4 : test parse sur la 1re ligne */}
           {previewParsed && (
@@ -6453,17 +6607,24 @@ const ImportWizard = ({ open, onClose, onConfirmImport }) => {
                         const cur = bankTemplates.find(t => t.id === templateId);
                         if (!cur || cur.isDefault) return null;
                         return (
-                          <button onClick={() => {
-                              if (!confirm(`Supprimer le modèle « ${cur.name} » ?`)) return;
-                              const next = bankTemplates.filter(t => t.id !== templateId);
-                              saveBankTemplates(next);
-                              setBankTemplates(next);
-                              setTemplateId(next[0]?.id || 'hapoalim');
-                            }}
-                            title="Supprimer ce modèle"
-                            className="px-2 py-1.5 text-xs rounded ring-1 ring-stone-200 bg-white hover:bg-rose-50 hover:text-rose-700">
-                            🗑
-                          </button>
+                          <>
+                            <button onClick={() => setTemplateEditor({ mode: 'edit', template: cur })}
+                              title="Modifier ce modèle"
+                              className="px-2 py-1.5 text-xs rounded ring-1 ring-stone-200 bg-white hover:bg-stone-50">
+                              ✎ Modifier
+                            </button>
+                            <button onClick={() => {
+                                if (!confirm(`Supprimer le modèle « ${cur.name} » ?`)) return;
+                                const next = bankTemplates.filter(t => t.id !== templateId);
+                                saveBankTemplates(next);
+                                setBankTemplates(next);
+                                setTemplateId(next[0]?.id || 'hapoalim');
+                              }}
+                              title="Supprimer ce modèle"
+                              className="px-2 py-1.5 text-xs rounded ring-1 ring-stone-200 bg-white hover:bg-rose-50 hover:text-rose-700">
+                              🗑
+                            </button>
+                          </>
                         );
                       })()}
                     </div>
@@ -6508,9 +6669,13 @@ const ImportWizard = ({ open, onClose, onConfirmImport }) => {
 
               <BankTemplateEditor
                 open={!!templateEditor}
+                initialTemplate={templateEditor?.mode === 'edit' ? templateEditor.template : null}
                 onCancel={() => setTemplateEditor(null)}
                 onSave={(tpl) => {
-                  const list = [...bankTemplates, tpl];
+                  const isEdit = templateEditor?.mode === 'edit' && templateEditor.template?.id;
+                  const list = isEdit
+                    ? bankTemplates.map(t => t.id === tpl.id ? tpl : t)
+                    : [...bankTemplates, tpl];
                   saveBankTemplates(list);
                   setBankTemplates(list);
                   setTemplateId(tpl.id);
