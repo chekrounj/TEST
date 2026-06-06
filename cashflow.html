@@ -591,8 +591,9 @@ const loadBankTemplates = () => {
 const saveBankTemplates = (list) => localStorage.setItem('bankTemplates', JSON.stringify(list));
 
 // Lit un fichier Excel et applique un template pour en extraire les transactions
-const parseBankStatement = async (file, template) => {
+const parseBankStatement = async (file, template, options = {}) => {
   const tpl = template || DEFAULT_BANK_TEMPLATES[0];
+  const overwrite = !!options.overwrite;
   const buf = await file.arrayBuffer();
   const wb = XLSX.read(buf, { type: 'array', cellDates: true });
   const sheet = wb.Sheets[wb.SheetNames[0]];
@@ -660,11 +661,13 @@ const parseBankStatement = async (file, template) => {
   }
 
   // Déduplication par rapport à l'index global
+  // En mode 'overwrite', on traite tout comme nouveau (les referenceKey existants
+  // seront ré-indexés à la confirmation, écrasant les entrées précédentes).
   const existing = loadImportedTx();
   const newTransactions = [];
   const duplicates = [];
   for (const t of transactions) {
-    if (existing[t.referenceKey]) duplicates.push(t);
+    if (!overwrite && existing[t.referenceKey]) duplicates.push(t);
     else newTransactions.push(t);
   }
 
@@ -679,7 +682,10 @@ const parseBankStatement = async (file, template) => {
     kind: 'bank',
     fileName: file.name,
     templateName: tpl.name,
-    summary: `${matched.length} matchées · ${unmatched.length} à traiter · ${cardDebits.length} débits cartes · ${duplicates.length} doublons`,
+    overwrite,
+    summary: overwrite
+      ? `${matched.length} matchées · ${unmatched.length} à traiter · ${cardDebits.length} débits cartes · écrasement`
+      : `${matched.length} matchées · ${unmatched.length} à traiter · ${cardDebits.length} débits cartes · ${duplicates.length} doublons`,
     rows: transactions,
     newTransactions,
     duplicates,
@@ -5876,8 +5882,8 @@ const UnmatchedRow = ({ tx, onCreate, onIgnore, onLearnRule }) => {
   );
 };
 
-const BankRecap = ({ result, onUpdate }) => {
-  const { matched = [], unmatched = [], cardDebits = [], duplicates = [], dateRange, total } = result;
+const BankRecap = ({ result, onUpdate, onOverwrite }) => {
+  const { matched = [], unmatched = [], cardDebits = [], duplicates = [], dateRange, total, overwrite } = result;
   const days = (dateRange?.from && dateRange?.to)
     ? Math.round((new Date(dateRange.to) - new Date(dateRange.from)) / 86400000) + 1
     : 0;
@@ -5952,6 +5958,27 @@ const BankRecap = ({ result, onUpdate }) => {
         <Stat label="Débits cartes" value={cardDebits.length} tone="violet"/>
         <Stat label="Doublons"      value={duplicates.length} tone="gray"/>
       </div>
+
+      {overwrite && (
+        <div className="rounded-lg bg-amber-50 ring-1 ring-amber-200 px-3 py-2 text-xs text-amber-800 flex items-center gap-2">
+          <span className="font-medium">Mode écrasement actif —</span>
+          <span>les lignes déjà importées ont été ré-intégrées comme nouvelles. Confirme pour enregistrer.</span>
+        </div>
+      )}
+
+      {!overwrite && duplicates.length > 0 && onOverwrite && (
+        <div className="rounded-lg bg-stone-50 ring-1 ring-stone-200 px-3 py-2 text-xs text-stone-700 flex items-center justify-between gap-3">
+          <div className="min-w-0">
+            <span className="font-medium">{duplicates.length} doublon{duplicates.length > 1 ? 's' : ''}</span>{' '}
+            détecté{duplicates.length > 1 ? 's' : ''} (déjà importé{duplicates.length > 1 ? 's' : ''} précédemment).
+            <span className="text-stone-500"> Tu peux ré-importer ce fichier en écrasant l'import précédent.</span>
+          </div>
+          <button onClick={onOverwrite}
+            className="flex-none px-2.5 py-1.5 text-xs rounded ring-1 ring-stone-300 bg-white hover:bg-stone-100 font-medium">
+            Écraser et ré-importer
+          </button>
+        </div>
+      )}
 
       {/* 1. Matched (collapsable, fermée par défaut) */}
       <CollapsibleSection title="Transactions matchées automatiquement" count={matched.length} defaultOpen={false}>
@@ -6453,6 +6480,7 @@ const ImportWizard = ({ open, onClose, onConfirmImport }) => {
   const [bankTemplates, setBankTemplates] = useState([]);
   const [templateId, setTemplateId] = useState('hapoalim');
   const [templateEditor, setTemplateEditor] = useState(null); // null | { mode, file?, draft? }
+  const [overwrite, setOverwrite] = useState(false);
   const fileRef = useRef(null);
 
   const reset = () => {
@@ -6460,6 +6488,7 @@ const ImportWizard = ({ open, onClose, onConfirmImport }) => {
     setBankTemplates(loadBankTemplates());
     setTemplateId('hapoalim');
     setTemplateEditor(null);
+    setOverwrite(false);
   };
   const cancelAll = () => { reset(); onClose(); };
 
@@ -6480,7 +6509,7 @@ const ImportWizard = ({ open, onClose, onConfirmImport }) => {
     let cancelled = false;
     const tpl = bankTemplates.find(t => t.id === templateId) || bankTemplates[0];
     const parser = type === 'bank'
-      ? (f) => parseBankStatement(f, tpl)
+      ? (f) => parseBankStatement(f, tpl, { overwrite })
       : parseCardStatement;
     parser(file).then(res => {
       if (cancelled) return;
@@ -6492,7 +6521,7 @@ const ImportWizard = ({ open, onClose, onConfirmImport }) => {
       setStep(2);
     });
     return () => { cancelled = true; };
-  }, [open, step, file, type]);
+  }, [open, step, file, type, overwrite]);
 
   const chooseType = (t) => { setType(t); setStep(2); };
   const acceptFile = (f) => {
@@ -6694,9 +6723,21 @@ const ImportWizard = ({ open, onClose, onConfirmImport }) => {
           )}
 
           {step === 4 && parseResult && parseResult.kind === 'bank' && (
-            <BankRecap result={parseResult} onUpdate={(updater) =>
-              setParseResult(prev => typeof updater === 'function' ? updater(prev) : updater)
-            }/>
+            <BankRecap result={parseResult}
+              onUpdate={(updater) =>
+                setParseResult(prev => typeof updater === 'function' ? updater(prev) : updater)
+              }
+              onOverwrite={() => {
+                if (!confirm(
+                  "Ré-importer en écrasant les doublons ?\n\n" +
+                  "Les lignes déjà importées (même date / même montant / même référence) " +
+                  "seront re-traitées comme si elles n'avaient jamais été importées. " +
+                  "Les postes que tu as déjà créés ne sont pas supprimés."
+                )) return;
+                setOverwrite(true);
+                setStep(3);
+              }}
+            />
           )}
           {step === 4 && parseResult && parseResult.kind === 'card' && (
             <CardRecap result={parseResult}/>
