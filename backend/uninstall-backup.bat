@@ -5,14 +5,7 @@ REM Les fichiers deja sauvegardes sur J: NE sont PAS supprimes.
 REM ==========================================================
 setlocal
 
-REM --- Verifie qu'on a les droits admin --------------------
-net session >nul 2>nul
-if errorlevel 1 (
-  echo [X] Ce script doit etre lance EN ADMINISTRATEUR.
-  pause
-  exit /b 1
-)
-
+REM Pas besoin d'admin : la tache appartient a l'utilisateur courant.
 set "TASKNAME=CashflowBackup"
 
 echo.

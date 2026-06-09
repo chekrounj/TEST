@@ -4,15 +4,24 @@
 `J:\Appli-Tazrim\backup\` avec un horodatage, et les
 sauvegardes de plus de 30 jours sont automatiquement purgées.
 
-## Installation (1 seule fois, en admin)
+## Installation (1 seule fois — **PAS en admin**)
+
+⚠️ **Ne pas faire "Exécuter en tant qu'administrateur"** sur ce script. Quand
+Windows élève en admin, il utilise un autre token utilisateur qui **ne voit
+PAS** les disques mappés par GPO (comme J:). Le script détecterait que J:
+n'est pas accessible et refuserait de continuer.
 
 1. Ouvre `C:\Cashflow\backend\`
-2. **Clic droit sur `install-backup.bat`** -> **Exécuter en tant qu'administrateur**
+2. **Double-clique sur `install-backup.bat`** (sans clic droit, sans admin)
 3. Vérifie les messages :
    - `[OK] J: accessible.`
    - `[OK] Dossier J:\Appli-Tazrim\backup créé.`
    - `[OK] Tâche "CashflowBackup" créée.`
 4. Une **sauvegarde de test** est lancée immédiatement. Vérifie que tu vois bien un fichier `data-AAAAMMJJ-HHMMSS.json` dans `J:\Appli-Tazrim\backup\`.
+
+> Note : la création de tâche planifiée pour ton propre compte ne nécessite
+> pas de droits administrateur. C'est différent de l'autostart du serveur
+> (qui tourne sous SYSTEM et a besoin d'admin pour l'installation).
 
 ## Comment ça marche
 

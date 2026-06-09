@@ -4,6 +4,11 @@ REM Installeur sauvegarde quotidienne data.json -^> J:
 REM   - Tache planifiee tous les jours a 20:00
 REM   - Tourne sous TON compte utilisateur (J: doit etre mappe)
 REM   - Mode /IT : ne se declenche que si tu es connecte
+REM
+REM IMPORTANT: NE PAS lancer en administrateur !
+REM   Si tu lances "en admin", Windows utilise un autre token
+REM   utilisateur qui NE VOIT PAS les disques mappes par GPO.
+REM   J: serait alors invisible. Double-clique simplement.
 REM ==========================================================
 setlocal EnableDelayedExpansion
 cd /d "%~dp0"
@@ -12,11 +17,19 @@ echo.
 echo === Installation de la sauvegarde quotidienne ===
 echo.
 
-REM --- Verifie qu'on a les droits admin --------------------
+REM --- ALERTE si lance en admin (J: ne sera pas visible) ---
 net session >nul 2>nul
-if errorlevel 1 (
-  echo [X] Ce script doit etre lance EN ADMINISTRATEUR.
-  echo     Clic droit sur ce .bat -^> "Executer en tant qu'administrateur"
+if not errorlevel 1 (
+  echo [!] ATTENTION : ce script tourne EN ADMINISTRATEUR.
+  echo     Dans ce mode, les disques mappes par GPO ^(comme J:^)
+  echo     ne sont PAS visibles a cause d'un mecanisme Windows.
+  echo.
+  echo     Ferme cette fenetre et DOUBLE-CLIQUE simplement sur
+  echo     install-backup.bat ^(sans "Executer en admin"^).
+  echo.
+  echo     La creation de la tache planifiee pour TON compte
+  echo     ne necessite PAS de droits admin.
+  echo.
   pause
   exit /b 1
 )
@@ -32,21 +45,25 @@ REM --- Verifie que J: est accessible -----------------------
 set "DEST=J:\Appli-Tazrim\backup"
 echo Verification de l'acces a J:...
 if not exist "J:\" (
-  echo [!] J: n'est pas monte dans cette session.
-  echo     La sauvegarde ne marchera que pour les sessions
-  echo     ou J: est mappe par GPO.
-) else (
-  echo [OK] J: accessible.
-  if not exist "%DEST%" (
-    mkdir "%DEST%" 2>nul
-    if errorlevel 1 (
-      echo [!] Impossible de creer %DEST% ^(droits ?^).
-    ) else (
-      echo [OK] Dossier %DEST% cree.
-    )
-  ) else (
-    echo [OK] Dossier %DEST% existe deja.
+  echo [X] J: n'est pas monte dans cette session.
+  echo     Verifie dans l'Explorateur que J: apparait bien.
+  echo     Si oui mais pas ici : tu lances peut-etre en admin ^(voir alerte plus haut^).
+  pause
+  exit /b 1
+)
+echo [OK] J: accessible.
+
+if not exist "%DEST%" (
+  mkdir "%DEST%" 2>nul
+  if errorlevel 1 (
+    echo [X] Impossible de creer %DEST%.
+    echo     Verifie tes droits ecriture sur J:\Appli-Tazrim\
+    pause
+    exit /b 1
   )
+  echo [OK] Dossier %DEST% cree.
+) else (
+  echo [OK] Dossier %DEST% existe deja.
 )
 
 REM --- Cree la tache planifiee -----------------------------
@@ -54,9 +71,9 @@ REM   /SC DAILY        = tous les jours
 REM   /ST 20:00        = a 20h
 REM   /TN              = nom de la tache
 REM   /TR              = action
-REM   /RU %USERNAME%   = sous TON compte
-REM   /IT              = seulement quand tu es connecte
+REM   /IT              = seulement quand tu es connecte (pas besoin de mot de passe)
 REM   /F               = ecrase si existe
+REM Pas de /RU : la tache est creee pour l'utilisateur courant.
 set "TASKNAME=CashflowBackup"
 set "WRAPPER=%~dp0backup.bat"
 
@@ -71,7 +88,6 @@ schtasks /Create ^
   /TR "\"%WRAPPER%\"" ^
   /SC DAILY ^
   /ST 20:00 ^
-  /RU "%USERDOMAIN%\%USERNAME%" ^
   /IT ^
   /F >nul
 
@@ -93,8 +109,8 @@ call "%WRAPPER%"
 REM --- Affiche le resultat ---------------------------------
 if exist "%~dp0backup.log" (
   echo.
-  echo --- Derniere lignes de backup.log ---
-  more +0 "%~dp0backup.log"
+  echo --- backup.log ---
+  type "%~dp0backup.log"
   echo --- fin ---
 )
 
