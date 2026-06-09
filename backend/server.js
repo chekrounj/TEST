@@ -227,4 +227,16 @@ app.listen(PORT, () => {
   if (process.env.OPEN_BROWSER !== '0' && cashflowExists) {
     setTimeout(() => openBrowser(`http://localhost:${PORT}/`), 300);
   }
+}).on('error', (err) => {
+  if (err.code === 'EADDRINUSE') {
+    console.error(`[cashflow-backend] Le port ${PORT} est deja utilise.`);
+    console.error(`[cashflow-backend] Le serveur tourne probablement deja (autostart).`);
+    console.error(`[cashflow-backend] Ouvre http://localhost:${PORT}/ dans ton navigateur.`);
+    if (process.env.OPEN_BROWSER !== '0') {
+      openBrowser(`http://localhost:${PORT}/`);
+    }
+    process.exit(0);
+  }
+  console.error('[cashflow-backend] Erreur serveur:', err);
+  process.exit(1);
 });

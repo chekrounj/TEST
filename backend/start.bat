@@ -90,12 +90,14 @@ echo.
 node server.js
 
 REM --- En cas de sortie du serveur, PAUSE pour voir l'erreur -
+REM En mode autostart (OPEN_BROWSER=0), on saute la pause car
+REM la fenetre est cachee et personne ne peut appuyer sur une touche.
 echo.
 echo --------------------------------------------------------
 echo Le serveur s'est arrete.
 echo Si c'est inattendu, regardez le message ci-dessus.
 echo --------------------------------------------------------
-pause
+if not "%OPEN_BROWSER%"=="0" pause
 exit /b 0
 
 
