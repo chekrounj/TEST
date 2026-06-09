@@ -88,6 +88,20 @@ REM le repertoire de travail (working dir).
 )
 echo [OK] run-server.bat genere.
 
+REM --- Accorde droit de LECTURE sur data.json et le dossier --
+REM Le serveur tourne sous SYSTEM et cree data.json avec ACL
+REM par defaut. On donne droit de lecture aux Utilisateurs pour
+REM que la sauvegarde puisse copier le fichier.
+echo.
+echo Configuration des droits ^(pour la sauvegarde^)...
+icacls "%~dp0." /grant "Users:(OI)(CI)R" /T /C >nul 2>nul
+if exist "%~dp0data.json" (
+  icacls "%~dp0data.json" /grant "Users:R" /C >nul 2>nul
+  echo [OK] data.json lisible par les Utilisateurs.
+) else (
+  echo [OK] ACL inherite par le dossier ^(data.json sera lisible des sa creation^).
+)
+
 REM --- Supprime ancienne tache si presente -----------------
 set "TASKNAME=CashflowBackend"
 schtasks /Query /TN "%TASKNAME%" >nul 2>nul

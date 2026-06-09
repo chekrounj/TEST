@@ -28,15 +28,24 @@ echo [!STAMP!] === Sauvegarde === >> "%LOG%"
 echo [!STAMP!] Source : %SRC% >> "%LOG%"
 echo [!STAMP!] Dest   : %DEST% >> "%LOG%"
 
-REM --- Verifie que la source existe ------------------------
+REM --- Verifie que la source existe et est LISIBLE ---------
 if not exist "%SRC%" (
-  echo [!STAMP!] [X] data.json introuvable. >> "%LOG%"
+  echo [!STAMP!] [X] data.json introuvable a %SRC%. >> "%LOG%"
+  exit /b 1
+)
+REM Test de lecture explicite (le serveur tourne sous SYSTEM,
+REM la source peut ne pas etre lisible par l'utilisateur).
+type "%SRC%" >nul 2>>"%LOG%"
+if errorlevel 1 (
+  echo [!STAMP!] [X] data.json existe mais n'est PAS LISIBLE par %USERNAME%. >> "%LOG%"
+  echo [!STAMP!]     Solution: ouvre une cmd ADMIN et tape: >> "%LOG%"
+  echo [!STAMP!]     icacls "%SRC%" /grant Users:R >> "%LOG%"
   exit /b 1
 )
 
 REM --- Verifie / cree le repertoire de destination ---------
 if not exist "%DEST%" (
-  mkdir "%DEST%" 2>nul
+  mkdir "%DEST%" 2>>"%LOG%"
   if errorlevel 1 (
     echo [!STAMP!] [X] Impossible de creer %DEST% ^(J: pas monte ?^). >> "%LOG%"
     exit /b 1
@@ -45,14 +54,15 @@ if not exist "%DEST%" (
 )
 
 REM --- Copie atomique : tmp puis rename --------------------
+REM On capture stderr aussi pour voir les vrais messages Windows
 set "TMP=%DEST%\.data-!STAMP!.json.tmp"
 set "OUT=%DEST%\data-!STAMP!.json"
-copy /Y "%SRC%" "%TMP%" >nul
+copy /Y "%SRC%" "%TMP%" >>"%LOG%" 2>&1
 if errorlevel 1 (
-  echo [!STAMP!] [X] Echec de copie. >> "%LOG%"
+  echo [!STAMP!] [X] Echec de copie ^(voir message Windows ci-dessus^). >> "%LOG%"
   exit /b 1
 )
-move /Y "%TMP%" "%OUT%" >nul
+move /Y "%TMP%" "%OUT%" >>"%LOG%" 2>&1
 if errorlevel 1 (
   echo [!STAMP!] [X] Echec de rename. >> "%LOG%"
   del "%TMP%" >nul 2>nul
