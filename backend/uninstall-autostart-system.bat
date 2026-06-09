@@ -35,6 +35,14 @@ if errorlevel 1 (
   echo [OK] Tache supprimee.
 )
 
+REM --- Retire la regle pare-feu ---------------------------
+netsh advfirewall firewall show rule name="Cashflow Backend (port 3000)" >nul 2>nul
+if not errorlevel 1 (
+  echo Suppression de la regle pare-feu...
+  netsh advfirewall firewall delete rule name="Cashflow Backend (port 3000)" >nul
+  echo [OK] Regle pare-feu retiree.
+)
+
 REM --- Tue le node.exe en cours si besoin -----------------
 tasklist /FI "IMAGENAME eq node.exe" 2>nul | find /I "node.exe" >nul
 if not errorlevel 1 (

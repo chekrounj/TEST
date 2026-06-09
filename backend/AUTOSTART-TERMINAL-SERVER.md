@@ -114,17 +114,61 @@ REM ... et supprime les raccourcis vers start-silent.vbs
 Sur TS, **n'utilise QUE l'autostart SYSTEM** (cette installation), jamais le
 dossier Démarrage par utilisateur.
 
-### Permettre l'accès depuis d'autres machines du réseau
+### Accès depuis d'autres machines du LAN
 
-Par défaut, l'appli n'écoute que sur `localhost` du TS — accessible aux
-sessions RDP uniquement. Pour qu'un PC du LAN puisse aussi accéder à
-`http://<ip-du-TS>:3000`, il faut :
+L'installeur écoute sur toutes les interfaces (`0.0.0.0`) et ouvre le port
+3000 dans le pare-feu Windows (profils Domaine + Privé) automatiquement.
 
-1. Modifier `server.js` pour binder sur `0.0.0.0` au lieu de `localhost`
-2. Ouvrir le port 3000 dans le pare-feu Windows
-3. Idéalement mettre un reverse proxy avec HTTPS
+Pour trouver l'adresse de la machine TS :
 
-Demande-moi si tu veux exposer l'appli au-delà des sessions RDP.
+```cmd
+ipconfig
+```
+
+Cherche l'adresse IPv4 (ex. `192.168.1.50`). Depuis n'importe quel PC du
+LAN, l'appli est accessible sur :
+
+```
+http://192.168.1.50:3000/
+```
+
+Tu peux aussi utiliser le nom de la machine si elle est dans le domaine :
+
+```
+http://nom-du-serveur:3000/
+http://nom-du-serveur.domaine.local:3000/
+```
+
+Au démarrage, le serveur log toutes les URLs disponibles dans `server.log` :
+
+```
+[cashflow-backend] URLs d'acces :
+[cashflow-backend]   - http://localhost:3000/
+[cashflow-backend]   - http://192.168.1.50:3000/
+[cashflow-backend]   - http://10.0.0.20:3000/
+```
+
+### Restreindre à localhost uniquement
+
+Si tu veux désactiver l'accès LAN et garder uniquement localhost (par ex.
+pour des raisons de sécurité), ajoute dans `backend\.env` :
+
+```
+HOST=127.0.0.1
+```
+
+Puis redémarre la tâche :
+
+```cmd
+schtasks /End /TN CashflowBackend
+schtasks /Run /TN CashflowBackend
+```
+
+### HTTPS / production
+
+Pour exposer l'appli sur Internet ou en HTTPS, il faut un reverse proxy
+(Caddy, IIS, nginx) devant le serveur Node. Demande-moi si tu veux le
+setup.
 
 ## Sauvegarde
 

@@ -96,6 +96,25 @@ if not errorlevel 1 (
   schtasks /Delete /TN "%TASKNAME%" /F >nul
 )
 
+REM --- Ouvre le port 3000 dans le pare-feu Windows --------
+REM Pour que les autres PC du LAN puissent acceder a l'appli.
+echo.
+echo Ouverture du port 3000 dans le pare-feu Windows...
+netsh advfirewall firewall show rule name="Cashflow Backend (port 3000)" >nul 2>nul
+if errorlevel 1 (
+  netsh advfirewall firewall add rule ^
+    name="Cashflow Backend (port 3000)" ^
+    dir=in action=allow protocol=TCP localport=3000 ^
+    profile=domain,private >nul
+  if errorlevel 1 (
+    echo [!] Echec d'ouverture du pare-feu - acces LAN non garanti.
+  ) else (
+    echo [OK] Regle pare-feu creee ^(TCP 3000 in, profils domain+private^).
+  )
+) else (
+  echo [OK] Regle pare-feu deja presente.
+)
+
 REM --- Cree la tache -------------------------------------
 REM   /SC ONSTART  = au boot machine
 REM   /RU SYSTEM   = compte SYSTEM (toujours present, sans password)

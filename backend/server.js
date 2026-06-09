@@ -29,6 +29,7 @@ import path from 'node:path';
 import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { exec } from 'node:child_process';
+import os from 'node:os';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -38,6 +39,7 @@ const PKG = (() => {
 })();
 
 const PORT             = Number(process.env.PORT) || 3000;
+const HOST             = process.env.HOST || '0.0.0.0';
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID || '';
 const JWT_SECRET       = process.env.JWT_SECRET || 'dev-secret-change-me';
 const STATIC_DIR       = process.env.STATIC_DIR
@@ -218,8 +220,25 @@ const openBrowser = (url) => {
   exec(cmd, () => {});
 };
 
-app.listen(PORT, () => {
-  console.log(`[cashflow-backend] ▶ http://localhost:${PORT}    (v${PKG.version})`);
+const listMachineUrls = () => {
+  try {
+    const nets = os.networkInterfaces();
+    const urls = [`http://localhost:${PORT}`];
+    for (const name of Object.keys(nets)) {
+      for (const ni of nets[name] || []) {
+        if (ni.family === 'IPv4' && !ni.internal) {
+          urls.push(`http://${ni.address}:${PORT}`);
+        }
+      }
+    }
+    return urls;
+  } catch { return [`http://localhost:${PORT}`]; }
+};
+
+app.listen(PORT, HOST, () => {
+  console.log(`[cashflow-backend] ▶ ecoute sur ${HOST}:${PORT}    (v${PKG.version})`);
+  console.log(`[cashflow-backend] URLs d'acces :`);
+  for (const u of listMachineUrls()) console.log(`[cashflow-backend]   - ${u}/`);
   console.log(`[cashflow-backend] static dir   : ${STATIC_DIR}`);
   console.log(`[cashflow-backend] cashflow.html : ${cashflowExists ? 'OK' : 'MANQUANT'}`);
   console.log(`[cashflow-backend] data file    : ${DATA_PATH}`);
